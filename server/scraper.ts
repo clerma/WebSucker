@@ -645,23 +645,22 @@ async function transformForOffline(outputDir: string): Promise<void> {
       }
     });
     
-    // 3. Extract images from noscript tags and make them visible
+    // 3. Extract images from noscript tags ONLY if there's a corresponding lazy-loaded img nearby
+    // This is conservative to avoid adding unwanted duplicate images
     $("noscript").each((_, el) => {
       const noscriptHtml = $(el).html();
       if (noscriptHtml && noscriptHtml.includes("<img")) {
-        // Parse the noscript content
-        const $noscript = cheerio.load(noscriptHtml);
-        const img = $noscript("img").first();
-        if (img.length) {
-          const src = img.attr("src");
-          const alt = img.attr("alt") || "";
-          // Find the parent container and add a visible image
-          const parent = $(el).parent();
-          // Check if there's already a visible img with same src
-          const existingImg = parent.find(`img[src="${src}"]`);
-          if (existingImg.length === 0 && src) {
-            // Insert the image before the noscript tag
-            $(el).before(`<img src="${src}" alt="${alt}" class="offline-fallback-img" style="max-width:100%;height:auto;" />`);
+        const parent = $(el).parent();
+        // Only process if parent has a lazy-loaded image that needs the noscript fallback
+        const lazyImg = parent.find("img[data-src], img[data-image]").first();
+        if (lazyImg.length) {
+          // The lazy image exists but might not have src set - noscript has the real src
+          const $noscript = cheerio.load(noscriptHtml);
+          const noscriptImg = $noscript("img").first();
+          const noscriptSrc = noscriptImg.attr("src");
+          if (noscriptSrc && !lazyImg.attr("src")) {
+            // Copy the noscript src to the lazy image
+            lazyImg.attr("src", noscriptSrc);
             modified = true;
           }
         }
