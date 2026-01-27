@@ -713,109 +713,24 @@ async function transformForOffline(outputDir: string): Promise<void> {
       modified = true;
     });
     
-    // Always add comprehensive offline CSS fixes
+    // Always add conservative offline CSS fixes (minimal changes to avoid breaking layout)
     const offlineCss = `
       <style id="offline-fixes">
-        /* CRITICAL: Fix font loading - show text immediately with fallback fonts */
-        * { font-display: swap !important; }
-        @font-face { font-display: swap !important; }
-        
-        /* Force ALL text to be visible immediately */
-        body, html, div, span, p, h1, h2, h3, h4, h5, h6, a, li, td, th, label {
-          visibility: visible !important;
-          opacity: 1 !important;
-        }
-        
-        /* Ensure lazy-loaded images are visible */
-        img, img[data-src], img[data-image] { 
-          opacity: 1 !important; 
-          visibility: visible !important; 
-        }
-        .lazyload, .lazyloading, .lazyloaded { opacity: 1 !important; }
-        .sqs-image img { opacity: 1 !important; }
+        /* Lazy-loaded images */
+        img[data-src], img[data-image] { opacity: 1 !important; }
+        .lazyload, .lazyloading { opacity: 1 !important; }
         .offline-fallback-img { display: block !important; }
-        [data-load="false"] { display: block !important; }
         
-        /* Fix dropdown menus - show on hover without JS */
-        .header-nav-folder-content,
-        .header-nav-item--folder .header-nav-folder-content,
-        [data-folder-content],
-        .dropdown-menu,
-        .nav-dropdown,
-        .sub-menu {
-          display: none !important;
-          opacity: 1 !important;
-          visibility: visible !important;
-          pointer-events: auto !important;
-          position: absolute;
-          z-index: 9999;
-        }
-        .header-nav-item--folder:hover .header-nav-folder-content,
-        .has-dropdown:hover .dropdown-menu,
-        .menu-item-has-children:hover > .sub-menu,
-        [data-folder]:hover [data-folder-content],
-        .nav-item:hover .nav-dropdown {
-          display: block !important;
-        }
-        
-        /* Force animated/lazy content to be visible */
-        [data-animation-role],
-        .preFade, .preSlide, .preFadeInUp, .preFadeInDown,
-        .sqs-block, .sqs-block-content,
-        .lazyload, .lazyloading, .lazyloaded,
-        .animation-none, .animation-loaded,
-        [data-animation], [data-scroll],
-        [data-controller="AnimationApply"],
-        .tweak-animation-loading,
-        .sqs-spin-container { 
+        /* Animation classes that hide content until JS runs */
+        [data-animation-role].animation-loaded { opacity: 1 !important; }
+        .preFade.animation-loaded, .preSlide.animation-loaded { 
           opacity: 1 !important; 
-          visibility: visible !important;
-          transform: none !important;
-          animation: none !important;
-          transition: none !important;
+          transform: none !important; 
         }
         
-        /* Squarespace specific - text and blocks */
-        .sqs-block { opacity: 1 !important; visibility: visible !important; }
-        .sqs-html-content { opacity: 1 !important; visibility: visible !important; }
-        .sqs-block-html { opacity: 1 !important; visibility: visible !important; }
-        .sqsrte-large, .sqsrte-small, .sqsrte-text-color { opacity: 1 !important; }
-        .content-fill img { opacity: 1 !important; }
-        .fluid-image-container img { opacity: 1 !important; object-fit: cover; }
-        .sqs-gallery-block-stacked .image-slide-anchor img { opacity: 1 !important; }
-        
-        /* Squarespace sections and layouts */
-        .page-section, .content-wrapper, .content, .section-background { 
-          opacity: 1 !important; 
-          visibility: visible !important; 
-        }
-        .Index-page-content { opacity: 1 !important; visibility: visible !important; }
-        
-        /* Remove ALL loading states and animations */
-        .loading, .skeleton, .is-loading { 
-          opacity: 1 !important; 
-          animation: none !important; 
-        }
-        
-        /* Remove transitions that delay content */
-        .wsite-content-inner, .wsite-section { 
-          transition: none !important; 
-          opacity: 1 !important; 
-        }
-        
-        /* Ensure background images show */
-        [data-background-image], [style*="background-image"] { 
-          background-size: cover !important; 
-          background-position: center !important; 
-        }
-        
-        /* Fix content blocks that might be hidden */
-        .preFade, .preSlide { opacity: 1 !important; transform: none !important; }
-        
-        /* Disable all CSS animations that might hide content */
-        *, *::before, *::after {
-          animation-play-state: paused !important;
-        }
+        /* Squarespace images */
+        .sqs-image img, .content-fill img { opacity: 1 !important; }
+        .fluid-image-container img { opacity: 1 !important; }
       </style>
     `;
     $("head").append(offlineCss);
