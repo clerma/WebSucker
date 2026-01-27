@@ -597,7 +597,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
   for (const file of htmlFiles) {
     const content = await fs.promises.readFile(file, "utf-8");
     const $ = cheerio.load(content);
-    const fileDir = path.dirname(file).replace(outputDir, "");
+    const fileDir = path.dirname(file);
     let modified = false;
     
     // Known URL-bearing attributes
@@ -680,7 +680,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
   // Rewrite CSS files
   for (const file of cssFiles) {
     const content = await fs.promises.readFile(file, "utf-8");
-    const fileDir = path.dirname(file).replace(outputDir, "");
+    const fileDir = path.dirname(file);
     const newContent = rewriteCssUrls(content, urlLookup, fileDir);
     
     if (newContent !== content) {
