@@ -883,7 +883,22 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
         if (queryIdx !== -1) suffixStart = Math.min(suffixStart, queryIdx);
         const suffix = value.slice(suffixStart);
         
-        const localPath = lookupUrl(value);
+        let localPath = lookupUrl(value);
+        
+        // For internal href links not in asset map, compute expected local path
+        if (!localPath && attr === "href" && !isExternalValue) {
+          try {
+            // Compute what the local path would be for this internal URL
+            const absoluteUrl = new URL(value, baseUrl).href;
+            const expectedPath = urlToLocalPath(absoluteUrl, baseUrl);
+            // Check if this file actually exists in our output
+            const fullPath = path.join(outputDir, expectedPath);
+            if (fs.existsSync(fullPath)) {
+              localPath = expectedPath;
+            }
+          } catch {}
+        }
+        
         if (localPath) {
           const relativePath = path.relative(fileDir || ".", localPath);
           $(el).attr(attr, relativePath + suffix);
