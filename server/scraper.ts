@@ -173,7 +173,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   
   const discoveredUrls = new Set<string>();
   const processedUrls = new Set<string>();
-  const urlQueue: string[] = [url];
+  const urlQueue: Array<{ url: string; referrer: string }> = [{ url, referrer: "Entry point" }];
   const assetMap = new Map<string, Asset>();
   let htmlPagesProcessed = 0;
   
@@ -210,7 +210,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       break;
     }
     
-    const currentUrl = urlQueue.shift()!;
+    const queueItem = urlQueue.shift()!;
+    const currentUrl = queueItem.url;
+    const currentReferrer = queueItem.referrer;
     
     if (processedUrls.has(currentUrl)) continue;
     processedUrls.add(currentUrl);
@@ -229,12 +231,13 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
     const localPath = urlToLocalPath(currentUrl, url);
     const isExternal = isExternalUrl(currentUrl, baseHost);
     
-    // Create asset record
+    // Create asset record with referrer tracking
     let asset = await storage.addAsset(jobId, {
       type: assetType,
       originalUrl: currentUrl,
       localPath,
       status: "downloading",
+      referencedFrom: currentReferrer,
     });
     assetMap.set(currentUrl, asset);
     
@@ -351,7 +354,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
                   // Only queue same-origin HTML pages, but fetch all assets
                   const type = getAssetType(normalized);
                   if (type !== "html" || !isExternalUrl(normalized, baseHost)) {
-                    urlQueue.push(normalized);
+                    urlQueue.push({ url: normalized, referrer: currentUrl });
                   }
                 }
               });
@@ -368,7 +371,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
                     const normalized = normalizeUrl(urlMatch[1], currentUrl);
                     if (normalized && !discoveredUrls.has(normalized)) {
                       discoveredUrls.add(normalized);
-                      urlQueue.push(normalized);
+                      urlQueue.push({ url: normalized, referrer: currentUrl });
                     }
                   }
                 });
@@ -388,7 +391,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
               const type = getAssetType(normalized);
               // Only follow same-origin HTML links
               if (type !== "html" || !isExternalUrl(normalized, baseHost)) {
-                urlQueue.push(normalized);
+                urlQueue.push({ url: normalized, referrer: currentUrl });
               }
             }
           });
@@ -401,7 +404,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             extractUrlsFromCss(cssContent, currentUrl).forEach(cssUrl => {
               if (!discoveredUrls.has(cssUrl)) {
                 discoveredUrls.add(cssUrl);
-                urlQueue.push(cssUrl);
+                urlQueue.push({ url: cssUrl, referrer: currentUrl });
               }
             });
           }
@@ -414,7 +417,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
         extractUrlsFromCss(cssContent, currentUrl).forEach(cssUrl => {
           if (!discoveredUrls.has(cssUrl)) {
             discoveredUrls.add(cssUrl);
-            urlQueue.push(cssUrl);
+            urlQueue.push({ url: cssUrl, referrer: currentUrl });
           }
         });
       }
@@ -461,11 +464,74 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   // Rewrite URLs in HTML and CSS files
   await rewriteUrls(outputDir, url, assetMap);
   
+  // Generate failure log for failed/skipped assets
+  await generateFailureLog(outputDir, assetMap, url);
+  
   // Create ZIP archive
   const zipPath = `/tmp/scrape-${jobId}.zip`;
   await createZipArchive(outputDir, zipPath);
   
   return zipPath;
+}
+
+async function generateFailureLog(outputDir: string, assetMap: Map<string, Asset>, baseUrl: string): Promise<void> {
+  const failedAssets = Array.from(assetMap.values()).filter(a => a.status === "failed");
+  const skippedAssets = Array.from(assetMap.values()).filter(a => a.status === "skipped");
+  
+  if (failedAssets.length === 0 && skippedAssets.length === 0) {
+    return; // No failures to log
+  }
+  
+  const lines: string[] = [];
+  lines.push("=" .repeat(80));
+  lines.push("WEBSUCKER SCRAPE REPORT - MISSING/FAILED ASSETS");
+  lines.push("=" .repeat(80));
+  lines.push(`Source URL: ${baseUrl}`);
+  lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push("");
+  
+  if (failedAssets.length > 0) {
+    lines.push("-".repeat(80));
+    lines.push(`FAILED ASSETS (${failedAssets.length})`);
+    lines.push("-".repeat(80));
+    lines.push("These assets could not be downloaded. You may need to obtain them from the client.");
+    lines.push("");
+    
+    for (const asset of failedAssets) {
+      lines.push(`URL: ${asset.originalUrl}`);
+      lines.push(`  Type: ${asset.type}`);
+      lines.push(`  Error: ${asset.error || "Unknown error"}`);
+      if (asset.referencedFrom) {
+        lines.push(`  Referenced from: ${asset.referencedFrom}`);
+      }
+      lines.push("");
+    }
+  }
+  
+  if (skippedAssets.length > 0) {
+    lines.push("-".repeat(80));
+    lines.push(`SKIPPED ASSETS (${skippedAssets.length})`);
+    lines.push("-".repeat(80));
+    lines.push("These assets were intentionally skipped (e.g., analytics, third-party tracking).");
+    lines.push("");
+    
+    for (const asset of skippedAssets) {
+      lines.push(`URL: ${asset.originalUrl}`);
+      lines.push(`  Type: ${asset.type}`);
+      lines.push(`  Reason: ${asset.error || "Third-party/external resource"}`);
+      if (asset.referencedFrom) {
+        lines.push(`  Referenced from: ${asset.referencedFrom}`);
+      }
+      lines.push("");
+    }
+  }
+  
+  lines.push("=".repeat(80));
+  lines.push("END OF REPORT");
+  lines.push("=".repeat(80));
+  
+  const logPath = path.join(outputDir, "_MISSING_ASSETS_LOG.txt");
+  await fs.promises.writeFile(logPath, lines.join("\n"), "utf-8");
 }
 
 function extractUrlsFromCss(css: string, baseUrl: string): string[] {
@@ -495,37 +561,183 @@ function extractUrlsFromCss(css: string, baseUrl: string): string[] {
 async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<string, Asset>): Promise<void> {
   const htmlFiles = await findFiles(outputDir, [".html", ".htm"]);
   const cssFiles = await findFiles(outputDir, [".css"]);
+  const baseParsed = new URL(baseUrl);
   
-  for (const file of [...htmlFiles, ...cssFiles]) {
-    let content = await fs.promises.readFile(file, "utf-8");
+  // Build URL lookup map for efficient matching - only match full URLs or same-origin paths
+  const urlLookup = new Map<string, string>();
+  for (const [originalUrl, asset] of Array.from(assetMap.entries())) {
+    if (asset.status !== "success") continue;
+    urlLookup.set(originalUrl, asset.localPath);
+    urlLookup.set(originalUrl.replace(/^https?:/, ""), asset.localPath);
+    // Only map pathname for same-origin assets to avoid rewriting external links
+    try {
+      const parsed = new URL(originalUrl);
+      if (parsed.hostname === baseParsed.hostname) {
+        const pathname = parsed.pathname;
+        if (pathname.length > 1) {
+          urlLookup.set(pathname, asset.localPath);
+        }
+      }
+    } catch {}
+  }
+  
+  // Helper to check if a URL should be rewritten (skip mailto, tel, javascript, data URIs)
+  const shouldRewrite = (url: string): boolean => {
+    if (!url) return false;
+    const trimmed = url.trim().toLowerCase();
+    if (trimmed.startsWith("mailto:") || trimmed.startsWith("tel:") || 
+        trimmed.startsWith("javascript:") || trimmed.startsWith("data:") ||
+        trimmed.startsWith("#")) {
+      return false;
+    }
+    return true;
+  };
+  
+  // Rewrite HTML files using Cheerio for safe DOM manipulation
+  for (const file of htmlFiles) {
+    const content = await fs.promises.readFile(file, "utf-8");
+    const $ = cheerio.load(content);
+    const fileDir = path.dirname(file).replace(outputDir, "");
     let modified = false;
     
-    for (const [originalUrl, asset] of assetMap) {
-      if (asset.status !== "success") continue;
-      
-      // Calculate relative path from current file to asset
-      const fileDir = path.dirname(file).replace(outputDir, "");
-      const relativePath = path.relative(fileDir || ".", asset.localPath);
-      
-      // Replace absolute URLs with relative paths
-      const urlPatterns = [
-        originalUrl,
-        originalUrl.replace(/^https?:/, ""),
-        new URL(originalUrl).pathname,
-      ];
-      
-      for (const pattern of urlPatterns) {
-        if (content.includes(pattern)) {
-          content = content.split(pattern).join(relativePath);
+    // Known URL-bearing attributes
+    const urlAttributes = [
+      { sel: "[href]", attr: "href" },
+      { sel: "[src]", attr: "src" },
+      { sel: "[data-src]", attr: "data-src" },
+      { sel: "[poster]", attr: "poster" },
+      { sel: "[srcset]", attr: "srcset" },
+    ];
+    
+    for (const { sel, attr } of urlAttributes) {
+      $(sel).each((_, el) => {
+        const value = $(el).attr(attr);
+        if (!value || !shouldRewrite(value)) return;
+        
+        // Handle srcset specially
+        if (attr === "srcset") {
+          const newSrcset = value.split(",").map(src => {
+            const parts = src.trim().split(/\s+/);
+            const url = parts[0];
+            if (!shouldRewrite(url)) return src;
+            const descriptor = parts.slice(1).join(" ");
+            const localPath = urlLookup.get(url);
+            if (localPath) {
+              const relativePath = path.relative(fileDir || ".", localPath);
+              return descriptor ? `${relativePath} ${descriptor}` : relativePath;
+            }
+            return src;
+          }).join(", ");
+          if (newSrcset !== value) {
+            $(el).attr(attr, newSrcset);
+            modified = true;
+          }
+          return;
+        }
+        
+        // Extract base URL without fragment/query
+        const urlBase = value.split(/[#?]/)[0];
+        const suffix = value.slice(urlBase.length);
+        
+        const localPath = urlLookup.get(urlBase) || urlLookup.get(value);
+        if (localPath) {
+          const relativePath = path.relative(fileDir || ".", localPath);
+          $(el).attr(attr, relativePath + suffix);
+          modified = true;
+        }
+      });
+    }
+    
+    // Handle inline styles with url()
+    $("[style]").each((_, el) => {
+      const style = $(el).attr("style");
+      if (style && style.includes("url(")) {
+        const newStyle = rewriteCssUrls(style, urlLookup, fileDir);
+        if (newStyle !== style) {
+          $(el).attr("style", newStyle);
           modified = true;
         }
       }
-    }
+    });
+    
+    // Handle <style> tags
+    $("style").each((_, el) => {
+      const css = $(el).html();
+      if (css) {
+        const newCss = rewriteCssUrls(css, urlLookup, fileDir);
+        if (newCss !== css) {
+          $(el).html(newCss);
+          modified = true;
+        }
+      }
+    });
     
     if (modified) {
-      await fs.promises.writeFile(file, content);
+      await fs.promises.writeFile(file, $.html());
     }
   }
+  
+  // Rewrite CSS files
+  for (const file of cssFiles) {
+    const content = await fs.promises.readFile(file, "utf-8");
+    const fileDir = path.dirname(file).replace(outputDir, "");
+    const newContent = rewriteCssUrls(content, urlLookup, fileDir);
+    
+    if (newContent !== content) {
+      await fs.promises.writeFile(file, newContent);
+    }
+  }
+}
+
+function rewriteCssUrls(css: string, urlLookup: Map<string, string>, fileDir: string): string {
+  let result = css;
+  
+  // Replace url() patterns in CSS, preserving quotes
+  result = result.replace(/url\(\s*(['"]?)([^'")\s]+)\1\s*\)/g, (match, quote, url) => {
+    // Skip data URIs
+    if (url.startsWith("data:")) return match;
+    
+    const urlBase = url.split(/[#?]/)[0];
+    const suffix = url.slice(urlBase.length);
+    const localPath = urlLookup.get(urlBase) || urlLookup.get(url);
+    if (localPath) {
+      const relativePath = path.relative(fileDir || ".", localPath);
+      return `url(${quote}${relativePath}${suffix}${quote})`;
+    }
+    return match;
+  });
+  
+  // Replace @import statements
+  result = result.replace(/@import\s+(['"])([^'"]+)\1/g, (match, quote, url) => {
+    // Skip data URIs
+    if (url.startsWith("data:")) return match;
+    
+    const urlBase = url.split(/[#?]/)[0];
+    const suffix = url.slice(urlBase.length);
+    const localPath = urlLookup.get(urlBase) || urlLookup.get(url);
+    if (localPath) {
+      const relativePath = path.relative(fileDir || ".", localPath);
+      return `@import ${quote}${relativePath}${suffix}${quote}`;
+    }
+    return match;
+  });
+  
+  // Replace @import url() statements
+  result = result.replace(/@import\s+url\(\s*(['"]?)([^'")\s]+)\1\s*\)/g, (match, quote, url) => {
+    // Skip data URIs
+    if (url.startsWith("data:")) return match;
+    
+    const urlBase = url.split(/[#?]/)[0];
+    const suffix = url.slice(urlBase.length);
+    const localPath = urlLookup.get(urlBase) || urlLookup.get(url);
+    if (localPath) {
+      const relativePath = path.relative(fileDir || ".", localPath);
+      return `@import url(${quote}${relativePath}${suffix}${quote})`;
+    }
+    return match;
+  });
+  
+  return result;
 }
 
 async function findFiles(dir: string, extensions: string[]): Promise<string[]> {

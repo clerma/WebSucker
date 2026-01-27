@@ -14,6 +14,7 @@ export const assetSchema = z.object({
   status: AssetStatus,
   size: z.number().optional(),
   error: z.string().optional(),
+  referencedFrom: z.string().optional(),
 });
 export type Asset = z.infer<typeof assetSchema>;
 
