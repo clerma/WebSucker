@@ -91,13 +91,37 @@ function isExternalUrl(url: string, baseHost: string): boolean {
   }
 }
 
-function shouldSkipUrl(url: string): boolean {
+function shouldSkipUrl(url: string): { skip: boolean; reason?: string } {
   try {
     const parsed = new URL(url);
-    return SKIP_DOMAINS.has(parsed.hostname) || 
-           Array.from(SKIP_DOMAINS).some(d => parsed.hostname.endsWith(`.${d}`));
+    
+    // Skip known analytics/tracking domains
+    if (SKIP_DOMAINS.has(parsed.hostname) || 
+        Array.from(SKIP_DOMAINS).some(d => parsed.hostname.endsWith(`.${d}`))) {
+      return { skip: true, reason: "Third-party tracking/analytics script" };
+    }
+    
+    // Skip RSS/feed URLs - these return XML instead of HTML
+    // Check path-based feeds
+    const feedPaths = ["/feed", "/rss", "/atom", "/rss.xml", "/atom.xml", "/feed.xml"];
+    const pathLower = parsed.pathname.toLowerCase();
+    if (feedPaths.some(fp => pathLower === fp || pathLower.endsWith(fp))) {
+      return { skip: true, reason: "RSS/XML feed URL" };
+    }
+    
+    // Check query parameter patterns for feeds
+    const feedParams = ["format", "output", "feed", "type"];
+    const feedValues = ["rss", "atom", "feed", "rss2", "rdf"];
+    for (const param of feedParams) {
+      const value = parsed.searchParams.get(param);
+      if (value && feedValues.includes(value.toLowerCase())) {
+        return { skip: true, reason: "RSS/XML feed URL" };
+      }
+    }
+    
+    return { skip: false };
   } catch {
-    return false;
+    return { skip: false };
   }
 }
 
@@ -254,11 +278,12 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       message: `Downloading: ${currentUrl}`,
     }, asset);
     
-    // Skip analytics/tracking scripts
-    if (shouldSkipUrl(currentUrl)) {
+    // Skip analytics/tracking scripts and feed URLs
+    const skipCheck = shouldSkipUrl(currentUrl);
+    if (skipCheck.skip) {
       asset = (await storage.updateAsset(jobId, asset.id, {
         status: "skipped",
-        error: "Third-party tracking/analytics script",
+        error: skipCheck.reason || "Skipped URL",
       }))!;
       assetMap.set(currentUrl, asset);
       onProgress({
@@ -284,6 +309,20 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       }
       
       const contentType = response.headers.get("content-type") || "";
+      
+      // Skip RSS/XML content when we expected HTML - prevents saving feed as page
+      if (assetType === "html") {
+        const feedContentTypes = ["application/rss+xml", "application/atom+xml", "text/xml", "application/xml"];
+        if (feedContentTypes.some(ct => contentType.includes(ct))) {
+          asset = (await storage.updateAsset(jobId, asset.id, {
+            status: "skipped",
+            error: "RSS/XML feed content (not HTML)",
+          }))!;
+          assetMap.set(currentUrl, asset);
+          continue;
+        }
+      }
+      
       const buffer = await response.arrayBuffer();
       const content = Buffer.from(buffer);
       
@@ -875,13 +914,10 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
           return;
         }
         
-        // Extract fragment/query suffix to preserve
+        // Extract fragment suffix to preserve (only #anchors, not query strings)
+        // Query strings are already handled by urlToLocalPath hashing into filename
         const hashIdx = value.indexOf('#');
-        const queryIdx = value.indexOf('?');
-        let suffixStart = value.length;
-        if (hashIdx !== -1) suffixStart = Math.min(suffixStart, hashIdx);
-        if (queryIdx !== -1) suffixStart = Math.min(suffixStart, queryIdx);
-        const suffix = value.slice(suffixStart);
+        const suffix = hashIdx !== -1 ? value.slice(hashIdx) : "";
         
         let localPath = lookupUrl(value);
         
