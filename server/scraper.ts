@@ -464,6 +464,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
     await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY));
   }
   
+  // Transform HTML for offline viewing (handle lazy loading, noscript, etc.)
+  await transformForOffline(outputDir);
+  
   // Rewrite URLs in HTML and CSS files
   await rewriteUrls(outputDir, url, assetMap);
   
@@ -577,6 +580,116 @@ function extractUrlsFromCss(css: string, baseUrl: string): string[] {
   }
   
   return urls;
+}
+
+// Transform HTML for offline viewing - handle lazy loading, noscript, and CMS patterns
+async function transformForOffline(outputDir: string): Promise<void> {
+  const htmlFiles = await findFiles(outputDir, [".html", ".htm"]);
+  
+  for (const file of htmlFiles) {
+    const content = await fs.promises.readFile(file, "utf-8");
+    const $ = cheerio.load(content);
+    let modified = false;
+    
+    // 1. Convert lazy-loaded images: copy data-src/data-image to src
+    $("img[data-src]").each((_, el) => {
+      const dataSrc = $(el).attr("data-src");
+      const currentSrc = $(el).attr("src");
+      // Only set src if it's empty, a placeholder, or data URI
+      if (dataSrc && (!currentSrc || currentSrc.startsWith("data:") || currentSrc.includes("placeholder") || currentSrc.includes("spacer"))) {
+        $(el).attr("src", dataSrc);
+        modified = true;
+      }
+    });
+    
+    $("img[data-image]").each((_, el) => {
+      const dataImage = $(el).attr("data-image");
+      const currentSrc = $(el).attr("src");
+      if (dataImage && (!currentSrc || currentSrc.startsWith("data:") || currentSrc.includes("placeholder"))) {
+        $(el).attr("src", dataImage);
+        modified = true;
+      }
+    });
+    
+    // 2. Handle background images in data attributes
+    $("[data-background-image]").each((_, el) => {
+      const bgImage = $(el).attr("data-background-image");
+      if (bgImage) {
+        const currentStyle = $(el).attr("style") || "";
+        if (!currentStyle.includes("background-image")) {
+          $(el).attr("style", `${currentStyle}; background-image: url('${bgImage}');`);
+          modified = true;
+        }
+      }
+    });
+    
+    // 3. Extract images from noscript tags and make them visible
+    $("noscript").each((_, el) => {
+      const noscriptHtml = $(el).html();
+      if (noscriptHtml && noscriptHtml.includes("<img")) {
+        // Parse the noscript content
+        const $noscript = cheerio.load(noscriptHtml);
+        const img = $noscript("img").first();
+        if (img.length) {
+          const src = img.attr("src");
+          const alt = img.attr("alt") || "";
+          // Find the parent container and add a visible image
+          const parent = $(el).parent();
+          // Check if there's already a visible img with same src
+          const existingImg = parent.find(`img[src="${src}"]`);
+          if (existingImg.length === 0 && src) {
+            // Insert the image before the noscript tag
+            $(el).before(`<img src="${src}" alt="${alt}" class="offline-fallback-img" style="max-width:100%;height:auto;" />`);
+            modified = true;
+          }
+        }
+      }
+    });
+    
+    // 4. Handle Squarespace-specific: data-src on divs with content-fill class
+    $(".content-fill img[data-src], .sqs-image img[data-src]").each((_, el) => {
+      const dataSrc = $(el).attr("data-src");
+      if (dataSrc && !$(el).attr("src")) {
+        $(el).attr("src", dataSrc);
+        modified = true;
+      }
+    });
+    
+    // 5. Remove data-load="false" which prevents images from loading
+    $("img[data-load='false']").each((_, el) => {
+      $(el).removeAttr("data-load");
+      modified = true;
+    });
+    
+    // 6. Handle srcset that might be in data-srcset
+    $("img[data-srcset]").each((_, el) => {
+      const dataSrcset = $(el).attr("data-srcset");
+      if (dataSrcset && !$(el).attr("srcset")) {
+        $(el).attr("srcset", dataSrcset);
+        modified = true;
+      }
+    });
+    
+    // 7. Add CSS to ensure lazy-load containers are visible
+    if (modified) {
+      const offlineCss = `
+        <style id="offline-fixes">
+          /* Ensure lazy-loaded images are visible */
+          img[data-src], img[data-image] { opacity: 1 !important; }
+          .lazyload, .lazyloading { opacity: 1 !important; }
+          .sqs-image img { opacity: 1 !important; }
+          .offline-fallback-img { display: block !important; }
+          /* Show content that might be hidden until JS runs */
+          [data-load="false"] { display: block !important; }
+        </style>
+      `;
+      $("head").append(offlineCss);
+    }
+    
+    if (modified) {
+      await fs.promises.writeFile(file, $.html());
+    }
+  }
 }
 
 async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<string, Asset>): Promise<void> {
