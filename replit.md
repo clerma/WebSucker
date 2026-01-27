@@ -59,4 +59,7 @@ shared/
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
 ## Recent Changes
+- January 2026: Fixed RSS/XML feed filtering - blog pages no longer display RSS XML content
+- January 2026: Improved skip URL detection with specific reasons (analytics vs. feeds)
+- January 2026: Content-type validation prevents RSS feeds from being saved as HTML
 - January 2026: Initial MVP with full scraping functionality, real-time progress, and ZIP download
