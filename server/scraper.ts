@@ -330,7 +330,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           { sel: "script[src]", attr: "src" },
           { sel: "img[src]", attr: "src" },
           { sel: "img[data-src]", attr: "data-src" },
+          { sel: "img[data-image]", attr: "data-image" },
           { sel: "img[srcset]", attr: "srcset" },
+          { sel: "[data-background-image]", attr: "data-background-image" },
           { sel: "source[src]", attr: "src" },
           { sel: "source[srcset]", attr: "srcset" },
           { sel: "video[src]", attr: "src" },
@@ -535,6 +537,24 @@ async function generateFailureLog(outputDir: string, assetMap: Map<string, Asset
   await fs.promises.writeFile(logPath, lines.join("\n"), "utf-8");
 }
 
+async function createPlaceholderImage(outputDir: string): Promise<string> {
+  const placeholderPath = path.join(outputDir, "_placeholder.svg");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#f0f0f0"/>
+  <rect x="10" y="10" width="380" height="280" fill="#e0e0e0" rx="8"/>
+  <text x="200" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" fill="#888">
+    Image Not Available
+  </text>
+  <text x="200" y="165" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#aaa">
+    (External resource)
+  </text>
+  <path d="M175 100 L200 80 L225 100 L215 100 L215 120 L185 120 L185 100 Z" fill="#ccc"/>
+  <circle cx="200" cy="70" r="8" fill="#ccc"/>
+</svg>`;
+  await fs.promises.writeFile(placeholderPath, svg, "utf-8");
+  return "_placeholder.svg";
+}
+
 function extractUrlsFromCss(css: string, baseUrl: string): string[] {
   const urls: string[] = [];
   const urlRegex = /url\(['"]?([^'")\s]+)['"]?\)/g;
@@ -563,6 +583,12 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
   const htmlFiles = await findFiles(outputDir, [".html", ".htm"]);
   const cssFiles = await findFiles(outputDir, [".css"]);
   const baseParsed = new URL(baseUrl);
+  
+  // Create placeholder image for missing assets
+  const placeholderPath = await createPlaceholderImage(outputDir);
+  
+  // Image-related attributes that should use placeholder when missing
+  const imageAttributes = new Set(["src", "data-src", "data-image", "srcset", "poster", "data-background-image"]);
   
   // Build URL lookup map for efficient matching
   const urlLookup = new Map<string, string>();
@@ -645,6 +671,8 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
       { sel: "[href]", attr: "href" },
       { sel: "[src]", attr: "src" },
       { sel: "[data-src]", attr: "data-src" },
+      { sel: "[data-image]", attr: "data-image" },
+      { sel: "[data-background-image]", attr: "data-background-image" },
       { sel: "[poster]", attr: "poster" },
       { sel: "[srcset]", attr: "srcset" },
     ];
@@ -653,6 +681,10 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
       $(sel).each((_, el) => {
         const value = $(el).attr(attr);
         if (!value || !shouldRewrite(value)) return;
+        
+        // Check if this is an external URL that might need a placeholder
+        const isExternalValue = value.startsWith("http") || value.startsWith("//");
+        const isImageAttr = imageAttributes.has(attr);
         
         // Handle srcset specially
         if (attr === "srcset") {
@@ -665,6 +697,11 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
             if (localPath) {
               const relativePath = path.relative(fileDir || ".", localPath);
               return descriptor ? `${relativePath} ${descriptor}` : relativePath;
+            }
+            // Use placeholder for missing external images
+            if (url.startsWith("http") || url.startsWith("//")) {
+              const relativePlaceholder = path.relative(fileDir || ".", placeholderPath);
+              return descriptor ? `${relativePlaceholder} ${descriptor}` : relativePlaceholder;
             }
             return src;
           }).join(", ");
@@ -687,6 +724,11 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
         if (localPath) {
           const relativePath = path.relative(fileDir || ".", localPath);
           $(el).attr(attr, relativePath + suffix);
+          modified = true;
+        } else if (isExternalValue && isImageAttr) {
+          // Use placeholder for missing external images
+          const relativePlaceholder = path.relative(fileDir || ".", placeholderPath);
+          $(el).attr(attr, relativePlaceholder);
           modified = true;
         }
       });
