@@ -330,6 +330,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           { sel: "script[src]", attr: "src" },
           { sel: "img[src]", attr: "src" },
           { sel: "img[data-src]", attr: "data-src" },
+          { sel: "img[srcset]", attr: "srcset" },
           { sel: "source[src]", attr: "src" },
           { sel: "source[srcset]", attr: "srcset" },
           { sel: "video[src]", attr: "src" },
