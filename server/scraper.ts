@@ -332,7 +332,11 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           { sel: "img[data-src]", attr: "data-src" },
           { sel: "img[data-image]", attr: "data-image" },
           { sel: "img[srcset]", attr: "srcset" },
+          { sel: "img[data-srcset]", attr: "data-srcset" },
           { sel: "[data-background-image]", attr: "data-background-image" },
+          { sel: "[data-background]", attr: "data-background" },
+          { sel: "[data-image-url]", attr: "data-image-url" },
+          { sel: "[data-poster]", attr: "data-poster" },
           { sel: "source[src]", attr: "src" },
           { sel: "source[srcset]", attr: "srcset" },
           { sel: "video[src]", attr: "src" },
@@ -341,6 +345,24 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           { sel: "[style]", attr: "style" },
           { sel: "meta[content]", attr: "content" },
         ];
+        
+        // Also extract images from noscript tags
+        $("noscript").each((_, el) => {
+          const noscriptHtml = $(el).html();
+          if (noscriptHtml) {
+            const $noscript = cheerio.load(noscriptHtml);
+            $noscript("img[src]").each((_, img) => {
+              const src = $noscript(img).attr("src");
+              if (src) {
+                const normalized = normalizeUrl(src, currentUrl);
+                if (normalized && !discoveredUrls.has(normalized)) {
+                  discoveredUrls.add(normalized);
+                  urlQueue.push({ url: normalized, referrer: currentUrl });
+                }
+              }
+            });
+          }
+        });
         
         for (const { sel, attr } of selectors) {
           $(sel).each((_, el) => {
@@ -670,25 +692,92 @@ async function transformForOffline(outputDir: string): Promise<void> {
       }
     });
     
-    // 7. Add CSS to ensure lazy-load containers are visible
-    if (modified) {
-      const offlineCss = `
-        <style id="offline-fixes">
-          /* Ensure lazy-loaded images are visible */
-          img[data-src], img[data-image] { opacity: 1 !important; }
-          .lazyload, .lazyloading { opacity: 1 !important; }
-          .sqs-image img { opacity: 1 !important; }
-          .offline-fallback-img { display: block !important; }
-          /* Show content that might be hidden until JS runs */
-          [data-load="false"] { display: block !important; }
-        </style>
-      `;
-      $("head").append(offlineCss);
-    }
+    // 7. Handle dropdown menus - make them work without JS
+    $("[data-folder], .header-nav-folder-content, .header-nav-item--folder").each((_, el) => {
+      // Remove any hidden/invisible states
+      $(el).removeClass("header-nav-folder-content--hidden");
+      $(el).css("visibility", "visible");
+      modified = true;
+    });
     
-    if (modified) {
-      await fs.promises.writeFile(file, $.html());
-    }
+    // 8. Remove loading/skeleton states
+    $(".loading, .skeleton, [data-loading]").each((_, el) => {
+      $(el).removeClass("loading skeleton");
+      $(el).removeAttr("data-loading");
+      modified = true;
+    });
+    
+    // 9. Force text/content visibility
+    $("[data-animation-role]").each((_, el) => {
+      $(el).addClass("animation-loaded");
+      modified = true;
+    });
+    
+    // Always add comprehensive offline CSS fixes
+    const offlineCss = `
+      <style id="offline-fixes">
+        /* Ensure lazy-loaded images are visible */
+        img[data-src], img[data-image] { opacity: 1 !important; visibility: visible !important; }
+        .lazyload, .lazyloading, .lazyloaded { opacity: 1 !important; }
+        .sqs-image img { opacity: 1 !important; }
+        .offline-fallback-img { display: block !important; }
+        [data-load="false"] { display: block !important; }
+        
+        /* Fix dropdown menus - show on hover without JS */
+        .header-nav-folder-content,
+        .header-nav-item--folder .header-nav-folder-content,
+        [data-folder-content],
+        .dropdown-menu,
+        .nav-dropdown,
+        .sub-menu {
+          display: none !important;
+          opacity: 1 !important;
+          visibility: visible !important;
+          pointer-events: auto !important;
+          position: absolute;
+          z-index: 9999;
+        }
+        .header-nav-item--folder:hover .header-nav-folder-content,
+        .has-dropdown:hover .dropdown-menu,
+        .menu-item-has-children:hover > .sub-menu,
+        [data-folder]:hover [data-folder-content],
+        .nav-item:hover .nav-dropdown {
+          display: block !important;
+        }
+        
+        /* Force animated/lazy content to be visible (scoped to animation classes) */
+        [data-animation-role],
+        .preFade, .preSlide, .preFadeInUp, .preFadeInDown,
+        .sqs-block, .sqs-block-content,
+        .lazyload, .lazyloading, .lazyloaded,
+        .animation-none, .animation-loaded,
+        [data-animation], [data-scroll] { 
+          opacity: 1 !important; 
+          visibility: visible !important;
+          transform: none !important;
+        }
+        .animation-loaded { opacity: 1 !important; }
+        
+        /* Squarespace specific fixes */
+        .sqs-block { opacity: 1 !important; visibility: visible !important; }
+        .content-fill img { opacity: 1 !important; }
+        .fluid-image-container img { opacity: 1 !important; object-fit: cover; }
+        .sqs-gallery-block-stacked .image-slide-anchor img { opacity: 1 !important; }
+        
+        /* Remove loading states */
+        .loading, .skeleton { opacity: 1 !important; animation: none !important; }
+        
+        /* Ensure background images show */
+        [data-background-image] { background-size: cover !important; background-position: center !important; }
+        
+        /* Fix content blocks that might be hidden */
+        .preFade, .preSlide { opacity: 1 !important; transform: none !important; }
+        .sqs-block-content { opacity: 1 !important; }
+      </style>
+    `;
+    $("head").append(offlineCss);
+    
+    await fs.promises.writeFile(file, $.html());
   }
 }
 
@@ -701,7 +790,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
   const placeholderPath = await createPlaceholderImage(outputDir);
   
   // Image-related attributes that should use placeholder when missing
-  const imageAttributes = new Set(["src", "data-src", "data-image", "srcset", "poster", "data-background-image"]);
+  const imageAttributes = new Set(["src", "data-src", "data-image", "srcset", "data-srcset", "poster", "data-background-image", "data-background", "data-image-url", "data-poster"]);
   
   // Build URL lookup map for efficient matching
   const urlLookup = new Map<string, string>();
@@ -785,7 +874,11 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
       { sel: "[src]", attr: "src" },
       { sel: "[data-src]", attr: "data-src" },
       { sel: "[data-image]", attr: "data-image" },
+      { sel: "[data-srcset]", attr: "data-srcset" },
       { sel: "[data-background-image]", attr: "data-background-image" },
+      { sel: "[data-background]", attr: "data-background" },
+      { sel: "[data-image-url]", attr: "data-image-url" },
+      { sel: "[data-poster]", attr: "data-poster" },
       { sel: "[poster]", attr: "poster" },
       { sel: "[srcset]", attr: "srcset" },
     ];
