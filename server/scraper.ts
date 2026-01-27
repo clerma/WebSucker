@@ -563,23 +563,60 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
   const cssFiles = await findFiles(outputDir, [".css"]);
   const baseParsed = new URL(baseUrl);
   
-  // Build URL lookup map for efficient matching - only match full URLs or same-origin paths
+  // Build URL lookup map for efficient matching
   const urlLookup = new Map<string, string>();
   for (const [originalUrl, asset] of Array.from(assetMap.entries())) {
     if (asset.status !== "success") continue;
+    // Store full URL and protocol-relative version
     urlLookup.set(originalUrl, asset.localPath);
     urlLookup.set(originalUrl.replace(/^https?:/, ""), asset.localPath);
-    // Only map pathname for same-origin assets to avoid rewriting external links
+    
     try {
       const parsed = new URL(originalUrl);
+      // Map pathname for same-origin assets
       if (parsed.hostname === baseParsed.hostname) {
         const pathname = parsed.pathname;
         if (pathname.length > 1) {
           urlLookup.set(pathname, asset.localPath);
         }
       }
+      // Also store URL without query string for matching
+      const urlWithoutQuery = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+      urlLookup.set(urlWithoutQuery, asset.localPath);
+      urlLookup.set(urlWithoutQuery.replace(/^https?:/, ""), asset.localPath);
     } catch {}
   }
+  
+  // Helper to resolve and lookup a URL
+  const lookupUrl = (url: string, currentFileUrl?: string): string | undefined => {
+    // Direct lookup first
+    let result = urlLookup.get(url);
+    if (result) return result;
+    
+    // Try without query/fragment
+    const urlBase = url.split(/[#?]/)[0];
+    result = urlLookup.get(urlBase);
+    if (result) return result;
+    
+    // Try resolving relative URLs against base
+    try {
+      const resolved = new URL(url, baseUrl).href;
+      result = urlLookup.get(resolved);
+      if (result) return result;
+      
+      // Try protocol-relative
+      result = urlLookup.get(resolved.replace(/^https?:/, ""));
+      if (result) return result;
+      
+      // Try without query string
+      const parsed = new URL(resolved);
+      const withoutQuery = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+      result = urlLookup.get(withoutQuery);
+      if (result) return result;
+    } catch {}
+    
+    return undefined;
+  };
   
   // Helper to check if a URL should be rewritten (skip mailto, tel, javascript, data URIs)
   const shouldRewrite = (url: string): boolean => {
@@ -623,7 +660,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
             const url = parts[0];
             if (!shouldRewrite(url)) return src;
             const descriptor = parts.slice(1).join(" ");
-            const localPath = urlLookup.get(url);
+            const localPath = lookupUrl(url);
             if (localPath) {
               const relativePath = path.relative(fileDir || ".", localPath);
               return descriptor ? `${relativePath} ${descriptor}` : relativePath;
@@ -637,11 +674,15 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
           return;
         }
         
-        // Extract base URL without fragment/query
-        const urlBase = value.split(/[#?]/)[0];
-        const suffix = value.slice(urlBase.length);
+        // Extract fragment/query suffix to preserve
+        const hashIdx = value.indexOf('#');
+        const queryIdx = value.indexOf('?');
+        let suffixStart = value.length;
+        if (hashIdx !== -1) suffixStart = Math.min(suffixStart, hashIdx);
+        if (queryIdx !== -1) suffixStart = Math.min(suffixStart, queryIdx);
+        const suffix = value.slice(suffixStart);
         
-        const localPath = urlLookup.get(urlBase) || urlLookup.get(value);
+        const localPath = lookupUrl(value);
         if (localPath) {
           const relativePath = path.relative(fileDir || ".", localPath);
           $(el).attr(attr, relativePath + suffix);
@@ -654,7 +695,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     $("[style]").each((_, el) => {
       const style = $(el).attr("style");
       if (style && style.includes("url(")) {
-        const newStyle = rewriteCssUrls(style, urlLookup, fileDir);
+        const newStyle = rewriteCssUrls(style, lookupUrl, fileDir);
         if (newStyle !== style) {
           $(el).attr("style", newStyle);
           modified = true;
@@ -666,7 +707,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     $("style").each((_, el) => {
       const css = $(el).html();
       if (css) {
-        const newCss = rewriteCssUrls(css, urlLookup, fileDir);
+        const newCss = rewriteCssUrls(css, lookupUrl, fileDir);
         if (newCss !== css) {
           $(el).html(newCss);
           modified = true;
@@ -685,7 +726,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     // Get the file's directory relative to outputDir for correct path calculation
     const relativeFilePath = path.relative(outputDir, file);
     const fileDir = path.dirname(relativeFilePath) || ".";
-    const newContent = rewriteCssUrls(content, urlLookup, fileDir);
+    const newContent = rewriteCssUrls(content, lookupUrl, fileDir);
     
     if (newContent !== content) {
       await fs.promises.writeFile(file, newContent);
@@ -693,7 +734,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
   }
 }
 
-function rewriteCssUrls(css: string, urlLookup: Map<string, string>, fileDir: string): string {
+function rewriteCssUrls(css: string, lookupUrl: (url: string) => string | undefined, fileDir: string): string {
   let result = css;
   
   // Replace url() patterns in CSS, preserving quotes
@@ -701,9 +742,8 @@ function rewriteCssUrls(css: string, urlLookup: Map<string, string>, fileDir: st
     // Skip data URIs
     if (url.startsWith("data:")) return match;
     
-    const urlBase = url.split(/[#?]/)[0];
-    const suffix = url.slice(urlBase.length);
-    const localPath = urlLookup.get(urlBase) || urlLookup.get(url);
+    const suffix = url.includes('#') ? url.slice(url.indexOf('#')) : '';
+    const localPath = lookupUrl(url);
     if (localPath) {
       const relativePath = path.relative(fileDir || ".", localPath);
       return `url(${quote}${relativePath}${suffix}${quote})`;
@@ -716,9 +756,8 @@ function rewriteCssUrls(css: string, urlLookup: Map<string, string>, fileDir: st
     // Skip data URIs
     if (url.startsWith("data:")) return match;
     
-    const urlBase = url.split(/[#?]/)[0];
-    const suffix = url.slice(urlBase.length);
-    const localPath = urlLookup.get(urlBase) || urlLookup.get(url);
+    const suffix = url.includes('#') ? url.slice(url.indexOf('#')) : '';
+    const localPath = lookupUrl(url);
     if (localPath) {
       const relativePath = path.relative(fileDir || ".", localPath);
       return `@import ${quote}${relativePath}${suffix}${quote}`;
@@ -731,9 +770,8 @@ function rewriteCssUrls(css: string, urlLookup: Map<string, string>, fileDir: st
     // Skip data URIs
     if (url.startsWith("data:")) return match;
     
-    const urlBase = url.split(/[#?]/)[0];
-    const suffix = url.slice(urlBase.length);
-    const localPath = urlLookup.get(urlBase) || urlLookup.get(url);
+    const suffix = url.includes('#') ? url.slice(url.indexOf('#')) : '';
+    const localPath = lookupUrl(url);
     if (localPath) {
       const relativePath = path.relative(fileDir || ".", localPath);
       return `@import url(${quote}${relativePath}${suffix}${quote})`;
