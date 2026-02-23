@@ -6,6 +6,7 @@ WebSucker is a web-based alternative to SiteSucker (Mac app) that allows users t
 ## Features
 - **URL Input**: Enter any website URL to start scraping
 - **Smart Scraping**: Automatically extracts HTML, CSS, JavaScript, images, fonts, and other assets
+- **Embed Preservation**: Keeps YouTube, Vimeo, Google Maps, Spotify, and other embedded content intact
 - **Real-time Progress**: WebSocket-powered live updates showing download progress
 - **Results Summary**: Detailed breakdown of successful/failed/skipped assets by type
 - **ZIP Download**: Organized directory structure that works offline without internet
@@ -59,6 +60,9 @@ shared/
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
 ## Recent Changes
+- February 2026: Added embed preservation - YouTube, Vimeo, Google Maps, Spotify, and 25+ embed providers are kept intact
+- February 2026: Squarespace embed/video blocks with data-html are decoded and activated for offline viewing
+- February 2026: Lazy-loaded iframes (data-src) are activated, data-video-url attributes converted to embed iframes
 - February 2026: Fixed link rewriting to resolve relative URLs against current page URL (not just base URL)
 - February 2026: Fixed meta tag extraction (og:image:width/height values no longer treated as URLs)
 - February 2026: Fixed CSS fragment references (#check, %23check) not being mistakenly downloaded

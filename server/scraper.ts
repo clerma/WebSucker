@@ -33,6 +33,37 @@ const SKIP_DOMAINS = new Set([
   "facebook.com", "hotjar.com", "clarity.ms", "segment.com",
 ]);
 
+const EMBED_DOMAINS = new Set([
+  "youtube.com", "www.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com",
+  "youtu.be",
+  "player.vimeo.com", "vimeo.com",
+  "maps.google.com", "www.google.com",
+  "open.spotify.com",
+  "w.soundcloud.com", "soundcloud.com",
+  "bandcamp.com",
+  "codepen.io",
+  "jsfiddle.net",
+  "calendly.com",
+  "docs.google.com",
+  "drive.google.com",
+  "forms.gle",
+  "airtable.com",
+  "typeform.com",
+  "tally.so",
+  "wistia.com", "fast.wistia.com",
+  "player.twitch.tv",
+  "clips.twitch.tv",
+  "anchor.fm",
+  "podcasters.spotify.com",
+  "embed.podcasts.apple.com",
+  "share.transistor.fm",
+  "www.tiktok.com",
+  "platform.twitter.com", "x.com",
+  "www.instagram.com",
+  "www.facebook.com",
+  "giphy.com", "media.giphy.com",
+]);
+
 // Block private/internal IP ranges for SSRF protection
 const BLOCKED_IP_PATTERNS = [
   /^127\./,
@@ -49,6 +80,42 @@ const BLOCKED_IP_PATTERNS = [
 
 function isBlockedHost(hostname: string): boolean {
   return BLOCKED_IP_PATTERNS.some(pattern => pattern.test(hostname));
+}
+
+function convertToEmbedUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    // YouTube
+    if (parsed.hostname.includes("youtube.com") || parsed.hostname === "youtu.be") {
+      let videoId = "";
+      if (parsed.hostname === "youtu.be") {
+        videoId = parsed.pathname.slice(1);
+      } else {
+        videoId = parsed.searchParams.get("v") || "";
+        if (!videoId && parsed.pathname.startsWith("/embed/")) {
+          return url;
+        }
+      }
+      if (videoId) return `https://www.youtube.com/embed/${videoId}`;
+    }
+    // Vimeo
+    if (parsed.hostname.includes("vimeo.com")) {
+      const match = parsed.pathname.match(/\/(\d+)/);
+      if (match) return `https://player.vimeo.com/video/${match[1]}`;
+      if (parsed.hostname === "player.vimeo.com") return url;
+    }
+  } catch {}
+  return null;
+}
+
+function isEmbedUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return EMBED_DOMAINS.has(parsed.hostname) ||
+      Array.from(EMBED_DOMAINS).some(d => parsed.hostname.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
 }
 
 function getAssetType(url: string): AssetType {
@@ -763,6 +830,64 @@ async function transformForOffline(outputDir: string): Promise<void> {
       modified = true;
     });
     
+    // 10. Preserve and activate embeds
+    // Handle lazy-loaded iframes (data-src pattern)
+    $("iframe[data-src]").each((_, el) => {
+      const dataSrc = $(el).attr("data-src");
+      const currentSrc = $(el).attr("src");
+      if (dataSrc && (!currentSrc || currentSrc === "about:blank" || currentSrc.startsWith("data:"))) {
+        $(el).attr("src", dataSrc);
+        modified = true;
+      }
+    });
+    
+    // Handle Squarespace video blocks with data-html
+    $(".sqs-block-video .video-player[data-html], .sqs-video-wrapper[data-html]").each((_, el) => {
+      const dataHtml = $(el).attr("data-html");
+      if (dataHtml) {
+        try {
+          const decoded = dataHtml.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+          if (decoded.includes("<iframe")) {
+            $(el).html(decoded);
+            modified = true;
+          }
+        } catch {}
+      }
+    });
+    
+    // Handle Squarespace embed blocks with data-html
+    $(".sqs-block-embed [data-html], .sqs-block-code [data-html], .embed-block [data-html]").each((_, el) => {
+      const dataHtml = $(el).attr("data-html");
+      if (dataHtml) {
+        try {
+          const decoded = dataHtml.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+          $(el).html(decoded);
+          modified = true;
+        } catch {}
+      }
+    });
+    
+    // Ensure all iframes are visible
+    $("iframe").each((_, el) => {
+      const style = $(el).attr("style") || "";
+      if (style.includes("display: none") || style.includes("display:none")) {
+        $(el).attr("style", style.replace(/display:\s*none/g, "display: block"));
+        modified = true;
+      }
+    });
+    
+    // Handle data-video-url attributes (common in many CMS platforms)
+    $("[data-video-url]").each((_, el) => {
+      const videoUrl = $(el).attr("data-video-url");
+      if (videoUrl && !$(el).find("iframe").length) {
+        const embedUrl = convertToEmbedUrl(videoUrl);
+        if (embedUrl) {
+          $(el).html(`<iframe src="${embedUrl}" width="100%" height="400" frameborder="0" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>`);
+          modified = true;
+        }
+      }
+    });
+    
     // Always add conservative offline CSS fixes (minimal changes to avoid breaking layout)
     const offlineCss = `
       <style id="offline-fixes">
@@ -781,6 +906,11 @@ async function transformForOffline(outputDir: string): Promise<void> {
         /* Squarespace images */
         .sqs-image img, .content-fill img { opacity: 1 !important; }
         .fluid-image-container img { opacity: 1 !important; }
+        
+        /* Embeds */
+        iframe { max-width: 100% !important; }
+        .sqs-block-video, .sqs-block-embed, .embed-block { overflow: visible !important; }
+        .video-player iframe, .sqs-video-wrapper iframe { display: block !important; opacity: 1 !important; }
       </style>
     `;
     $("head").append(offlineCss);
@@ -908,6 +1038,13 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
       $(sel).each((_, el) => {
         const value = $(el).attr(attr);
         if (!value || !shouldRewrite(value)) return;
+        
+        // Preserve external embeds (iframes, embed, object pointing to embed providers)
+        const tagName = (el as any).tagName?.toLowerCase() || "";
+        const isEmbedElement = tagName === "iframe" || tagName === "embed" || tagName === "object";
+        if (isEmbedElement && attr === "src" && isExternalUrl(value, baseParsed.hostname)) {
+          return;
+        }
         
         // Check if this is an external URL that might need a placeholder
         const isExternalValue = value.startsWith("http") || value.startsWith("//");
