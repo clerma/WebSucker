@@ -22,9 +22,13 @@ const REQUEST_DELAY = 150; // ms between requests
 
 const ALLOWED_EXTENSIONS = new Set([
   ".html", ".htm", ".css", ".js", ".mjs", ".json",
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif",
   ".woff", ".woff2", ".ttf", ".eot", ".otf",
   ".xml", ".txt", ".pdf",
+  ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".zip", ".rar", ".gz", ".tar",
+  ".mp3", ".mp4", ".wav", ".ogg", ".webm", ".avi", ".mov",
+  ".csv", ".rtf", ".epub",
 ]);
 
 const SKIP_DOMAINS = new Set([
