@@ -14,7 +14,7 @@ WebSucker is a web-based alternative to SiteSucker (Mac app) that allows users t
 
 ## Tech Stack
 - **Frontend**: React, TypeScript, TailwindCSS, Shadcn/UI, Wouter (routing)
-- **Backend**: Express.js, WebSocket (ws), Cheerio (HTML parsing), Archiver (ZIP creation)
+- **Backend**: Express.js, WebSocket (ws), Puppeteer (headless browser rendering), Cheerio (HTML parsing), Archiver (ZIP creation)
 - **State**: TanStack Query for data fetching
 - **Storage**: In-memory storage for scrape jobs
 
@@ -60,6 +60,7 @@ shared/
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
 ## Recent Changes
+- February 2026: Puppeteer headless browser rendering for HTML pages - captures JS-rendered content (dynamic embeds, lazy-loaded assets, SPA content)
 - February 2026: Wix `<wix-iframe>` custom elements converted to standard `<iframe>` for offline embed playback
 - February 2026: Wix `data-anchor` scroll-to-section links converted to proper `#anchor` hash links with smooth scroll script
 - February 2026: Added CSS fixes for Wix `hidden-during-prewarmup` elements and smooth scrolling

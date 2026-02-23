@@ -2,7 +2,10 @@ import * as cheerio from "cheerio";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { execSync } from "child_process";
 import archiver from "archiver";
+import puppeteer from "puppeteer";
+import type { Browser } from "puppeteer";
 import { storage } from "./storage";
 import type { Asset, AssetType, AssetStatus, ScrapeProgress } from "@shared/schema";
 
@@ -278,6 +281,81 @@ async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response>
   }
 }
 
+let sharedBrowser: Browser | null = null;
+
+function findChromiumPath(): string {
+  try {
+    return execSync("which chromium", { encoding: "utf-8" }).trim();
+  } catch {
+    try {
+      return execSync("which chromium-browser", { encoding: "utf-8" }).trim();
+    } catch {
+      return "chromium";
+    }
+  }
+}
+
+async function getBrowser(): Promise<Browser> {
+  if (sharedBrowser && sharedBrowser.connected) {
+    return sharedBrowser;
+  }
+  sharedBrowser = await puppeteer.launch({
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || findChromiumPath(),
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process",
+    ],
+  });
+  return sharedBrowser;
+}
+
+async function closeBrowser(): Promise<void> {
+  if (sharedBrowser) {
+    try { await sharedBrowser.close(); } catch {}
+    sharedBrowser = null;
+  }
+}
+
+async function fetchRenderedHtml(url: string, timeout = 30000): Promise<{ html: string; status: number }> {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  
+  try {
+    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    await page.setViewport({ width: 1920, height: 1080 });
+    
+    const response = await page.goto(url, {
+      waitUntil: "networkidle2",
+      timeout,
+    });
+    
+    const status = response?.status() || 200;
+    
+    if (status >= 400) {
+      return { html: "", status };
+    }
+    
+    await page.evaluate(() => new Promise<void>(resolve => {
+      if (document.readyState === "complete") {
+        setTimeout(resolve, 2000);
+      } else {
+        window.addEventListener("load", () => setTimeout(resolve, 2000));
+      }
+    }));
+    
+    const html = await page.content();
+    return { html, status };
+  } finally {
+    await page.close();
+  }
+}
+
 export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   const { jobId, url, onProgress } = options;
   const baseUrl = new URL(url);
@@ -400,29 +478,57 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
     }
 
     try {
-      const response = await fetchWithTimeout(currentUrl);
+      let content: Buffer;
+      let contentType = "";
       
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const contentType = response.headers.get("content-type") || "";
-      
-      // Skip RSS/XML content when we expected HTML - prevents saving feed as page
-      if (assetType === "html") {
-        const feedContentTypes = ["application/rss+xml", "application/atom+xml", "text/xml", "application/xml"];
-        if (feedContentTypes.some(ct => contentType.includes(ct))) {
-          asset = (await storage.updateAsset(jobId, asset.id, {
-            status: "skipped",
-            error: "RSS/XML feed content (not HTML)",
-          }))!;
-          assetMap.set(currentUrl, asset);
-          continue;
+      if (assetType === "html" && !isExternal) {
+        try {
+          const rendered = await fetchRenderedHtml(currentUrl);
+          
+          if (rendered.status >= 400) {
+            throw new Error(`HTTP ${rendered.status}`);
+          }
+          
+          if (!rendered.html || rendered.html.length < 50) {
+            throw new Error("Empty or invalid page content");
+          }
+          
+          content = Buffer.from(rendered.html, "utf-8");
+          contentType = "text/html";
+        } catch (renderErr: any) {
+          console.log(`Puppeteer render failed for ${currentUrl}, falling back to fetch: ${renderErr.message}`);
+          const response = await fetchWithTimeout(currentUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          contentType = response.headers.get("content-type") || "";
+          const buffer = await response.arrayBuffer();
+          content = Buffer.from(buffer);
         }
+      } else {
+        const response = await fetchWithTimeout(currentUrl);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        contentType = response.headers.get("content-type") || "";
+        
+        if (assetType === "html") {
+          const feedContentTypes = ["application/rss+xml", "application/atom+xml", "text/xml", "application/xml"];
+          if (feedContentTypes.some(ct => contentType.includes(ct))) {
+            asset = (await storage.updateAsset(jobId, asset.id, {
+              status: "skipped",
+              error: "RSS/XML feed content (not HTML)",
+            }))!;
+            assetMap.set(currentUrl, asset);
+            continue;
+          }
+        }
+        
+        const buffer = await response.arrayBuffer();
+        content = Buffer.from(buffer);
       }
-      
-      const buffer = await response.arrayBuffer();
-      const content = Buffer.from(buffer);
       
       // Save file
       const filePath = path.join(outputDir, localPath);
@@ -630,6 +736,8 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   await transformForOffline(outputDir);
   
   // Rewrite URLs in HTML and CSS files
+  await closeBrowser();
+  
   await rewriteUrls(outputDir, url, assetMap);
   
   // Generate failure log for failed/skipped assets
