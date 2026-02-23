@@ -49,7 +49,7 @@ shared/
 - Events: `subscribe`, `progress`, `asset`, `complete`, `error`
 
 ## Safety Features
-- **Asset Limits**: Max 500 assets, 50 HTML pages per scrape
+- **Asset Limits**: Max 750 assets, 50 HTML pages per scrape
 - **SSRF Protection**: Blocks private IP ranges and internal hosts
 - **Request Throttling**: 150ms delay between requests
 - **Size Limits**: 10MB max per asset
@@ -59,6 +59,10 @@ shared/
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
 ## Recent Changes
+- February 2026: Fixed link rewriting to resolve relative URLs against current page URL (not just base URL)
+- February 2026: Fixed meta tag extraction (og:image:width/height values no longer treated as URLs)
+- February 2026: Fixed CSS fragment references (#check, %23check) not being mistakenly downloaded
+- February 2026: Increased asset limit from 500 to 750 for image-heavy sites
 - January 2026: Fixed RSS/XML feed filtering - blog pages no longer display RSS XML content
 - January 2026: Improved skip URL detection with specific reasons (analytics vs. feeds)
 - January 2026: Content-type validation prevents RSS feeds from being saved as HTML

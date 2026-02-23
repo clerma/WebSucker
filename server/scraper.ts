@@ -15,7 +15,7 @@ interface ScrapeOptions {
 }
 
 // Safety limits to prevent runaway crawling
-const MAX_ASSETS = 500;
+const MAX_ASSETS = 750;
 const MAX_HTML_PAGES = 50;
 const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10MB per asset
 const REQUEST_DELAY = 150; // ms between requests
@@ -73,6 +73,11 @@ function normalizeUrl(href: string, baseUrl: string): string | null {
     // Skip data URIs, javascript, mailto, tel
     if (url.protocol === "data:" || url.protocol === "javascript:" || 
         url.protocol === "mailto:" || url.protocol === "tel:") {
+      return null;
+    }
+    
+    // Skip fragment-only references (e.g., #section)
+    if (href.startsWith("#")) {
       return null;
     }
     
@@ -446,7 +451,12 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             // Handle og:image and similar meta tags
             if (attr === "content" && sel === "meta[content]") {
               const property = $(el).attr("property") || $(el).attr("name") || "";
-              if (!property.includes("image") && !property.includes("url")) return;
+              // Only extract actual image URLs from og:image, not dimension/type meta tags
+              const validImageProps = ["og:image", "twitter:image", "image"];
+              const isImageProp = validImageProps.some(p => property === p || property === `${p}:url`);
+              if (!isImageProp) return;
+              // Skip values that don't look like URLs (e.g., og:image:width = "1500")
+              if (!value.startsWith("http") && !value.startsWith("//") && !value.startsWith("/")) return;
             }
             
             const normalized = normalizeUrl(value, currentUrl);
@@ -625,6 +635,8 @@ function extractUrlsFromCss(css: string, baseUrl: string): string[] {
   let match;
   
   while ((match = urlRegex.exec(css)) !== null) {
+    // Skip fragment-only references (e.g., url(#check)) - these are SVG/inline references
+    if (match[1].startsWith("#") || match[1].startsWith("%23")) continue;
     const normalized = normalizeUrl(match[1], baseUrl);
     if (normalized) {
       urls.push(normalized);
@@ -823,22 +835,25 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     result = urlLookup.get(urlBase);
     if (result) return result;
     
-    // Try resolving relative URLs against base
-    try {
-      const resolved = new URL(url, baseUrl).href;
-      result = urlLookup.get(resolved);
-      if (result) return result;
-      
-      // Try protocol-relative
-      result = urlLookup.get(resolved.replace(/^https?:/, ""));
-      if (result) return result;
-      
-      // Try without query string
-      const parsed = new URL(resolved);
-      const withoutQuery = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
-      result = urlLookup.get(withoutQuery);
-      if (result) return result;
-    } catch {}
+    // Try resolving relative URLs against the current page URL first, then base URL
+    const resolveContexts = currentFileUrl ? [currentFileUrl, baseUrl] : [baseUrl];
+    for (const context of resolveContexts) {
+      try {
+        const resolved = new URL(url, context).href;
+        result = urlLookup.get(resolved);
+        if (result) return result;
+        
+        // Try protocol-relative
+        result = urlLookup.get(resolved.replace(/^https?:/, ""));
+        if (result) return result;
+        
+        // Try without query string
+        const parsed = new URL(resolved);
+        const withoutQuery = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+        result = urlLookup.get(withoutQuery);
+        if (result) return result;
+      } catch {}
+    }
     
     return undefined;
   };
@@ -855,6 +870,14 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     return true;
   };
   
+  // Build reverse map: local path -> original URL for resolving relative links
+  const localPathToUrl = new Map<string, string>();
+  for (const [originalUrl, asset] of Array.from(assetMap.entries())) {
+    if (asset.status === "success") {
+      localPathToUrl.set(asset.localPath, originalUrl);
+    }
+  }
+  
   // Rewrite HTML files using Cheerio for safe DOM manipulation
   for (const file of htmlFiles) {
     const content = await fs.promises.readFile(file, "utf-8");
@@ -862,6 +885,8 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     // Get the file's directory relative to outputDir for correct path calculation
     const relativeFilePath = path.relative(outputDir, file);
     const fileDir = path.dirname(relativeFilePath) || ".";
+    // Determine the original URL for this file to resolve relative links correctly
+    const currentFileOriginalUrl = localPathToUrl.get(relativeFilePath);
     let modified = false;
     
     // Known URL-bearing attributes
@@ -895,7 +920,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
             const url = parts[0];
             if (!shouldRewrite(url)) return src;
             const descriptor = parts.slice(1).join(" ");
-            const localPath = lookupUrl(url);
+            const localPath = lookupUrl(url, currentFileOriginalUrl);
             if (localPath) {
               const relativePath = path.relative(fileDir || ".", localPath);
               return descriptor ? `${relativePath} ${descriptor}` : relativePath;
@@ -919,20 +944,23 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
         const hashIdx = value.indexOf('#');
         const suffix = hashIdx !== -1 ? value.slice(hashIdx) : "";
         
-        let localPath = lookupUrl(value);
+        let localPath = lookupUrl(value, currentFileOriginalUrl);
         
         // For internal href links not in asset map, compute expected local path
         if (!localPath && attr === "href" && !isExternalValue) {
-          try {
-            // Compute what the local path would be for this internal URL
-            const absoluteUrl = new URL(value, baseUrl).href;
-            const expectedPath = urlToLocalPath(absoluteUrl, baseUrl);
-            // Check if this file actually exists in our output
-            const fullPath = path.join(outputDir, expectedPath);
-            if (fs.existsSync(fullPath)) {
-              localPath = expectedPath;
-            }
-          } catch {}
+          // Try resolving against the current page URL first, then baseUrl
+          const resolveContexts = currentFileOriginalUrl ? [currentFileOriginalUrl, baseUrl] : [baseUrl];
+          for (const context of resolveContexts) {
+            try {
+              const absoluteUrl = new URL(value, context).href;
+              const expectedPath = urlToLocalPath(absoluteUrl, baseUrl);
+              const fullPath = path.join(outputDir, expectedPath);
+              if (fs.existsSync(fullPath)) {
+                localPath = expectedPath;
+                break;
+              }
+            } catch {}
+          }
         }
         
         if (localPath) {
@@ -952,7 +980,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     $("[style]").each((_, el) => {
       const style = $(el).attr("style");
       if (style && style.includes("url(")) {
-        const newStyle = rewriteCssUrls(style, lookupUrl, fileDir);
+        const newStyle = rewriteCssUrls(style, (u) => lookupUrl(u, currentFileOriginalUrl), fileDir);
         if (newStyle !== style) {
           $(el).attr("style", newStyle);
           modified = true;
@@ -964,7 +992,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     $("style").each((_, el) => {
       const css = $(el).html();
       if (css) {
-        const newCss = rewriteCssUrls(css, lookupUrl, fileDir);
+        const newCss = rewriteCssUrls(css, (u) => lookupUrl(u, currentFileOriginalUrl), fileDir);
         if (newCss !== css) {
           $(el).html(newCss);
           modified = true;
@@ -983,7 +1011,8 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
     // Get the file's directory relative to outputDir for correct path calculation
     const relativeFilePath = path.relative(outputDir, file);
     const fileDir = path.dirname(relativeFilePath) || ".";
-    const newContent = rewriteCssUrls(content, lookupUrl, fileDir);
+    const cssFileOriginalUrl = localPathToUrl.get(relativeFilePath);
+    const newContent = rewriteCssUrls(content, (u) => lookupUrl(u, cssFileOriginalUrl), fileDir);
     
     if (newContent !== content) {
       await fs.promises.writeFile(file, newContent);
