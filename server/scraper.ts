@@ -908,6 +908,38 @@ async function transformForOffline(outputDir: string): Promise<void> {
       }
     });
     
+    // 11. Convert Wix <wix-iframe> custom elements to standard <iframe> elements
+    $("wix-iframe[data-src]").each((_, el) => {
+      const dataSrc = $(el).attr("data-src");
+      const title = $(el).attr("title") || $(el).attr("aria-label") || "";
+      const id = $(el).attr("id") || "";
+      const className = $(el).attr("className") || $(el).attr("class") || "";
+      if (dataSrc) {
+        const iframe = $(`<iframe src="${dataSrc}" title="${title}" width="100%" height="100%" frameborder="0" allowfullscreen allow="autoplay; encrypted-media"></iframe>`);
+        if (id) iframe.attr("id", id);
+        if (className) iframe.attr("class", className);
+        const style = $(el).attr("style");
+        if (style) iframe.attr("style", style);
+        $(el).replaceWith(iframe);
+        modified = true;
+      }
+    });
+    
+    // 12. Convert Wix data-anchor scroll links to proper #anchor hash links
+    $("a[data-anchor]").each((_, el) => {
+      const anchor = $(el).attr("data-anchor");
+      const href = $(el).attr("href") || "";
+      if (anchor && anchor !== "SCROLL_TO_TOP") {
+        const anchorCompId = $(el).attr("data-anchor-comp-id");
+        const targetId = anchorCompId || anchor;
+        $(el).attr("href", `#${targetId}`);
+        modified = true;
+      } else if (anchor === "SCROLL_TO_TOP") {
+        $(el).attr("href", "#");
+        modified = true;
+      }
+    });
+    
     // Always add conservative offline CSS fixes (minimal changes to avoid breaking layout)
     const offlineCss = `
       <style id="offline-fixes">
@@ -931,9 +963,29 @@ async function transformForOffline(outputDir: string): Promise<void> {
         iframe { max-width: 100% !important; }
         .sqs-block-video, .sqs-block-embed, .embed-block { overflow: visible !important; }
         .video-player iframe, .sqs-video-wrapper iframe { display: block !important; opacity: 1 !important; }
+        
+        /* Smooth scrolling for anchor links */
+        html { scroll-behavior: smooth; }
+        
+        /* Wix hidden-during-prewarmup elements */
+        .hidden-during-prewarmup { opacity: 1 !important; visibility: visible !important; }
       </style>
     `;
     $("head").append(offlineCss);
+    
+    const scrollScript = `
+      <script id="offline-scroll">
+        document.addEventListener('click', function(e) {
+          var link = e.target.closest('a[href^="#"]');
+          if (!link) return;
+          var id = link.getAttribute('href').slice(1);
+          if (!id) { window.scrollTo({top:0,behavior:'smooth'}); e.preventDefault(); return; }
+          var target = document.getElementById(id) || document.querySelector('[data-anchor="'+id+'"]');
+          if (target) { target.scrollIntoView({behavior:'smooth'}); e.preventDefault(); }
+        });
+      </script>
+    `;
+    $("body").append(scrollScript);
     
     await fs.promises.writeFile(file, $.html());
   }
