@@ -60,6 +60,7 @@ shared/
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
 ## Recent Changes
+- February 2026: Fixed srcset parsing for URLs with commas in paths (Wix image transformations)
 - February 2026: Added embed preservation - YouTube, Vimeo, Google Maps, Spotify, and 25+ embed providers are kept intact
 - February 2026: Squarespace embed/video blocks with data-html are decoded and activated for offline viewing
 - February 2026: Lazy-loaded iframes (data-src) are activated, data-video-url attributes converted to embed iframes

@@ -38,7 +38,7 @@ const EMBED_DOMAINS = new Set([
   "youtu.be",
   "player.vimeo.com", "vimeo.com",
   "maps.google.com", "www.google.com",
-  "open.spotify.com",
+  "open.spotify.com", "embed.spotify.com",
   "w.soundcloud.com", "soundcloud.com",
   "bandcamp.com",
   "codepen.io",
@@ -80,6 +80,28 @@ const BLOCKED_IP_PATTERNS = [
 
 function isBlockedHost(hostname: string): boolean {
   return BLOCKED_IP_PATTERNS.some(pattern => pattern.test(hostname));
+}
+
+function parseSrcset(srcset: string): Array<{ url: string; descriptor: string }> {
+  const entries: Array<{ url: string; descriptor: string }> = [];
+  // Split on commas that are followed by whitespace and a URL-like start
+  // This preserves commas inside URLs (e.g., Wix image paths: /fill/w_100,h_200,...)
+  const parts = srcset.split(/,\s+(?=https?:\/\/|\/\/|\/(?!\/)|\w+[:.\/])/);
+  
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    
+    // Match URL and optional descriptor (1x, 2x, 100w, etc.)
+    const match = trimmed.match(/^(.+?)\s+(\d+(?:\.\d+)?[wx])$/);
+    if (match) {
+      entries.push({ url: match[1].trim(), descriptor: match[2] });
+    } else {
+      entries.push({ url: trimmed, descriptor: "" });
+    }
+  }
+  
+  return entries;
 }
 
 function convertToEmbedUrl(url: string): string | null {
@@ -482,12 +504,10 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             
             // Handle srcset
             if (attr === "srcset") {
-              value.split(",").forEach(src => {
-                const urlPart = src.trim().split(/\s+/)[0];
-                const normalized = normalizeUrl(urlPart, currentUrl);
+              parseSrcset(value).forEach(entry => {
+                const normalized = normalizeUrl(entry.url, currentUrl);
                 if (normalized && !discoveredUrls.has(normalized)) {
                   discoveredUrls.add(normalized);
-                  // Only queue same-origin HTML pages, but fetch all assets
                   const type = getAssetType(normalized);
                   if (type !== "html" || !isExternalUrl(normalized, baseHost)) {
                     urlQueue.push({ url: normalized, referrer: currentUrl });
@@ -1042,7 +1062,7 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
         // Preserve external embeds (iframes, embed, object pointing to embed providers)
         const tagName = (el as any).tagName?.toLowerCase() || "";
         const isEmbedElement = tagName === "iframe" || tagName === "embed" || tagName === "object";
-        if (isEmbedElement && attr === "src" && isExternalUrl(value, baseParsed.hostname)) {
+        if (isEmbedElement && (attr === "src" || attr === "data-src") && isExternalUrl(value, baseParsed.hostname)) {
           return;
         }
         
@@ -1050,24 +1070,22 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
         const isExternalValue = value.startsWith("http") || value.startsWith("//");
         const isImageAttr = imageAttributes.has(attr);
         
-        // Handle srcset specially
+        // Handle srcset specially (using proper parser to handle commas in URLs)
         if (attr === "srcset") {
-          const newSrcset = value.split(",").map(src => {
-            const parts = src.trim().split(/\s+/);
-            const url = parts[0];
-            if (!shouldRewrite(url)) return src;
-            const descriptor = parts.slice(1).join(" ");
-            const localPath = lookupUrl(url, currentFileOriginalUrl);
+          const entries = parseSrcset(value);
+          const newSrcset = entries.map(entry => {
+            if (!shouldRewrite(entry.url)) return entry.descriptor ? `${entry.url} ${entry.descriptor}` : entry.url;
+            const localPath = lookupUrl(entry.url, currentFileOriginalUrl);
             if (localPath) {
               const relativePath = path.relative(fileDir || ".", localPath);
-              return descriptor ? `${relativePath} ${descriptor}` : relativePath;
+              return entry.descriptor ? `${relativePath} ${entry.descriptor}` : relativePath;
             }
             // Use placeholder for missing external images
-            if (url.startsWith("http") || url.startsWith("//")) {
+            if (entry.url.startsWith("http") || entry.url.startsWith("//")) {
               const relativePlaceholder = path.relative(fileDir || ".", placeholderPath);
-              return descriptor ? `${relativePlaceholder} ${descriptor}` : relativePlaceholder;
+              return entry.descriptor ? `${relativePlaceholder} ${entry.descriptor}` : relativePlaceholder;
             }
-            return src;
+            return entry.descriptor ? `${entry.url} ${entry.descriptor}` : entry.url;
           }).join(", ");
           if (newSrcset !== value) {
             $(el).attr(attr, newSrcset);
