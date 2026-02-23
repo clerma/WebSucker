@@ -322,7 +322,7 @@ async function closeBrowser(): Promise<void> {
   }
 }
 
-async function fetchRenderedHtml(url: string, timeout = 30000): Promise<{ html: string; status: number }> {
+async function fetchRenderedHtml(url: string, timeout = 60000): Promise<{ html: string; status: number }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
   
@@ -348,6 +348,27 @@ async function fetchRenderedHtml(url: string, timeout = 30000): Promise<{ html: 
         window.addEventListener("load", () => setTimeout(resolve, 2000));
       }
     }));
+    
+    await page.evaluate(async () => {
+      await new Promise<void>(resolve => {
+        let totalHeight = 0;
+        const distance = 500;
+        const timer = setInterval(() => {
+          window.scrollBy(0, distance);
+          totalHeight += distance;
+          if (totalHeight >= document.body.scrollHeight) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 100);
+      });
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
+    await page.evaluate(() => window.scrollTo(0, 0));
+    
+    await page.waitForNetworkIdle({ idleTime: 1500, timeout: 10000 }).catch(() => {});
     
     const html = await page.content();
     return { html, status };
