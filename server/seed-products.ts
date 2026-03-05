@@ -27,24 +27,24 @@ async function createProducts() {
 
   const oneTimePrice = await stripe.prices.create({
     product: product.id,
-    unit_amount: 500,
+    unit_amount: 199,
     currency: 'usd',
     metadata: {
       type: 'one_time',
     },
   });
-  console.log(`Created one-time price: ${oneTimePrice.id} - $5.00`);
+  console.log(`Created one-time price: ${oneTimePrice.id} - $1.99`);
 
   const monthlyPrice = await stripe.prices.create({
     product: product.id,
-    unit_amount: 900,
+    unit_amount: 599,
     currency: 'usd',
     recurring: { interval: 'month' },
     metadata: {
       type: 'monthly',
     },
   });
-  console.log(`Created monthly price: ${monthlyPrice.id} - $9.00/month`);
+  console.log(`Created monthly price: ${monthlyPrice.id} - $5.99/month`);
 
   console.log('\nDone! Products and prices created.');
 }
