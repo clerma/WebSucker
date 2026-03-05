@@ -3,6 +3,7 @@ import { Globe, ArrowDown, Zap, Shield, FolderOpen } from "lucide-react";
 import { UrlInputForm } from "@/components/url-input-form";
 import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
+import { PricingDialog } from "@/components/pricing-dialog";
 import { useToast } from "@/hooks/use-toast";
 import type {
   Asset,
@@ -19,6 +20,8 @@ export default function Home() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentJob, setCurrentJob] = useState<ScrapeJob | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [showPricing, setShowPricing] = useState(false);
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
   const [progress, setProgress] = useState<ScrapeProgress>({
     jobId: "",
     status: "idle",
@@ -29,6 +32,18 @@ export default function Home() {
   });
   const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const customerId = localStorage.getItem("websucker_customer_id");
+    if (customerId) {
+      fetch(`/api/stripe/check-subscription?customer_id=${customerId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          setHasActiveSubscription(data.active);
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   const connectWebSocket = useCallback(
     (jobId: string) => {
@@ -145,33 +160,55 @@ export default function Home() {
   const handleDownload = async () => {
     if (!currentJob) return;
 
-    setIsDownloading(true);
-    try {
-      const response = await fetch(`/api/scrape/${currentJob.id}/download`);
-      if (!response.ok) throw new Error("Download failed");
+    if (hasActiveSubscription) {
+      const customerId = localStorage.getItem("websucker_customer_id");
+      setIsDownloading(true);
+      try {
+        const authResponse = await fetch("/api/stripe/authorize-subscriber-download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customerId, jobId: currentJob.id }),
+        });
+        const authData = await authResponse.json();
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${new URL(currentJob.url).hostname}-backup.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+        if (!authData.authorized) {
+          setHasActiveSubscription(false);
+          localStorage.removeItem("websucker_is_subscriber");
+          setShowPricing(true);
+          setIsDownloading(false);
+          return;
+        }
 
-      toast({
-        title: "Download Started",
-        description: "Your website backup is downloading.",
-      });
-    } catch (err) {
-      toast({
-        title: "Download Failed",
-        description: "Could not download the backup. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsDownloading(false);
+        const response = await fetch(`/api/scrape/${currentJob.id}/download`);
+        if (!response.ok) {
+          throw new Error("Download failed");
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${new URL(currentJob.url).hostname}-backup.zip`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        toast({
+          title: "Download Started",
+          description: "Your website backup is downloading.",
+        });
+      } catch (err) {
+        toast({
+          title: "Download Failed",
+          description: "Could not download the backup. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsDownloading(false);
+      }
+    } else {
+      setShowPricing(true);
     }
   };
 
@@ -292,6 +329,11 @@ export default function Home() {
             onDownload={handleDownload}
             onNewScrape={handleNewScrape}
             isDownloading={isDownloading}
+          />
+          <PricingDialog
+            open={showPricing}
+            onOpenChange={setShowPricing}
+            jobId={currentJob.id}
           />
         </div>
       )}

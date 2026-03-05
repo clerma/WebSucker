@@ -11,10 +11,13 @@ WebSucker is a web-based alternative to SiteSucker (Mac app) that allows users t
 - **Results Summary**: Detailed breakdown of successful/failed/skipped assets by type
 - **ZIP Download**: Organized directory structure that works offline without internet
 - **Dark/Light Mode**: Theme toggle for user preference
+- **Payment Gating**: Downloads require payment via Stripe (one-time $5 or $9/month subscription)
 
 ## Tech Stack
 - **Frontend**: React, TypeScript, TailwindCSS, Shadcn/UI, Wouter (routing)
 - **Backend**: Express.js, WebSocket (ws), Puppeteer (headless browser rendering), Cheerio (HTML parsing), Archiver (ZIP creation)
+- **Payments**: Stripe (via Replit integration), stripe-replit-sync for webhook/data sync
+- **Database**: PostgreSQL (for Stripe schema sync)
 - **State**: TanStack Query for data fetching
 - **Storage**: In-memory storage for scrape jobs
 
@@ -22,20 +25,26 @@ WebSucker is a web-based alternative to SiteSucker (Mac app) that allows users t
 ```
 client/
 ├── src/
-│   ├── components/       # Reusable UI components
+│   ├── components/
+│   │   ├── pricing-dialog.tsx      # Payment plan selection dialog
 │   │   ├── progress-display.tsx    # Real-time scraping progress
 │   │   ├── results-summary.tsx     # Post-scrape results view
 │   │   ├── url-input-form.tsx      # URL submission form
 │   │   ├── theme-provider.tsx      # Theme context
 │   │   └── theme-toggle.tsx        # Dark/light toggle
 │   ├── pages/
-│   │   └── home.tsx      # Main application page
-│   └── App.tsx           # Root component with routing
+│   │   ├── home.tsx                # Main application page
+│   │   ├── checkout-success.tsx    # Post-payment success page
+│   │   └── checkout-cancel.tsx     # Payment cancelled page
+│   └── App.tsx                     # Root component with routing
 server/
-├── routes.ts             # API endpoints + WebSocket
+├── routes.ts             # API endpoints + WebSocket + Stripe routes
 ├── scraper.ts            # Core scraping engine
 ├── storage.ts            # In-memory job storage
-└── index.ts              # Express server setup
+├── stripeClient.ts       # Stripe SDK client (Replit connector)
+├── webhookHandlers.ts    # Stripe webhook processing
+├── seed-products.ts      # Script to create Stripe products/prices
+└── index.ts              # Express server setup + Stripe init
 shared/
 └── schema.ts             # Shared TypeScript types
 ```
@@ -43,7 +52,22 @@ shared/
 ## API Endpoints
 - `POST /api/scrape` - Start a new scrape job
 - `GET /api/scrape/:id` - Get job status
-- `GET /api/scrape/:id/download` - Download completed ZIP
+- `GET /api/scrape/:id/download` - Download completed ZIP (requires payment verification)
+- `GET /api/stripe/publishable-key` - Get Stripe publishable key
+- `GET /api/stripe/prices` - Get available pricing plans
+- `POST /api/stripe/checkout` - Create Stripe checkout session
+- `GET /api/stripe/verify-payment` - Verify checkout session payment status
+- `GET /api/stripe/check-subscription` - Check if customer has active subscription
+- `POST /api/stripe/webhook` - Stripe webhook handler (registered before express.json())
+
+## Payment Flow
+1. User scrapes a website → sees results summary
+2. User clicks "Download ZIP" → pricing dialog shows two options
+3. One-time ($5): Pay once for this download
+4. Monthly ($9/mo): Unlimited downloads, cancel anytime
+5. User redirected to Stripe Checkout → completes payment
+6. Redirected back to /checkout/success → payment verified → download starts
+7. Subscribers: customer ID stored in localStorage, future downloads skip pricing dialog
 
 ## WebSocket
 - Path: `/ws`
@@ -56,11 +80,21 @@ shared/
 - **Size Limits**: 10MB max per asset
 - **Analytics Blocking**: Skips common tracking scripts
 
+## Stripe Integration
+- Uses Replit Stripe connector for credentials
+- stripe-replit-sync handles webhook processing and DB sync
+- Webhook route registered BEFORE express.json() middleware
+- Products created via seed-products.ts script
+- Product: "WebSucker" (metadata: app=websucker)
+- Prices: $5.00 one-time, $9.00/month subscription
+
 ## Running Locally
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
 ## Recent Changes
+- March 2026: Payment gating via Stripe - downloads require one-time payment ($5) or monthly subscription ($9/mo)
 - February 2026: Puppeteer headless browser rendering for HTML pages - captures JS-rendered content (dynamic embeds, lazy-loaded assets, SPA content)
+- February 2026: Full-page scrolling to trigger lazy-loaded embeds (500px increments + 5s wait)
 - February 2026: Wix `<wix-iframe>` custom elements converted to standard `<iframe>` for offline embed playback
 - February 2026: Wix `data-anchor` scroll-to-section links converted to proper `#anchor` hash links with smooth scroll script
 - February 2026: Added CSS fixes for Wix `hidden-during-prewarmup` elements and smooth scrolling

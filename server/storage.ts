@@ -10,13 +10,20 @@ export interface IStorage {
   updateAsset(jobId: string, assetId: string, data: Partial<Asset>): Promise<Asset | undefined>;
   completeJob(id: string, downloadPath?: string): Promise<ScrapeJob | undefined>;
   deleteJob(id: string): Promise<void>;
+  authorizeDownload(jobId: string, sessionId: string): void;
+  isDownloadAuthorized(jobId: string): boolean;
+  isSessionConsumed(sessionId: string): boolean;
 }
 
 export class MemStorage implements IStorage {
   private jobs: Map<string, ScrapeJob>;
+  private authorizedJobs: Set<string>;
+  private consumedSessions: Set<string>;
 
   constructor() {
     this.jobs = new Map();
+    this.authorizedJobs = new Set();
+    this.consumedSessions = new Set();
   }
 
   async createJob(url: string): Promise<ScrapeJob> {
@@ -109,6 +116,20 @@ export class MemStorage implements IStorage {
 
   async deleteJob(id: string): Promise<void> {
     this.jobs.delete(id);
+    this.authorizedJobs.delete(id);
+  }
+
+  authorizeDownload(jobId: string, sessionId: string): void {
+    this.authorizedJobs.add(jobId);
+    this.consumedSessions.add(sessionId);
+  }
+
+  isDownloadAuthorized(jobId: string): boolean {
+    return this.authorizedJobs.has(jobId);
+  }
+
+  isSessionConsumed(sessionId: string): boolean {
+    return this.consumedSessions.has(sessionId);
   }
 }
 
