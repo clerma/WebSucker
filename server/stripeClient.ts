@@ -3,6 +3,15 @@ import Stripe from 'stripe';
 let connectionSettings: any;
 
 async function getCredentials() {
+  // In production, prefer explicit environment variables (live Stripe keys)
+  if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PUBLISHABLE_KEY) {
+    return {
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+      secretKey: process.env.STRIPE_SECRET_KEY,
+    };
+  }
+
+  // Fall back to Replit Stripe connector (sandbox/development)
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? 'repl ' + process.env.REPL_IDENTITY
@@ -11,7 +20,7 @@ async function getCredentials() {
       : null;
 
   if (!xReplitToken) {
-    throw new Error('X-Replit-Token not found for repl/depl');
+    throw new Error('No Stripe credentials found. Set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY, or configure the Replit Stripe connector.');
   }
 
   const connectorName = 'stripe';
@@ -34,7 +43,7 @@ async function getCredentials() {
   connectionSettings = data.items?.[0];
 
   if (!connectionSettings || (!connectionSettings.settings.publishable || !connectionSettings.settings.secret)) {
-    throw new Error(`Stripe ${targetEnvironment} connection not found`);
+    throw new Error(`Stripe ${targetEnvironment} connection not found. Set STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY environment variables to use live Stripe.`);
   }
 
   return {

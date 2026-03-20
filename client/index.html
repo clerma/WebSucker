@@ -4,17 +4,127 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <title>Website Sucker - Website Scraper & Offline Backup Tool</title>
-    <meta name="description" content="Analyse and download complete websites for offline viewing. Extract HTML, CSS, JavaScript, and images from any site. Free to analyse — pay only to download. Perfect for CMS migrations and website backups." />
-    <meta property="og:title" content="Website Sucker - Website Scraper & Offline Backup Tool" />
-    <meta property="og:description" content="Analyse any website for free. Download the complete offline backup for just $1.99, or get unlimited downloads for $5.99/month." />
+
+    <!-- Primary SEO -->
+    <title>Website Sucker - Download Any Website for Offline Viewing</title>
+    <meta name="description" content="Website Sucker lets you scrape and download any website as a complete offline backup. Free to analyse — extract HTML, CSS, JavaScript, images & fonts. Download for $1.99 or get unlimited downloads for $5.99/month. Perfect for CMS migrations, website backups, and archiving." />
+    <meta name="keywords" content="website downloader, offline website, site sucker, website backup, CMS migration, website scraper, download website, offline viewer, SiteSucker alternative, website archiver, HTML downloader, website ripper" />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="Website Sucker" />
+    <link rel="canonical" href="https://websitesucker.com/" />
+
+    <!-- Open Graph -->
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Website Sucker" />
+    <meta property="og:title" content="Website Sucker - Download Any Website for Offline Viewing" />
+    <meta property="og:description" content="Scrape and download any website as a complete offline backup. Free to analyse. $1.99 one-time download or $5.99/month for unlimited. No Mac required — works in your browser." />
+    <meta property="og:url" content="https://websitesucker.com/" />
+    <meta property="og:image" content="https://websitesucker.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Website Sucker - Download Any Website for Offline Viewing" />
+    <meta name="twitter:description" content="Scrape and download any website as a complete offline backup. Free to analyse. Pay only to download. No Mac required." />
+    <meta name="twitter:image" content="https://websitesucker.com/og-image.png" />
+
+    <!-- Structured Data: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Website Sucker",
+      "url": "https://websitesucker.com",
+      "description": "A web-based tool to scrape and download any website as a complete offline backup. Extract HTML, CSS, JavaScript, images, fonts, and more. Perfect for CMS migrations, website backups, and archiving.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Web Browser",
+      "offers": [
+        {
+          "@type": "Offer",
+          "name": "One-Time Download",
+          "price": "1.99",
+          "priceCurrency": "USD",
+          "description": "Single website download"
+        },
+        {
+          "@type": "Offer",
+          "name": "Monthly Subscription",
+          "price": "5.99",
+          "priceCurrency": "USD",
+          "priceSpecification": {
+            "@type": "UnitPriceSpecification",
+            "price": "5.99",
+            "priceCurrency": "USD",
+            "unitCode": "MON"
+          },
+          "description": "Unlimited website downloads per month"
+        }
+      ],
+      "featureList": [
+        "Download complete websites for offline viewing",
+        "Extract HTML, CSS, JavaScript, images, and fonts",
+        "Preserve embedded content (YouTube, Vimeo, Google Maps, Spotify)",
+        "Real-time download progress",
+        "Organised offline directory structure",
+        "Works with Squarespace, Wix, WordPress, and more",
+        "SiteSucker alternative that works in any browser"
+      ]
+    }
+    </script>
+
+    <!-- Structured Data: WebSite + SearchAction -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Website Sucker",
+      "url": "https://websitesucker.com",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://websitesucker.com/?url={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static content for SEO crawlers before JavaScript loads -->
+      <noscript>
+        <main style="font-family:sans-serif;max-width:800px;margin:60px auto;padding:0 20px;">
+          <h1>Website Sucker — Download Any Website for Offline Viewing</h1>
+          <p>Website Sucker is a web-based alternative to SiteSucker that lets you scrape and download any website as a complete offline backup — right from your browser, no Mac app required.</p>
+          <h2>What it does</h2>
+          <ul>
+            <li>Extracts HTML pages, CSS stylesheets, JavaScript, images, fonts, and other assets</li>
+            <li>Preserves embedded content: YouTube, Vimeo, Google Maps, Spotify, and more</li>
+            <li>Shows real-time download progress</li>
+            <li>Packages everything into an organised ZIP file that works offline</li>
+            <li>Compatible with Squarespace, Wix, WordPress, and most CMS platforms</li>
+          </ul>
+          <h2>Pricing</h2>
+          <p>Analysing any website is completely free. Download when you're ready:</p>
+          <ul>
+            <li><strong>$1.99</strong> — One-time download</li>
+            <li><strong>$5.99/month</strong> — Unlimited downloads</li>
+          </ul>
+          <h2>Use Cases</h2>
+          <ul>
+            <li>CMS migrations and platform switches</li>
+            <li>Website backups and archiving</li>
+            <li>Offline design reference</li>
+            <li>Client handovers and website snapshots</li>
+          </ul>
+          <p>Enable JavaScript to use Website Sucker.</p>
+        </main>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

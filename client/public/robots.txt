@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /checkout/
+
+Sitemap: https://websitesucker.com/sitemap.xml
