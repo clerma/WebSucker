@@ -304,13 +304,19 @@ export default function Home() {
           </div>
 
           <div className="bg-muted/50 border-t py-12 px-4">
-            <div className="max-w-4xl mx-auto">
+            <div className="max-w-4xl mx-auto flex flex-col items-center gap-3">
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                 <Shield className="h-4 w-4" />
                 <span className="text-sm">
                   Analysing is always free. Your data stays private. Files are deleted after download.
                 </span>
               </div>
+              <a
+                href="/terms"
+                className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              >
+                Terms &amp; Conditions
+              </a>
             </div>
           </div>
         </div>
