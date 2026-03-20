@@ -38,10 +38,10 @@ export default function CheckoutSuccess() {
         setIsSubscription(data.isSubscription || false);
         if (data.customerId) {
           setCustomerId(data.customerId);
-          localStorage.setItem("websucker_customer_id", data.customerId);
+          localStorage.setItem("websitesucker_customer_id", data.customerId);
         }
         if (data.isSubscription) {
-          localStorage.setItem("websucker_is_subscriber", "true");
+          localStorage.setItem("websitesucker_is_subscriber", "true");
         }
       } else {
         setStatus("failed");

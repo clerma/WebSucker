@@ -1,7 +1,7 @@
-# WebSucker - Website Scraper & Offline Backup Tool
+# Website Sucker - Website Scraper & Offline Backup Tool
 
 ## Overview
-WebSucker is a web-based alternative to SiteSucker (Mac app) that allows users to download complete websites for offline viewing. Perfect for CMS migrations, website backups, and archiving.
+Website Sucker (websitesucker.com) is a web-based alternative to SiteSucker (Mac app) that allows users to scrape and analyse any website for free, then download the complete offline backup for a small fee. Perfect for CMS migrations, website backups, and archiving.
 
 ## Features
 - **URL Input**: Enter any website URL to start scraping

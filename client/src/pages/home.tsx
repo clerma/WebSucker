@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Globe, ArrowDown, Zap, Shield, FolderOpen } from "lucide-react";
+import { Globe, ArrowDown, Zap, Shield, FolderOpen, Lock } from "lucide-react";
 import { UrlInputForm } from "@/components/url-input-form";
 import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
@@ -34,7 +34,7 @@ export default function Home() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const customerId = localStorage.getItem("websucker_customer_id");
+    const customerId = localStorage.getItem("websitesucker_customer_id");
     if (customerId) {
       fetch(`/api/stripe/check-subscription?customer_id=${customerId}`)
         .then((res) => res.json())
@@ -161,7 +161,7 @@ export default function Home() {
     if (!currentJob) return;
 
     if (hasActiveSubscription) {
-      const customerId = localStorage.getItem("websucker_customer_id");
+      const customerId = localStorage.getItem("websitesucker_customer_id");
       setIsDownloading(true);
       try {
         const authResponse = await fetch("/api/stripe/authorize-subscriber-download", {
@@ -173,7 +173,7 @@ export default function Home() {
 
         if (!authData.authorized) {
           setHasActiveSubscription(false);
-          localStorage.removeItem("websucker_is_subscriber");
+          localStorage.removeItem("websitesucker_is_subscriber");
           setShowPricing(true);
           setIsDownloading(false);
           return;
@@ -244,11 +244,11 @@ export default function Home() {
                 <Globe className="h-8 w-8 text-primary" />
               </div>
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-                WebSucker
+                Website Sucker
               </h1>
               <p className="text-lg text-muted-foreground max-w-lg mx-auto">
-                Download complete websites for offline viewing. Perfect for CMS
-                migrations and website backups.
+                Analyse any website for free — see exactly what assets it uses.
+                Pay only when you want to download the offline backup.
               </p>
             </div>
 
@@ -268,18 +268,18 @@ export default function Home() {
               <div className="grid md:grid-cols-3 gap-8">
                 <FeatureCard
                   icon={Globe}
-                  title="Enter URL"
-                  description="Paste the website URL you want to backup or migrate"
+                  title="1. Enter URL — Free"
+                  description="Paste any website URL. Analysing is completely free with no account needed."
                 />
                 <FeatureCard
                   icon={Zap}
-                  title="Smart Scraping"
-                  description="We extract HTML, CSS, JS, images, and more automatically"
+                  title="2. See Everything — Free"
+                  description="We scan and list every asset — HTML, CSS, JS, images, fonts, and more."
                 />
                 <FeatureCard
-                  icon={FolderOpen}
-                  title="Download & Use"
-                  description="Get organized files that work offline without internet"
+                  icon={Lock}
+                  title="3. Download — From $1.99"
+                  description="Happy with the results? Pay once for $1.99 or get unlimited downloads for $5.99/month."
                 />
               </div>
             </div>
@@ -308,7 +308,7 @@ export default function Home() {
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                 <Shield className="h-4 w-4" />
                 <span className="text-sm">
-                  Your data stays private. Files are deleted after download.
+                  Analysing is always free. Your data stays private. Files are deleted after download.
                 </span>
               </div>
             </div>

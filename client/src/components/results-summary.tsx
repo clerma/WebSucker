@@ -11,6 +11,7 @@ import {
   ExternalLink,
   SkipForward,
   RefreshCw,
+  Lock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -92,15 +93,26 @@ export function ResultsSummary({
                 <RefreshCw className="h-4 w-4" />
                 New Scrape
               </Button>
-              <Button
-                onClick={onDownload}
-                disabled={isDownloading || successAssets.length === 0}
-                className="gap-2"
-                data-testid="button-download"
-              >
-                <Download className="h-4 w-4" />
-                {isDownloading ? "Preparing..." : "Download ZIP"}
-              </Button>
+              <div className="flex flex-col items-end gap-1">
+                <Button
+                  onClick={onDownload}
+                  disabled={isDownloading || successAssets.length === 0}
+                  className="gap-2"
+                  data-testid="button-download"
+                >
+                  {isDownloading ? (
+                    <Download className="h-4 w-4" />
+                  ) : (
+                    <Lock className="h-4 w-4" />
+                  )}
+                  {isDownloading ? "Preparing..." : "Download ZIP"}
+                </Button>
+                {!isDownloading && successAssets.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    from $1.99 · $5.99/mo unlimited
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </CardHeader>

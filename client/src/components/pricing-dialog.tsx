@@ -88,10 +88,10 @@ export function PricingDialog({ open, onOpenChange, jobId }: PricingDialogProps)
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <CreditCard className="h-5 w-5" />
-            Download Your Backup
+            Unlock Your Download
           </DialogTitle>
           <DialogDescription>
-            Choose a plan to download your scraped website files.
+            Analysing is free. Choose a plan to download the complete offline backup.
           </DialogDescription>
         </DialogHeader>
 
