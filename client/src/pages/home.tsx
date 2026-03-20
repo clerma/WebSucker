@@ -340,6 +340,10 @@ export default function Home() {
             open={showPricing}
             onOpenChange={setShowPricing}
             jobId={currentJob.id}
+            onSubscriptionRestored={(customerId) => {
+              setHasActiveSubscription(true);
+              setShowPricing(false);
+            }}
           />
         </div>
       )}

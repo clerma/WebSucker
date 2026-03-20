@@ -300,6 +300,8 @@ export async function registerRoutes(
       } catch {
         return res.status(404).json({ message: "Download file not found" });
       }
+
+      storage.recordDownload();
       
       const hostname = new URL(job.url).hostname;
       res.setHeader("Content-Type", "application/zip");
@@ -321,6 +323,88 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Download error:", error);
       res.status(500).json({ message: "Download failed" });
+    }
+  });
+
+  app.post("/api/stripe/customer-lookup", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string") {
+        return res.status(400).json({ found: false, message: "Email required" });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const customers = await stripe.customers.list({ email: email.toLowerCase().trim(), limit: 5 });
+
+      for (const customer of customers.data) {
+        const subscriptions = await stripe.subscriptions.list({
+          customer: customer.id,
+          status: "active",
+          limit: 1,
+        });
+        if (subscriptions.data.length > 0) {
+          return res.json({ found: true, customerId: customer.id, email: customer.email });
+        }
+      }
+
+      res.json({ found: false, message: "No active subscription found for this email" });
+    } catch (error) {
+      console.error("Customer lookup error:", error);
+      res.status(500).json({ found: false, message: "Lookup failed" });
+    }
+  });
+
+  app.get("/api/admin/stats", async (req, res) => {
+    const secret = req.headers["x-admin-secret"];
+    const adminSecret = process.env.ADMIN_SECRET;
+
+    if (!adminSecret || secret !== adminSecret) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const analytics = storage.getAnalytics();
+
+      const stripe = await getUncachableStripeClient();
+
+      const [subscriptions, charges] = await Promise.all([
+        stripe.subscriptions.list({ status: "active", limit: 100 }),
+        stripe.charges.list({ limit: 20 }),
+      ]);
+
+      const activeSubscribers = subscriptions.data.length;
+
+      const monthlyRevenue = subscriptions.data.reduce((sum, sub) => {
+        const item = sub.items.data[0];
+        return sum + (item?.price.unit_amount ?? 0);
+      }, 0);
+
+      const totalRevenue = charges.data
+        .filter((c) => c.status === "succeeded")
+        .reduce((sum, c) => sum + c.amount, 0);
+
+      const recentCharges = charges.data.map((c) => ({
+        id: c.id,
+        amount: c.amount,
+        currency: c.currency,
+        description: c.description,
+        created: c.created,
+        status: c.status,
+        email: c.billing_details?.email ?? null,
+      }));
+
+      res.json({
+        analytics,
+        stripe: {
+          activeSubscribers,
+          monthlyRevenue,
+          totalRevenue,
+          recentCharges,
+        },
+      });
+    } catch (error) {
+      console.error("Admin stats error:", error);
+      res.status(500).json({ message: "Failed to fetch stats" });
     }
   });
 

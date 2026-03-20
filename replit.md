@@ -91,7 +91,25 @@ shared/
 ## Running Locally
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
+## Admin Dashboard
+- URL: `/admin` (password-protected)
+- Password set via `ADMIN_SECRET` environment variable
+- Shows: total scrapes, assets scraped, downloads, unique sites, active subscribers, MRR, total revenue
+- Recent scrapes list and recent Stripe payments
+- Stats are in-memory (reset on server restart) + live Stripe data
+
+## Subscriber Login / Restore Access
+- Subscribers can restore access via the pricing dialog: "Already subscribed? Restore access"
+- Enter subscription email → server looks up Stripe customer → restores localStorage customerID
+- Endpoint: `POST /api/stripe/customer-lookup`
+
+## API Endpoints (additional)
+- `POST /api/stripe/customer-lookup` - Find Stripe customer by email (subscription restore)
+- `GET /api/admin/stats` - Admin analytics (requires `x-admin-secret` header)
+
 ## Recent Changes
+- March 2026: Admin dashboard at /admin with usage and Stripe revenue analytics
+- March 2026: Subscriber email restore - "Already subscribed?" in pricing dialog
 - March 2026: Payment gating via Stripe - downloads require one-time payment ($1.99) or monthly subscription ($5.99/mo)
 - February 2026: Puppeteer headless browser rendering for HTML pages - captures JS-rendered content (dynamic embeds, lazy-loaded assets, SPA content)
 - February 2026: Full-page scrolling to trigger lazy-loaded embeds (500px increments + 5s wait)

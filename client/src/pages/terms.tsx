@@ -1,4 +1,3 @@
-import { Link } from "wouter";
 import { Scale, ArrowLeft } from "lucide-react";
 
 export default function Terms() {
@@ -6,12 +5,10 @@ export default function Terms() {
     <div className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-4 py-16">
         <div className="mb-10">
-          <Link href="/">
-            <a className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Website Sucker
-            </a>
-          </Link>
+          <a href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Website Sucker
+          </a>
           <div className="flex items-center gap-3 mb-4">
             <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10">
               <Scale className="h-5 w-5 text-primary" />

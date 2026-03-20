@@ -1,6 +1,22 @@
 import { randomUUID } from "crypto";
 import type { Asset, ScrapeJob, ScrapeStatus, AssetStatus, AssetType } from "@shared/schema";
 
+export interface AnalyticsData {
+  totalJobsCreated: number;
+  totalAssetsScraped: number;
+  totalDownloads: number;
+  uniqueUrlsScraped: string[];
+  recentJobs: Array<{
+    id: string;
+    url: string;
+    status: ScrapeStatus;
+    totalAssets: number;
+    successfulAssets: number;
+    createdAt: string;
+    completedAt?: string;
+  }>;
+}
+
 export interface IStorage {
   createJob(url: string): Promise<ScrapeJob>;
   getJob(id: string): Promise<ScrapeJob | undefined>;
@@ -13,17 +29,29 @@ export interface IStorage {
   authorizeDownload(jobId: string, sessionId: string): void;
   isDownloadAuthorized(jobId: string): boolean;
   isSessionConsumed(sessionId: string): boolean;
+  recordDownload(): void;
+  getAnalytics(): AnalyticsData;
 }
 
 export class MemStorage implements IStorage {
   private jobs: Map<string, ScrapeJob>;
   private authorizedJobs: Set<string>;
   private consumedSessions: Set<string>;
+  private totalJobsCreated: number;
+  private totalAssetsScraped: number;
+  private totalDownloads: number;
+  private uniqueUrlsScraped: Set<string>;
+  private recentJobs: AnalyticsData["recentJobs"];
 
   constructor() {
     this.jobs = new Map();
     this.authorizedJobs = new Set();
     this.consumedSessions = new Set();
+    this.totalJobsCreated = 0;
+    this.totalAssetsScraped = 0;
+    this.totalDownloads = 0;
+    this.uniqueUrlsScraped = new Set();
+    this.recentJobs = [];
   }
 
   async createJob(url: string): Promise<ScrapeJob> {
@@ -40,6 +68,11 @@ export class MemStorage implements IStorage {
       failedAssets: 0,
     };
     this.jobs.set(id, job);
+    this.totalJobsCreated++;
+    try {
+      const hostname = new URL(url).hostname;
+      this.uniqueUrlsScraped.add(hostname);
+    } catch {}
     return job;
   }
 
@@ -74,6 +107,7 @@ export class MemStorage implements IStorage {
     job.assets.push(asset);
     job.totalAssets = job.assets.length;
     this.jobs.set(jobId, job);
+    this.totalAssetsScraped++;
     return asset;
   }
 
@@ -91,7 +125,6 @@ export class MemStorage implements IStorage {
     const asset = { ...job.assets[assetIndex], ...data };
     job.assets[assetIndex] = asset;
 
-    // Recalculate stats
     job.processedAssets = job.assets.filter(
       (a) => a.status === "success" || a.status === "failed" || a.status === "skipped"
     ).length;
@@ -111,6 +144,20 @@ export class MemStorage implements IStorage {
     if (downloadPath) job.downloadPath = downloadPath;
 
     this.jobs.set(id, job);
+
+    this.recentJobs.unshift({
+      id: job.id,
+      url: job.url,
+      status: job.status,
+      totalAssets: job.totalAssets,
+      successfulAssets: job.successfulAssets,
+      createdAt: job.createdAt,
+      completedAt: job.completedAt,
+    });
+    if (this.recentJobs.length > 50) {
+      this.recentJobs = this.recentJobs.slice(0, 50);
+    }
+
     return job;
   }
 
@@ -130,6 +177,20 @@ export class MemStorage implements IStorage {
 
   isSessionConsumed(sessionId: string): boolean {
     return this.consumedSessions.has(sessionId);
+  }
+
+  recordDownload(): void {
+    this.totalDownloads++;
+  }
+
+  getAnalytics(): AnalyticsData {
+    return {
+      totalJobsCreated: this.totalJobsCreated,
+      totalAssetsScraped: this.totalAssetsScraped,
+      totalDownloads: this.totalDownloads,
+      uniqueUrlsScraped: Array.from(this.uniqueUrlsScraped),
+      recentJobs: this.recentJobs,
+    };
   }
 }
 
