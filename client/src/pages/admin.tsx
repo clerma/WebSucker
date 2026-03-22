@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, CheckCircle2, XCircle, DollarSign } from "lucide-react";
+import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
 
 interface AnalyticsData {
   totalJobsCreated: number;
@@ -42,6 +43,14 @@ interface AdminStats {
   stripe: StripeStats;
 }
 
+interface AccessCode {
+  code: string;
+  note: string;
+  maxUses: number | null;
+  uses: number;
+  createdAt: string;
+}
+
 const STORAGE_KEY = "websitesucker_admin_authed";
 
 export default function Admin() {
@@ -52,6 +61,12 @@ export default function Admin() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [accessCodes, setAccessCodes] = useState<AccessCode[]>([]);
+  const [codeNote, setCodeNote] = useState("");
+  const [codeMaxUses, setCodeMaxUses] = useState("");
+  const [codeGenerating, setCodeGenerating] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,8 +121,57 @@ export default function Admin() {
     setStats(null);
   };
 
+  const fetchAccessCodes = async () => {
+    const secret = sessionStorage.getItem("websitesucker_admin_secret");
+    if (!secret) return;
+    const res = await fetch("/api/admin/access-codes", { headers: { "x-admin-secret": secret } });
+    if (res.ok) {
+      const data = await res.json();
+      setAccessCodes(data.codes);
+    }
+  };
+
+  const handleGenerateCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const secret = sessionStorage.getItem("websitesucker_admin_secret");
+    if (!secret) return;
+    setCodeGenerating(true);
+    try {
+      const res = await fetch("/api/admin/access-codes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+        body: JSON.stringify({ note: codeNote, maxUses: codeMaxUses ? parseInt(codeMaxUses) : null }),
+      });
+      const data = await res.json();
+      if (data.code) {
+        setAccessCodes((prev) => [data.code, ...prev]);
+        setCodeNote("");
+        setCodeMaxUses("");
+      }
+    } finally {
+      setCodeGenerating(false);
+    }
+  };
+
+  const handleDeleteCode = async (code: string) => {
+    const secret = sessionStorage.getItem("websitesucker_admin_secret");
+    if (!secret) return;
+    await fetch(`/api/admin/access-codes/${code}`, { method: "DELETE", headers: { "x-admin-secret": secret } });
+    setAccessCodes((prev) => prev.filter((c) => c.code !== code));
+  };
+
+  const handleCopyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    toast({ title: "Copied!", description: `${code} copied to clipboard.` });
+    setTimeout(() => setCopiedCode(null), 2000);
+  };
+
   useEffect(() => {
-    if (authed) fetchStats();
+    if (authed) {
+      fetchStats();
+      fetchAccessCodes();
+    }
   }, [authed]);
 
   if (!authed) {
@@ -310,6 +374,85 @@ export default function Admin() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-muted-foreground" />
+              Access Codes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form onSubmit={handleGenerateCode} className="flex flex-wrap gap-2 items-end">
+              <div className="flex-1 min-w-[140px]">
+                <label className="text-xs text-muted-foreground mb-1 block">Note (optional)</label>
+                <Input
+                  placeholder="e.g. For John"
+                  value={codeNote}
+                  onChange={(e) => setCodeNote(e.target.value)}
+                  data-testid="input-code-note"
+                />
+              </div>
+              <div className="w-28">
+                <label className="text-xs text-muted-foreground mb-1 block">Max uses</label>
+                <Input
+                  type="number"
+                  min="1"
+                  placeholder="∞"
+                  value={codeMaxUses}
+                  onChange={(e) => setCodeMaxUses(e.target.value)}
+                  data-testid="input-code-max-uses"
+                />
+              </div>
+              <Button type="submit" disabled={codeGenerating} className="gap-2" data-testid="button-generate-code">
+                <Plus className="h-4 w-4" />
+                {codeGenerating ? "Generating…" : "Generate Code"}
+              </Button>
+            </form>
+
+            {accessCodes.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No access codes yet. Generate one above.</p>
+            ) : (
+              <div className="divide-y border rounded-lg overflow-hidden">
+                {accessCodes.map((c) => (
+                  <div key={c.code} className="flex items-center gap-3 px-4 py-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-semibold tracking-wider text-sm">{c.code}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => handleCopyCode(c.code)}
+                          data-testid={`button-copy-code-${c.code}`}
+                        >
+                          {copiedCode === c.code ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {c.note || "No note"} · {c.uses} used
+                        {c.maxUses !== null ? ` / ${c.maxUses} max` : " · unlimited"}
+                        {" · "}{new Date(c.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <Badge variant={c.maxUses !== null && c.uses >= c.maxUses ? "destructive" : "secondary"} className="text-xs shrink-0">
+                      {c.maxUses === null ? "∞" : `${c.uses}/${c.maxUses}`}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => handleDeleteCode(c.code)}
+                      data-testid={`button-delete-code-${c.code}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {(stats?.analytics.uniqueUrlsScraped.length ?? 0) > 0 && (
           <Card>

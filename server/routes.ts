@@ -354,6 +354,48 @@ export async function registerRoutes(
     }
   });
 
+  // Access code management (admin-protected)
+  app.get("/api/admin/access-codes", (req, res) => {
+    const secret = req.headers["x-admin-secret"];
+    if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    res.json({ codes: storage.listAccessCodes() });
+  });
+
+  app.post("/api/admin/access-codes", (req, res) => {
+    const secret = req.headers["x-admin-secret"];
+    if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { note, maxUses } = req.body;
+    const code = storage.createAccessCode(note || "", maxUses ?? null);
+    res.json({ code });
+  });
+
+  app.delete("/api/admin/access-codes/:code", (req, res) => {
+    const secret = req.headers["x-admin-secret"];
+    if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const deleted = storage.deleteAccessCode(req.params.code);
+    res.json({ deleted });
+  });
+
+  // Redeem an access code to authorize a download
+  app.post("/api/access-code/redeem", (req, res) => {
+    const { code, jobId } = req.body;
+    if (!code || !jobId) {
+      return res.status(400).json({ success: false, message: "Code and jobId are required" });
+    }
+    const valid = storage.redeemAccessCode(code);
+    if (!valid) {
+      return res.status(400).json({ success: false, message: "Invalid or expired access code" });
+    }
+    storage.authorizeDownload(jobId, `code:${code}:${jobId}`);
+    res.json({ success: true });
+  });
+
   app.get("/api/admin/stats", async (req, res) => {
     const secret = req.headers["x-admin-secret"];
     const adminSecret = process.env.ADMIN_SECRET;

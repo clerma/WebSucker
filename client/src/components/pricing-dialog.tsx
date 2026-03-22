@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { CreditCard, Zap, Calendar, Loader2, Mail, CheckCircle2, ChevronDown } from "lucide-react";
+import { CreditCard, Zap, Calendar, Loader2, Mail, CheckCircle2, ChevronDown, KeyRound } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +35,11 @@ export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestore
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [restoreSuccess, setRestoreSuccess] = useState(false);
   const [restoreError, setRestoreError] = useState("");
+  const [showAccessCode, setShowAccessCode] = useState(false);
+  const [accessCode, setAccessCode] = useState("");
+  const [accessCodeLoading, setAccessCodeLoading] = useState(false);
+  const [accessCodeSuccess, setAccessCodeSuccess] = useState(false);
+  const [accessCodeError, setAccessCodeError] = useState("");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -44,6 +49,10 @@ export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestore
       setRestoreEmail("");
       setRestoreSuccess(false);
       setRestoreError("");
+      setShowAccessCode(false);
+      setAccessCode("");
+      setAccessCodeSuccess(false);
+      setAccessCodeError("");
     }
   }, [open]);
 
@@ -114,6 +123,30 @@ export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestore
       setRestoreError("Could not look up your subscription. Please try again.");
     } finally {
       setRestoreLoading(false);
+    }
+  };
+
+  const handleRedeemAccessCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAccessCodeLoading(true);
+    setAccessCodeError("");
+    try {
+      const res = await fetch("/api/access-code/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: accessCode.trim().toUpperCase(), jobId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAccessCodeSuccess(true);
+        setTimeout(() => onOpenChange(false), 1500);
+      } else {
+        setAccessCodeError(data.message || "Invalid or expired access code.");
+      }
+    } catch {
+      setAccessCodeError("Could not validate the code. Please try again.");
+    } finally {
+      setAccessCodeLoading(false);
     }
   };
 
@@ -219,10 +252,57 @@ export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestore
               </div>
             )}
 
-            <div className="border-t pt-3">
+            <div className="border-t pt-3 space-y-2">
               <button
                 type="button"
-                onClick={() => { setShowRestore(!showRestore); setRestoreError(""); }}
+                onClick={() => { setShowAccessCode(!showAccessCode); setAccessCodeError(""); setShowRestore(false); }}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mx-auto"
+                data-testid="button-have-access-code"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Have an access code?
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showAccessCode ? "rotate-180" : ""}`} />
+              </button>
+
+              {showAccessCode && (
+                <div className="mt-1">
+                  {accessCodeSuccess ? (
+                    <div className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400 py-2">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span className="text-sm font-medium">Access granted! Closing…</span>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleRedeemAccessCode} className="space-y-2">
+                      <Input
+                        type="text"
+                        placeholder="e.g. SUNSET-4821"
+                        value={accessCode}
+                        onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
+                        required
+                        className={`font-mono tracking-wider ${accessCodeError ? "border-destructive" : ""}`}
+                        data-testid="input-access-code"
+                      />
+                      {accessCodeError && (
+                        <p className="text-xs text-destructive">{accessCodeError}</p>
+                      )}
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        className="w-full"
+                        disabled={accessCodeLoading || !accessCode}
+                        data-testid="button-access-code-submit"
+                      >
+                        {accessCodeLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        {accessCodeLoading ? "Validating…" : "Apply Code"}
+                      </Button>
+                    </form>
+                  )}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => { setShowRestore(!showRestore); setRestoreError(""); setShowAccessCode(false); }}
                 className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mx-auto"
                 data-testid="button-already-subscribed"
               >
@@ -232,7 +312,7 @@ export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestore
               </button>
 
               {showRestore && (
-                <div className="mt-3">
+                <div className="mt-1">
                   {restoreSuccess ? (
                     <div className="flex items-center justify-center gap-2 text-green-600 dark:text-green-400 py-2">
                       <CheckCircle2 className="h-4 w-4" />
@@ -259,9 +339,7 @@ export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestore
                         disabled={restoreLoading || !restoreEmail}
                         data-testid="button-restore-submit"
                       >
-                        {restoreLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        ) : null}
+                        {restoreLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                         {restoreLoading ? "Looking up…" : "Restore Access"}
                       </Button>
                     </form>

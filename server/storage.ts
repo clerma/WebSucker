@@ -1,6 +1,14 @@
 import { randomUUID } from "crypto";
 import type { Asset, ScrapeJob, ScrapeStatus, AssetStatus, AssetType } from "@shared/schema";
 
+export interface AccessCode {
+  code: string;
+  note: string;
+  maxUses: number | null;
+  uses: number;
+  createdAt: string;
+}
+
 export interface AnalyticsData {
   totalJobsCreated: number;
   totalAssetsScraped: number;
@@ -31,6 +39,10 @@ export interface IStorage {
   isSessionConsumed(sessionId: string): boolean;
   recordDownload(): void;
   getAnalytics(): AnalyticsData;
+  createAccessCode(note: string, maxUses: number | null): AccessCode;
+  listAccessCodes(): AccessCode[];
+  deleteAccessCode(code: string): boolean;
+  redeemAccessCode(code: string): boolean;
 }
 
 export class MemStorage implements IStorage {
@@ -42,6 +54,7 @@ export class MemStorage implements IStorage {
   private totalDownloads: number;
   private uniqueUrlsScraped: Set<string>;
   private recentJobs: AnalyticsData["recentJobs"];
+  private accessCodes: Map<string, AccessCode>;
 
   constructor() {
     this.jobs = new Map();
@@ -52,6 +65,7 @@ export class MemStorage implements IStorage {
     this.totalDownloads = 0;
     this.uniqueUrlsScraped = new Set();
     this.recentJobs = [];
+    this.accessCodes = new Map();
   }
 
   async createJob(url: string): Promise<ScrapeJob> {
@@ -191,6 +205,41 @@ export class MemStorage implements IStorage {
       uniqueUrlsScraped: Array.from(this.uniqueUrlsScraped),
       recentJobs: this.recentJobs,
     };
+  }
+
+  createAccessCode(note: string, maxUses: number | null): AccessCode {
+    const words = ["SUNSET", "RIVER", "FALCON", "EMBER", "WAVE", "CEDAR", "DUSK", "PINE", "FROST", "BLOOM"];
+    const word = words[Math.floor(Math.random() * words.length)];
+    const num = Math.floor(1000 + Math.random() * 9000);
+    const code = `${word}-${num}`;
+    const entry: AccessCode = {
+      code,
+      note: note || "",
+      maxUses,
+      uses: 0,
+      createdAt: new Date().toISOString(),
+    };
+    this.accessCodes.set(code, entry);
+    return entry;
+  }
+
+  listAccessCodes(): AccessCode[] {
+    return Array.from(this.accessCodes.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }
+
+  deleteAccessCode(code: string): boolean {
+    return this.accessCodes.delete(code);
+  }
+
+  redeemAccessCode(code: string): boolean {
+    const entry = this.accessCodes.get(code.toUpperCase().trim());
+    if (!entry) return false;
+    if (entry.maxUses !== null && entry.uses >= entry.maxUses) return false;
+    entry.uses++;
+    this.accessCodes.set(entry.code, entry);
+    return true;
   }
 }
 
