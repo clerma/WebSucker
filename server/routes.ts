@@ -82,7 +82,18 @@ export async function registerRoutes(
           });
           
           const completedJob = await storage.completeJob(job.id, zipPath);
-          broadcast(job.id, { type: "complete", job: completedJob });
+
+          // Schedule automatic cleanup after 10 minutes so temp files don't pile up.
+          // The timer is cancelled if the user downloads first.
+          const TTL_MS = 10 * 60 * 1000;
+          storage.scheduleExpiry(job.id, async () => {
+            await cleanupScrapeFiles(job.id);
+            await storage.deleteJob(job.id);
+          }, TTL_MS);
+
+          // Re-fetch job so expiresAt is included in the broadcast
+          const jobWithExpiry = await storage.getJob(job.id);
+          broadcast(job.id, { type: "complete", job: jobWithExpiry ?? completedJob });
           
         } catch (error) {
           console.error("Scrape error:", error);
@@ -301,6 +312,8 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Download file not found" });
       }
 
+      // Cancel the 10-minute expiry timer so it doesn't delete files mid-download
+      storage.cancelExpiry(job.id);
       storage.recordDownload();
       
       const hostname = new URL(job.url).hostname;

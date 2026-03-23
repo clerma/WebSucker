@@ -27,6 +27,7 @@ export const scrapeJobSchema = z.object({
   status: ScrapeStatus,
   createdAt: z.string(),
   completedAt: z.string().optional(),
+  expiresAt: z.string().optional(),
   assets: z.array(assetSchema),
   totalAssets: z.number(),
   processedAssets: z.number(),

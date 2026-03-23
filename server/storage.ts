@@ -34,6 +34,8 @@ export interface IStorage {
   updateAsset(jobId: string, assetId: string, data: Partial<Asset>): Promise<Asset | undefined>;
   completeJob(id: string, downloadPath?: string): Promise<ScrapeJob | undefined>;
   deleteJob(id: string): Promise<void>;
+  scheduleExpiry(id: string, onExpire: () => void, ttlMs: number): void;
+  cancelExpiry(id: string): void;
   authorizeDownload(jobId: string, sessionId: string): void;
   isDownloadAuthorized(jobId: string): boolean;
   isSessionConsumed(sessionId: string): boolean;
@@ -49,6 +51,7 @@ export class MemStorage implements IStorage {
   private jobs: Map<string, ScrapeJob>;
   private authorizedJobs: Set<string>;
   private consumedSessions: Set<string>;
+  private expiryTimers: Map<string, ReturnType<typeof setTimeout>>;
   private totalJobsCreated: number;
   private totalAssetsScraped: number;
   private totalDownloads: number;
@@ -60,6 +63,7 @@ export class MemStorage implements IStorage {
     this.jobs = new Map();
     this.authorizedJobs = new Set();
     this.consumedSessions = new Set();
+    this.expiryTimers = new Map();
     this.totalJobsCreated = 0;
     this.totalAssetsScraped = 0;
     this.totalDownloads = 0;
@@ -149,6 +153,29 @@ export class MemStorage implements IStorage {
     return asset;
   }
 
+  scheduleExpiry(id: string, onExpire: () => void, ttlMs: number): void {
+    this.cancelExpiry(id);
+    const timer = setTimeout(() => {
+      this.expiryTimers.delete(id);
+      onExpire();
+    }, ttlMs);
+    this.expiryTimers.set(id, timer);
+    // Update job expiresAt
+    const job = this.jobs.get(id);
+    if (job) {
+      job.expiresAt = new Date(Date.now() + ttlMs).toISOString();
+      this.jobs.set(id, job);
+    }
+  }
+
+  cancelExpiry(id: string): void {
+    const timer = this.expiryTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.expiryTimers.delete(id);
+    }
+  }
+
   async completeJob(id: string, downloadPath?: string): Promise<ScrapeJob | undefined> {
     const job = this.jobs.get(id);
     if (!job) return undefined;
@@ -176,6 +203,7 @@ export class MemStorage implements IStorage {
   }
 
   async deleteJob(id: string): Promise<void> {
+    this.cancelExpiry(id);
     this.jobs.delete(id);
     this.authorizedJobs.delete(id);
   }

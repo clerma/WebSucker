@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from "react";
 import {
   FileCode,
   FileText,
@@ -12,6 +13,7 @@ import {
   SkipForward,
   RefreshCw,
   Lock,
+  Clock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,10 +40,42 @@ const assetTypeLabels: Record<AssetType, string> = {
   other: "Other Files",
 };
 
+function useCountdown(expiresAt: string | undefined) {
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!expiresAt) return;
+
+    const update = () => {
+      const diff = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+      setSecondsLeft(diff);
+      if (diff === 0 && intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+
+    update();
+    intervalRef.current = setInterval(update, 1000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [expiresAt]);
+
+  return secondsLeft;
+}
+
+function formatCountdown(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 interface ResultsSummaryProps {
   job: ScrapeJob;
   onDownload: () => void;
   onNewScrape: () => void;
+  onExpired: () => void;
   isDownloading: boolean;
 }
 
@@ -49,11 +83,21 @@ export function ResultsSummary({
   job,
   onDownload,
   onNewScrape,
+  onExpired,
   isDownloading,
 }: ResultsSummaryProps) {
   const successAssets = job.assets.filter((a) => a.status === "success");
   const failedAssets = job.assets.filter((a) => a.status === "failed");
   const skippedAssets = job.assets.filter((a) => a.status === "skipped");
+  const secondsLeft = useCountdown(job.expiresAt);
+  const expiredFired = useRef(false);
+
+  useEffect(() => {
+    if (secondsLeft === 0 && !expiredFired.current) {
+      expiredFired.current = true;
+      onExpired();
+    }
+  }, [secondsLeft, onExpired]);
 
   const assetsByType = job.assets.reduce(
     (acc, asset) => {
@@ -69,6 +113,15 @@ export function ResultsSummary({
       ? Math.round((job.successfulAssets / job.totalAssets) * 100)
       : 0;
 
+  const timerColor =
+    secondsLeft === null
+      ? "text-muted-foreground"
+      : secondsLeft <= 60
+      ? "text-destructive"
+      : secondsLeft <= 120
+      ? "text-yellow-500"
+      : "text-muted-foreground";
+
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
       <Card>
@@ -82,6 +135,12 @@ export function ResultsSummary({
               <p className="text-sm text-muted-foreground font-mono">
                 {job.url}
               </p>
+              {secondsLeft !== null && secondsLeft > 0 && (
+                <p className={`text-xs flex items-center gap-1 ${timerColor}`} data-testid="text-expiry-countdown">
+                  <Clock className="h-3 w-3" />
+                  Files expire in {formatCountdown(secondsLeft)} — download before they're gone
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Button

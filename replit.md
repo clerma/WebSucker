@@ -108,6 +108,7 @@ The app runs on port 5000 using `npm run dev` which starts both the Vite dev ser
 - `GET /api/admin/stats` - Admin analytics (requires `x-admin-secret` header)
 
 ## Recent Changes
+- March 2026: 10-minute session expiry — files auto-deleted 10min after scrape; client-side countdown timer shows "Files expire in X:XX"; when timer hits 0 a toast fires and resets to the input view; timer cancelled on download
 - March 2026: Admin dashboard at /admin with usage and Stripe revenue analytics
 - March 2026: Subscriber email restore - "Already subscribed?" in pricing dialog
 - March 2026: Payment gating via Stripe - downloads require one-time payment ($1.99) or monthly subscription ($5.99/mo)

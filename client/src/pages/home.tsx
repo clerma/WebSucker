@@ -341,7 +341,7 @@ export default function Home() {
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                 <Shield className="h-4 w-4" />
                 <span className="text-sm">
-                  Analysing is always free. Your data stays private. Files are deleted after download.
+                  Analysing is always free. Your data stays private. Files are deleted 10 minutes after scraping.
                 </span>
               </div>
               <a
@@ -368,6 +368,14 @@ export default function Home() {
             onDownload={handleDownload}
             onNewScrape={handleNewScrape}
             isDownloading={isDownloading}
+            onExpired={() => {
+              toast({
+                title: "Session expired",
+                description: "Your scraped files have been deleted. Scrape the site again to get a fresh copy.",
+                variant: "destructive",
+              });
+              handleNewScrape();
+            }}
           />
           <PricingDialog
             open={showPricing}
