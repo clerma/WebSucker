@@ -283,25 +283,41 @@ async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response>
 
 let sharedBrowser: Browser | null = null;
 
-function findChromiumPath(): string {
-  try {
-    return execSync("which chromium", { encoding: "utf-8" }).trim();
-  } catch {
-    try {
-      return execSync("which chromium-browser", { encoding: "utf-8" }).trim();
-    } catch {
-      return "chromium";
-    }
+function findChromiumPath(): string | undefined {
+  // Explicit env var takes priority
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
   }
+  // Try system Chromium paths
+  const candidates = [
+    "/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+  ];
+  for (const p of candidates) {
+    try {
+      execSync(`test -x "${p}"`, { stdio: "ignore" });
+      return p;
+    } catch {}
+  }
+  try {
+    const p = execSync("which chromium 2>/dev/null || which chromium-browser 2>/dev/null", { encoding: "utf-8" }).trim();
+    if (p) return p;
+  } catch {}
+  // Fall back to Puppeteer's bundled Chromium (undefined = use default)
+  return undefined;
 }
 
 async function getBrowser(): Promise<Browser> {
   if (sharedBrowser && sharedBrowser.connected) {
     return sharedBrowser;
   }
-  sharedBrowser = await puppeteer.launch({
+  const executablePath = findChromiumPath();
+  const launchOptions: Parameters<typeof puppeteer.launch>[0] = {
     headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || findChromiumPath(),
+    protocolTimeout: 120000,
+    timeout: 60000,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -309,9 +325,17 @@ async function getBrowser(): Promise<Browser> {
       "--disable-gpu",
       "--no-first-run",
       "--no-zygote",
-      "--single-process",
+      "--disable-extensions",
+      "--disable-background-networking",
+      "--disable-default-apps",
+      "--disable-sync",
+      "--metrics-recording-only",
     ],
-  });
+  };
+  if (executablePath) {
+    launchOptions.executablePath = executablePath;
+  }
+  sharedBrowser = await puppeteer.launch(launchOptions);
   return sharedBrowser;
 }
 
