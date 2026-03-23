@@ -101,7 +101,8 @@ export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
                 {progress.message || "Processing..."}
               </span>
               <span className="font-mono font-medium" data-testid="text-progress-percent">
@@ -121,8 +122,9 @@ export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
                 className="p-3 space-y-1 custom-scrollbar"
               >
                 {assets.length === 0 ? (
-                  <div className="text-sm text-muted-foreground text-center py-8">
-                    Waiting for assets to be discovered...
+                  <div className="flex flex-col items-center justify-center gap-3 py-10 text-muted-foreground">
+                    <Loader2 className="h-7 w-7 animate-spin" />
+                    <p className="text-sm">Starting up — this may take a few seconds…</p>
                   </div>
                 ) : (
                   assets.map((asset) => {
