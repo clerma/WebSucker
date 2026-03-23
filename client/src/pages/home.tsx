@@ -31,6 +31,7 @@ export default function Home() {
     failedAssets: 0,
   });
   const wsRef = useRef<WebSocket | null>(null);
+  const scrapeCompletedRef = useRef(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -78,6 +79,7 @@ export default function Home() {
           }
 
           if (data.type === "complete") {
+            scrapeCompletedRef.current = true;
             setCurrentJob(data.job);
             setViewState("results");
             setIsLoading(false);
@@ -99,24 +101,55 @@ export default function Home() {
         }
       };
 
-      ws.onerror = () => {
-        toast({
-          title: "Connection Error",
-          description: "Lost connection to the server. Please try again.",
-          variant: "destructive",
-        });
-        setIsLoading(false);
-        setViewState("input");
-      };
+      // onerror always fires right before onclose for abnormal closures.
+      // We don't act here — onclose handles all error/recovery logic so
+      // we only show one toast and can poll the REST API first.
+      ws.onerror = () => { /* handled in onclose */ };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         wsRef.current = null;
+        // If already completed, nothing to do
+        if (scrapeCompletedRef.current) return;
+        // Code 1000 = normal/clean close, 1001 = page navigating away
+        if (event.code === 1000 || event.code === 1001) return;
+        // Unexpected close — poll the REST API to see if the job actually
+        // finished (race condition: server may have sent 'complete' then restarted)
+        if (jobId) {
+          fetch(`/api/scrape/${jobId}`)
+            .then((r) => r.json())
+            .then((job: ScrapeJob) => {
+              if (job.status === "completed") {
+                scrapeCompletedRef.current = true;
+                setCurrentJob(job);
+                setViewState("results");
+                setIsLoading(false);
+              } else {
+                toast({
+                  title: "Connection Lost",
+                  description: "The connection dropped mid-scrape. Please try again.",
+                  variant: "destructive",
+                });
+                setIsLoading(false);
+                setViewState("input");
+              }
+            })
+            .catch(() => {
+              toast({
+                title: "Connection Lost",
+                description: "The connection dropped mid-scrape. Please try again.",
+                variant: "destructive",
+              });
+              setIsLoading(false);
+              setViewState("input");
+            });
+        }
       };
     },
     [toast]
   );
 
   const handleSubmit = async (data: StartScrapeInput) => {
+    scrapeCompletedRef.current = false;
     setIsLoading(true);
     setAssets([]);
     setProgress({
