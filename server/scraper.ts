@@ -346,7 +346,7 @@ async function closeBrowser(): Promise<void> {
   }
 }
 
-async function fetchRenderedHtml(url: string, timeout = 60000): Promise<{ html: string; status: number }> {
+async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: string; status: number }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
   
@@ -354,9 +354,14 @@ async function fetchRenderedHtml(url: string, timeout = 60000): Promise<{ html: 
     await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
     await page.setViewport({ width: 1920, height: 1080 });
     
+    // Use "load" instead of "networkidle2" — fires when load event fires rather than
+    // waiting for ALL network requests to settle (which can take 10-30s on Wix/analytics-heavy sites).
     const response = await page.goto(url, {
-      waitUntil: "networkidle2",
+      waitUntil: "load",
       timeout,
+    }).catch(async () => {
+      // If load times out, try domcontentloaded as last resort
+      return page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => null);
     });
     
     const status = response?.status() || 200;
@@ -365,14 +370,10 @@ async function fetchRenderedHtml(url: string, timeout = 60000): Promise<{ html: 
       return { html: "", status };
     }
     
-    await page.evaluate(() => new Promise<void>(resolve => {
-      if (document.readyState === "complete") {
-        setTimeout(resolve, 2000);
-      } else {
-        window.addEventListener("load", () => setTimeout(resolve, 2000));
-      }
-    }));
+    // Short settle wait after load event
+    await new Promise(resolve => setTimeout(resolve, 1000));
     
+    // Scroll the page to trigger lazy-loaded images and embeds
     await page.evaluate(async () => {
       await new Promise<void>(resolve => {
         let totalHeight = 0;
@@ -384,15 +385,17 @@ async function fetchRenderedHtml(url: string, timeout = 60000): Promise<{ html: 
             clearInterval(timer);
             resolve();
           }
-        }, 100);
+        }, 80);
       });
     });
     
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    // Wait for lazy-loaded content to appear (reduced from 5s → 2s)
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     await page.evaluate(() => window.scrollTo(0, 0));
     
-    await page.waitForNetworkIdle({ idleTime: 1500, timeout: 10000 }).catch(() => {});
+    // Brief network idle check
+    await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 }).catch(() => {});
     
     const html = await page.content();
     return { html, status };
