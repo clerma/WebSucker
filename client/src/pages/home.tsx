@@ -276,12 +276,16 @@ export default function Home() {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-6">
                 <Globe className="h-8 w-8 text-primary" />
               </div>
+              <div className="inline-flex items-center gap-2 bg-muted border rounded-full px-3 py-1 text-xs text-muted-foreground mb-4">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                SiteSucker alternative — works on Windows, Linux, Mac &amp; Chromebook
+              </div>
               <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
                 Website Sucker
               </h1>
               <p className="text-lg text-muted-foreground max-w-lg mx-auto">
-                Analyse any website for free — see exactly what assets it uses.
-                Pay only when you want to download the offline backup.
+                The browser-based way to download any website for offline viewing.
+                No app to install, no OS restrictions — just paste a URL and go.
               </p>
             </div>
 
