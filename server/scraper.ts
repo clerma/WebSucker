@@ -154,7 +154,7 @@ function getAssetType(url: string): AssetType {
   if ([".html", ".htm", ""].includes(ext)) return "html";
   if (ext === ".css") return "css";
   if ([".js", ".mjs"].includes(ext)) return "js";
-  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp"].includes(ext)) return "image";
+  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif"].includes(ext)) return "image";
   if ([".woff", ".woff2", ".ttf", ".eot", ".otf"].includes(ext)) return "font";
   return "other";
 }
@@ -975,24 +975,38 @@ async function transformForOffline(outputDir: string): Promise<void> {
       }
     });
     
-    // 3. Extract images from noscript tags ONLY if there's a corresponding lazy-loaded img nearby
-    // This is conservative to avoid adding unwanted duplicate images
+    // 3. Extract images from ALL noscript tags — offline mode has no JS so noscript content is the only fallback
     $("noscript").each((_, el) => {
       const noscriptHtml = $(el).html();
-      if (noscriptHtml && noscriptHtml.includes("<img")) {
-        const parent = $(el).parent();
-        // Only process if parent has a lazy-loaded image that needs the noscript fallback
-        const lazyImg = parent.find("img[data-src], img[data-image]").first();
-        if (lazyImg.length) {
-          // The lazy image exists but might not have src set - noscript has the real src
-          const $noscript = cheerio.load(noscriptHtml);
-          const noscriptImg = $noscript("img").first();
-          const noscriptSrc = noscriptImg.attr("src");
-          if (noscriptSrc && !lazyImg.attr("src")) {
-            // Copy the noscript src to the lazy image
-            lazyImg.attr("src", noscriptSrc);
-            modified = true;
-          }
+      if (!noscriptHtml || !noscriptHtml.includes("<img")) return;
+      const $noscript = cheerio.load(noscriptHtml);
+      const parent = $(el).parent();
+
+      // Try to patch a nearby lazy img first (same parent has data-src img)
+      const lazyImg = parent.find("img[data-src], img[data-image], img:not([src])").first();
+      const noscriptImgs = $noscript("img").toArray();
+
+      if (lazyImg.length && noscriptImgs.length) {
+        const noscriptImg = $noscript(noscriptImgs[0]);
+        const noscriptSrc = noscriptImg.attr("src");
+        const noscriptSrcset = noscriptImg.attr("srcset");
+        if (noscriptSrc && (!lazyImg.attr("src") || lazyImg.attr("src")?.startsWith("data:"))) {
+          lazyImg.attr("src", noscriptSrc);
+          modified = true;
+        }
+        if (noscriptSrcset && !lazyImg.attr("srcset")) {
+          lazyImg.attr("srcset", noscriptSrcset);
+          modified = true;
+        }
+      } else {
+        // No lazy img nearby — replace the noscript element itself with its img content
+        const noscriptImg = $noscript("img").first();
+        const src = noscriptImg.attr("src");
+        if (src) {
+          const attrs = (noscriptImg[0] as any).attribs || {};
+          const attrStr = Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(" ");
+          $(el).replaceWith(`<img ${attrStr}>`);
+          modified = true;
         }
       }
     });
@@ -1009,6 +1023,12 @@ async function transformForOffline(outputDir: string): Promise<void> {
     // 5. Remove data-load="false" which prevents images from loading
     $("img[data-load='false']").each((_, el) => {
       $(el).removeAttr("data-load");
+      modified = true;
+    });
+    
+    // 5b. Remove loading="lazy" — offline browsers won't trigger lazy loads without scroll events
+    $("img[loading='lazy'], iframe[loading='lazy']").each((_, el) => {
+      $(el).attr("loading", "eager");
       modified = true;
     });
     
@@ -1366,8 +1386,8 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
           const relativePath = path.relative(fileDir || ".", localPath);
           $(el).attr(attr, relativePath + suffix);
           modified = true;
-        } else if (isExternalValue && isImageAttr) {
-          // Use placeholder for missing external images
+        } else if (isImageAttr && !value.startsWith("#") && !value.startsWith("data:")) {
+          // Use placeholder for all missing images (both external CDN images and internal images that failed to download)
           const relativePlaceholder = path.relative(fileDir || ".", placeholderPath);
           $(el).attr(attr, relativePlaceholder);
           modified = true;
