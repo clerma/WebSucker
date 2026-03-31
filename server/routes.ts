@@ -375,11 +375,11 @@ export async function registerRoutes(
       storage.cancelExpiry(job.id);
       storage.recordDownload();
       
-      const hostname = new URL(job.url).hostname;
+      const hostname = new URL(job.url).hostname.replace(/[^a-zA-Z0-9.-]/g, "_");
       res.setHeader("Content-Type", "application/zip");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${hostname}-backup.zip"`
+        `attachment; filename="website-sucker-${hostname}.zip"`
       );
       
       const fileStream = fs.createReadStream(job.downloadPath);
