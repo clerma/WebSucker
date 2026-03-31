@@ -839,12 +839,26 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             }
             
             const normalized = normalizeUrl(value, currentUrl);
-            if (normalized && !discoveredUrls.has(normalized)) {
-              discoveredUrls.add(normalized);
+            if (normalized) {
               const type = getAssetType(normalized);
-              // Only follow same-origin HTML links
-              if (type !== "html" || !isExternalUrl(normalized, baseHost)) {
-                urlQueue.push({ url: normalized, referrer: currentUrl });
+              const isSameDomainHtml = type === "html" && !isExternalUrl(normalized, baseHost);
+              // For same-domain HTML pages, deduplicate by pathname only so that
+              // query-string variants (?itemId=..., ?sort=...) don't each generate
+              // a separate HTML file and waste the asset budget.
+              let dedupeKey = normalized;
+              let queueUrl = normalized;
+              if (isSameDomainHtml) {
+                try {
+                  const p = new URL(normalized);
+                  dedupeKey = `${p.origin}${p.pathname}`;
+                  queueUrl = dedupeKey;
+                } catch {}
+              }
+              if (!discoveredUrls.has(dedupeKey)) {
+                discoveredUrls.add(dedupeKey);
+                if (type !== "html" || !isExternalUrl(normalized, baseHost)) {
+                  urlQueue.push({ url: queueUrl, referrer: currentUrl });
+                }
               }
             }
           });
@@ -1596,6 +1610,57 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
           $(el).html(newCss);
           modified = true;
         }
+      }
+    });
+    
+    // Process <noscript> elements — Cheerio can't select inside them so we rewrite
+    // their raw HTML content separately using a nested parse.
+    $("noscript").each((_, el) => {
+      const rawInner = $(el).html();
+      if (!rawInner) return;
+      const $inner = cheerio.load(rawInner, {}, false);
+      let innerModified = false;
+      for (const { sel, attr } of urlAttributes) {
+        $inner(sel).each((_, innerEl) => {
+          const value = $inner(innerEl).attr(attr);
+          if (!value || !shouldRewrite(value)) return;
+          if (attr === "srcset") {
+            const entries = parseSrcset(value);
+            const newSrcset = entries.map(entry => {
+              if (!shouldRewrite(entry.url)) return entry.descriptor ? `${entry.url} ${entry.descriptor}` : entry.url;
+              const lp = lookupUrl(entry.url, currentFileOriginalUrl);
+              if (lp) {
+                const rp = path.relative(fileDir || ".", lp);
+                return entry.descriptor ? `${rp} ${entry.descriptor}` : rp;
+              }
+              if (entry.url.startsWith("http") || entry.url.startsWith("//")) {
+                const rp = path.relative(fileDir || ".", placeholderPath);
+                return entry.descriptor ? `${rp} ${entry.descriptor}` : rp;
+              }
+              return entry.descriptor ? `${entry.url} ${entry.descriptor}` : entry.url;
+            }).join(", ");
+            if (newSrcset !== value) {
+              $inner(innerEl).attr(attr, newSrcset);
+              innerModified = true;
+            }
+            return;
+          }
+          const localPath = lookupUrl(value, currentFileOriginalUrl);
+          if (localPath) {
+            const relativePath = path.relative(fileDir || ".", localPath);
+            $inner(innerEl).attr(attr, relativePath);
+            innerModified = true;
+          } else if (imageAttributes.has(attr) && !value.startsWith("#") && !value.startsWith("data:")) {
+            const relativePlaceholder = path.relative(fileDir || ".", placeholderPath);
+            $inner(innerEl).attr(attr, relativePlaceholder);
+            innerModified = true;
+          }
+        });
+      }
+      if (innerModified) {
+        const newInner = $inner.html() || rawInner;
+        $(el).html(newInner);
+        modified = true;
       }
     });
     
