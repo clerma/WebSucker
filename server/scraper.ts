@@ -263,10 +263,10 @@ function urlToLocalPath(url: string, baseUrl: string): string {
   }
 }
 
-async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response> {
+// Fetch headers only, with a timeout (used when we need to check content-type before reading)
+async function fetchWithTimeout(url: string, timeout = 12000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
-  
   try {
     const response = await fetch(url, {
       signal: controller.signal,
@@ -276,6 +276,48 @@ async function fetchWithTimeout(url: string, timeout = 15000): Promise<Response>
       },
     });
     return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Fetch the full response body under a single unified timeout.
+// The AbortController is kept alive until the body is fully read,
+// so a slow/stalled body transfer is caught just like a slow connection.
+async function fetchBytesWithTimeout(
+  url: string,
+  timeoutMs = 12000
+): Promise<{ content: Buffer; contentType: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; WebSucker/1.0; +https://webscraper.app)",
+        "Accept": "*/*",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    const contentType = response.headers.get("content-type") || "";
+    // Stream the body in chunks and enforce the size limit
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("No response body");
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_ASSET_SIZE) {
+        reader.cancel();
+        throw new Error(`Asset exceeds ${MAX_ASSET_SIZE / 1024 / 1024}MB limit`);
+      }
+      chunks.push(value);
+    }
+    return { content: Buffer.concat(chunks), contentType };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -545,23 +587,14 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           contentType = "text/html";
         } catch (renderErr: any) {
           console.log(`Puppeteer render failed for ${currentUrl}, falling back to fetch: ${renderErr.message}`);
-          const response = await fetchWithTimeout(currentUrl);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          contentType = response.headers.get("content-type") || "";
-          const buffer = await response.arrayBuffer();
-          content = Buffer.from(buffer);
+          const fetched = await fetchBytesWithTimeout(currentUrl);
+          contentType = fetched.contentType;
+          content = fetched.content;
         }
       } else {
-        const response = await fetchWithTimeout(currentUrl);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        contentType = response.headers.get("content-type") || "";
-        
+        const fetched = await fetchBytesWithTimeout(currentUrl);
+        contentType = fetched.contentType;
+
         if (assetType === "html") {
           const feedContentTypes = ["application/rss+xml", "application/atom+xml", "text/xml", "application/xml"];
           if (feedContentTypes.some(ct => contentType.includes(ct))) {
@@ -573,9 +606,8 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             continue;
           }
         }
-        
-        const buffer = await response.arrayBuffer();
-        content = Buffer.from(buffer);
+
+        content = fetched.content;
       }
       
       // Save file

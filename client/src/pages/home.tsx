@@ -97,17 +97,6 @@ export default function Home() {
             ws.close();
           }
 
-          if (data.type === "server_restart") {
-            scrapeCompletedRef.current = true; // prevent onclose from firing a second toast
-            toast({
-              title: "Server restarting",
-              description: "The server restarted mid-scrape. Please try again — it'll be back in a few seconds.",
-              variant: "destructive",
-            });
-            setIsLoading(false);
-            setViewState("input");
-            ws.close();
-          }
         } catch (err) {
           console.error("WebSocket message error:", err);
         }

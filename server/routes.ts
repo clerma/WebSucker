@@ -51,17 +51,10 @@ export async function registerRoutes(
     });
   });
 
-  // Graceful shutdown: warn all connected clients before the process exits
-  // so the UI can show a specific "server restarting" message instead of a silent crash.
+  // Graceful shutdown: close the WebSocket server cleanly before exit
   const gracefulShutdown = () => {
-    const shutdownMsg = JSON.stringify({ type: "server_restart" });
-    wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        try { client.send(shutdownMsg); } catch {}
-      }
-    });
-    // Give messages ~1.5s to be delivered, then exit
-    setTimeout(() => process.exit(0), 1500);
+    wss.close();
+    setTimeout(() => process.exit(0), 500);
   };
 
   process.once("SIGTERM", gracefulShutdown);
