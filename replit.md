@@ -116,6 +116,7 @@ The app runs on port 5000 using `npm run dev` which starts both the Vite dev ser
 - **Fix**: Normalize all Wix CDN transformation URLs to base URL before downloading; hash-based fallback maps all variants to downloaded file
 
 ## Recent Changes
+- March 2026: Squarespace CDN deduplication — `images.squarespace-cdn.com` URLs strip `?format=...w` query params in `normalizeUrl` so all srcset size variants of the same image collapse to one download; images 627→321, total assets 750→466 (no longer hitting cap), HTML pages 32→45
 - March 2026: Noscript image rewriting — Cheerio can't traverse `<noscript>` as DOM children; added nested Cheerio parse on raw noscript HTML to rewrite image src/srcset URLs there too (fixes Squarespace gallery fallback images remaining remote)
 - March 2026: HTML page query-string deduplication — same-domain HTML links now deduplicate by pathname only; `/corporate-events?itemId=abc` and `/corporate-events?itemId=xyz` are treated as the same page; eliminates 35-page budget waste on Squarespace product variant URLs
 - March 2026: Access codes persisted to `access_codes` PostgreSQL table — survive server restarts

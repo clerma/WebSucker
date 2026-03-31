@@ -199,6 +199,13 @@ function normalizeUrl(href: string, baseUrl: string): string | null {
       return null;
     }
     
+    // Squarespace image CDN: all query params are resize/format parameters
+    // (format=1500w, w=1500, h=750, etc.). Strip them so every size variant
+    // of the same image deduplicates to a single download.
+    if (url.hostname === "images.squarespace-cdn.com" && url.search) {
+      url.search = "";
+    }
+    
     return url.href;
   } catch {
     return null;
