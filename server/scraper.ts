@@ -89,6 +89,28 @@ function isBlockedHost(hostname: string): boolean {
   return BLOCKED_IP_PATTERNS.some(pattern => pattern.test(hostname));
 }
 
+// Wix helpers ---------------------------------------------------------------
+
+// Extract the media hash from a Wix CDN URL.
+// e.g. https://static.wixstatic.com/media/abc123_9.jpg/v1/fill/w_480,...
+// returns "abc123_9.jpg"
+function extractWixMediaHash(url: string): string | null {
+  const match = url.match(/static\.wixstatic\.com\/media\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
+// Convert a wix:image://v1/{hash}/{filename}#{dims} internal URI to a real CDN URL.
+// Returns null if the input is not a wix:image URI.
+function resolveWixUri(wixUri: string): string | null {
+  const match = wixUri.match(/^wix:image:\/\/v1\/([^/]+)\//);
+  if (match) {
+    return `https://static.wixstatic.com/media/${match[1]}`;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+
 function parseSrcset(srcset: string): Array<{ url: string; descriptor: string }> {
   const entries: Array<{ url: string; descriptor: string }> = [];
   // Split on commas that are followed by whitespace and a URL-like start
@@ -748,6 +770,34 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           });
         }
         
+        // Wix-specific: extract images from data-image-info JSON attributes
+        $("[data-image-info]").each((_, el) => {
+          try {
+            const info = JSON.parse($(el).attr("data-image-info") || "{}");
+            if (info.uri) {
+              const cdnUrl = `https://static.wixstatic.com/media/${info.uri}`;
+              if (!discoveredUrls.has(cdnUrl)) {
+                discoveredUrls.add(cdnUrl);
+                urlQueue.push({ url: cdnUrl, referrer: currentUrl });
+              }
+            }
+          } catch {}
+        });
+
+        // Wix-specific: resolve wix:image:// URIs in src / data-src to real CDN URLs
+        $("img[src^='wix:image://'], img[data-src^='wix:image://']").each((_, el) => {
+          for (const attr of ["src", "data-src"] as const) {
+            const wixUri = $(el).attr(attr);
+            if (wixUri?.startsWith("wix:image://")) {
+              const cdnUrl = resolveWixUri(wixUri);
+              if (cdnUrl && !discoveredUrls.has(cdnUrl)) {
+                discoveredUrls.add(cdnUrl);
+                urlQueue.push({ url: cdnUrl, referrer: currentUrl });
+              }
+            }
+          }
+        });
+
         // Extract URLs from inline styles in <style> tags
         $("style").each((_, el) => {
           const cssContent = $(el).html();
@@ -1041,6 +1091,36 @@ async function transformForOffline(outputDir: string): Promise<void> {
       }
     });
     
+    // 6b. Wix-specific: convert wix:image:// URIs remaining in src/data-src to real CDN URLs
+    $("img[src^='wix:image://']").each((_, el) => {
+      const src = $(el).attr("src");
+      if (src) {
+        const cdnUrl = resolveWixUri(src);
+        if (cdnUrl) { $(el).attr("src", cdnUrl); modified = true; }
+      }
+    });
+    $("img[data-src^='wix:image://']").each((_, el) => {
+      const dataSrc = $(el).attr("data-src");
+      if (dataSrc) {
+        const cdnUrl = resolveWixUri(dataSrc);
+        if (cdnUrl) { $(el).attr("data-src", cdnUrl); $(el).attr("src", cdnUrl); modified = true; }
+      }
+    });
+
+    // 6c. Wix-specific: populate src from data-image-info JSON when src is missing
+    $("[data-image-info]").each((_, el) => {
+      const currentSrc = $(el).attr("src");
+      if (!currentSrc || currentSrc.startsWith("data:") || currentSrc.startsWith("wix:")) {
+        try {
+          const info = JSON.parse($(el).attr("data-image-info") || "{}");
+          if (info.uri) {
+            $(el).attr("src", `https://static.wixstatic.com/media/${info.uri}`);
+            modified = true;
+          }
+        } catch {}
+      }
+    });
+
     // 7. Handle dropdown menus - make them work without JS
     $("[data-folder], .header-nav-folder-content, .header-nav-item--folder").each((_, el) => {
       // Remove any hidden/invisible states
@@ -1237,6 +1317,18 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
       urlLookup.set(urlWithoutQuery.replace(/^https?:/, ""), asset.localPath);
     } catch {}
   }
+
+  // Wix-specific: build a hash-keyed fallback so ANY transformation variant of a
+  // downloaded Wix image resolves to the local file we actually downloaded.
+  // Wix CDN URL pattern: static.wixstatic.com/media/{HASH}/v1/{mode}/{params}/{filename}
+  // Different resize variants share the same HASH, so we index by hash.
+  const wixHashMap = new Map<string, string>(); // HASH -> localPath
+  for (const [url, localPath] of urlLookup.entries()) {
+    const hash = extractWixMediaHash(url);
+    if (hash && !wixHashMap.has(hash)) {
+      wixHashMap.set(hash, localPath);
+    }
+  }
   
   // Helper to resolve and lookup a URL
   const lookupUrl = (url: string, currentFileUrl?: string): string | undefined => {
@@ -1267,6 +1359,14 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
         result = urlLookup.get(withoutQuery);
         if (result) return result;
       } catch {}
+    }
+
+    // Wix CDN fallback: match by media hash, ignoring transformation params.
+    // This handles srcset entries / alternative sizes we didn't specifically download.
+    const wixHash = extractWixMediaHash(url);
+    if (wixHash) {
+      result = wixHashMap.get(wixHash);
+      if (result) return result;
     }
     
     return undefined;
