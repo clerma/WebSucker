@@ -508,9 +508,9 @@ export async function registerRoutes(
 
       const stripe = await getUncachableStripeClient();
 
-      const [subscriptions, charges] = await Promise.all([
+      const [subscriptions, paymentIntents] = await Promise.all([
         stripe.subscriptions.list({ status: "active", limit: 100 }),
-        stripe.charges.list({ limit: 20 }),
+        stripe.paymentIntents.list({ limit: 20 }),
       ]);
 
       const activeSubscribers = subscriptions.data.length;
@@ -520,18 +520,18 @@ export async function registerRoutes(
         return sum + (item?.price.unit_amount ?? 0);
       }, 0);
 
-      const totalRevenue = charges.data
-        .filter((c) => c.status === "succeeded")
-        .reduce((sum, c) => sum + c.amount, 0);
+      const succeededPayments = paymentIntents.data.filter((p) => p.status === "succeeded");
 
-      const recentCharges = charges.data.map((c) => ({
-        id: c.id,
-        amount: c.amount,
-        currency: c.currency,
-        description: c.description,
-        created: c.created,
-        status: c.status,
-        email: c.billing_details?.email ?? null,
+      const totalRevenue = succeededPayments.reduce((sum, p) => sum + p.amount, 0);
+
+      const recentCharges = succeededPayments.map((p) => ({
+        id: p.id,
+        amount: p.amount,
+        currency: p.currency,
+        description: p.description,
+        created: p.created,
+        status: p.status,
+        email: p.receipt_email ?? null,
       }));
 
       res.json({
