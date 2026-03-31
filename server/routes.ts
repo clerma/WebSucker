@@ -4,10 +4,31 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as fs from "fs";
 import { storage } from "./storage";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
-import { startScrapeSchema } from "@shared/schema";
+import { startScrapeSchema, scrapeAnalytics } from "@shared/schema";
 import type { Asset, ScrapeProgress, ScrapeJob } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
-import { sql } from "drizzle-orm";
+import { sql, desc, count, sum } from "drizzle-orm";
+import { db } from "./db";
+
+// Send a notification to a configurable webhook URL (Discord, Slack, Make, etc.)
+async function sendNotification(payload: { title: string; message: string; url: string; status: "completed" | "failed" }) {
+  const webhookUrl = process.env.NOTIFY_WEBHOOK_URL;
+  if (!webhookUrl) return;
+  try {
+    const body = webhookUrl.includes("discord.com")
+      ? JSON.stringify({ content: `**${payload.title}**\n${payload.message}` })
+      : webhookUrl.includes("hooks.slack.com")
+      ? JSON.stringify({ text: `*${payload.title}*\n${payload.message}` })
+      : JSON.stringify(payload);
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  } catch (err) {
+    console.error("Notification webhook failed:", err);
+  }
+}
 
 const jobConnections = new Map<string, Set<WebSocket>>();
 
@@ -92,6 +113,17 @@ export async function registerRoutes(
           
           const completedJob = await storage.completeJob(job.id, zipPath);
 
+          // Persist to DB (survives server restarts)
+          const finalJob = await storage.getJob(job.id);
+          db.insert(scrapeAnalytics).values({
+            url: job.url,
+            status: "completed",
+            totalAssets: finalJob?.totalAssets ?? 0,
+            successfulAssets: finalJob?.successfulAssets ?? 0,
+            failedAssets: finalJob?.failedAssets ?? 0,
+            completedAt: new Date(),
+          }).catch((e: any) => console.error("Analytics insert failed:", e));
+
           // Schedule automatic cleanup after 10 minutes so temp files don't pile up.
           // The timer is cancelled if the user downloads first.
           const TTL_MS = 10 * 60 * 1000;
@@ -107,10 +139,28 @@ export async function registerRoutes(
         } catch (error) {
           console.error("Scrape error:", error);
           await storage.updateJobStatus(job.id, "failed");
-          broadcast(job.id, {
-            type: "error",
-            message: error instanceof Error ? error.message : "Scraping failed",
+          const errMsg = error instanceof Error ? error.message : "Scraping failed";
+
+          // Persist failure to DB
+          db.insert(scrapeAnalytics).values({
+            url: job.url,
+            status: "failed",
+            totalAssets: 0,
+            successfulAssets: 0,
+            failedAssets: 0,
+            completedAt: new Date(),
+            errorMessage: errMsg,
+          }).catch((e: any) => console.error("Analytics insert failed:", e));
+
+          // Send failure notification
+          sendNotification({
+            title: "Scrape failed",
+            message: `URL: ${job.url}\nError: ${errMsg}`,
+            url: job.url,
+            status: "failed",
           });
+
+          broadcast(job.id, { type: "error", message: errMsg });
         }
       })();
       
@@ -427,7 +477,34 @@ export async function registerRoutes(
     }
 
     try {
-      const analytics = storage.getAnalytics();
+      // Query persistent analytics from DB
+      const [dbRows, recentRows] = await Promise.all([
+        db.select().from(scrapeAnalytics),
+        db.select().from(scrapeAnalytics).orderBy(desc(scrapeAnalytics.createdAt)).limit(50),
+      ]);
+
+      const totalJobsCreated = dbRows.length;
+      const totalAssetsScraped = dbRows.reduce((s, r) => s + r.successfulAssets, 0);
+      const totalDownloads = storage.getAnalytics().totalDownloads; // still in-memory (download events only)
+      const uniqueUrls = [...new Set(dbRows.map(r => { try { return new URL(r.url).hostname; } catch { return r.url; } }))];
+
+      const analytics = {
+        totalJobsCreated,
+        totalAssetsScraped,
+        totalDownloads,
+        uniqueUrlsScraped: uniqueUrls,
+        recentJobs: recentRows.map(r => ({
+          id: String(r.id),
+          url: r.url,
+          status: r.status,
+          totalAssets: r.totalAssets,
+          successfulAssets: r.successfulAssets,
+          failedAssets: r.failedAssets,
+          errorMessage: r.errorMessage ?? undefined,
+          createdAt: r.createdAt.toISOString(),
+          completedAt: r.completedAt?.toISOString(),
+        })),
+      };
 
       const stripe = await getUncachableStripeClient();
 

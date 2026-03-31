@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity } from "lucide-react";
+import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,8 @@ interface AnalyticsData {
     status: string;
     totalAssets: number;
     successfulAssets: number;
+    failedAssets: number;
+    errorMessage?: string;
     createdAt: string;
     completedAt?: string;
   }>;
@@ -241,7 +243,7 @@ export default function Admin() {
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
         <div>
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">Usage</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <StatCard
               icon={Globe}
               label="Total Scrapes"
@@ -269,6 +271,13 @@ export default function Admin() {
               value={stats?.analytics.uniqueUrlsScraped.length ?? 0}
               color="text-violet-500"
               bg="bg-violet-500/10"
+            />
+            <StatCard
+              icon={AlertTriangle}
+              label="Failed Scrapes"
+              value={stats?.analytics.recentJobs.filter(j => j.status === "failed").length ?? 0}
+              color="text-destructive"
+              bg="bg-destructive/10"
             />
           </div>
         </div>
@@ -315,12 +324,24 @@ export default function Admin() {
                 ) : (
                   <div className="divide-y">
                     {stats.analytics.recentJobs.map((job) => (
-                      <div key={job.id} className="px-6 py-3 flex items-start justify-between gap-3">
+                      <div
+                        key={job.id}
+                        className={`px-6 py-3 flex items-start justify-between gap-3 ${job.status === "failed" ? "bg-destructive/5" : ""}`}
+                      >
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-mono truncate">{job.url}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {job.successfulAssets}/{job.totalAssets} assets · {new Date(job.createdAt).toLocaleString()}
+                            {job.status === "completed"
+                              ? `${job.successfulAssets}/${job.totalAssets} assets · `
+                              : ""}
+                            {new Date(job.createdAt).toLocaleString()}
                           </p>
+                          {job.status === "failed" && job.errorMessage && (
+                            <p className="text-xs text-destructive mt-1 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                              {job.errorMessage}
+                            </p>
+                          )}
                         </div>
                         <Badge
                           variant={job.status === "completed" ? "default" : "destructive"}

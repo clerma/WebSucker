@@ -1,4 +1,18 @@
 import { z } from "zod";
+import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+
+// Persistent analytics table — survives server restarts
+export const scrapeAnalytics = pgTable("scrape_analytics", {
+  id: serial("id").primaryKey(),
+  url: text("url").notNull(),
+  status: text("status").notNull(), // 'completed' | 'failed'
+  totalAssets: integer("total_assets").notNull().default(0),
+  successfulAssets: integer("successful_assets").notNull().default(0),
+  failedAssets: integer("failed_assets").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+});
 
 export const AssetType = z.enum(["html", "css", "js", "image", "font", "other"]);
 export type AssetType = z.infer<typeof AssetType>;
