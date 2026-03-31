@@ -521,24 +521,68 @@ export async function registerRoutes(
         })),
       };
 
-      // Read payments from our own DB — unaffected by Stripe key changes
+      // Read payments from our own DB (persisted since we added DB tracking)
       const dbPayments = await db.select().from(payments).orderBy(desc(payments.createdAt)).limit(50);
 
-      const totalRevenue = dbPayments.reduce((s, p) => s + p.amountCents, 0);
-      const activeSubscribers = dbPayments.filter((p) => p.mode === "subscription").length;
-      const monthlyRevenue = dbPayments
-        .filter((p) => p.mode === "subscription")
-        .reduce((s, p) => s + p.amountCents, 0);
+      // Also fetch recent completed checkout sessions directly from Stripe so historical
+      // payments (before DB tracking was added) still appear in the dashboard.
+      interface ChargeEntry {
+        id: string;
+        amount: number;
+        currency: string;
+        description: string;
+        created: number;
+        status: string;
+        email: string | null;
+        mode: string;
+      }
+      const stripeCharges: ChargeEntry[] = [];
+      try {
+        const stripe = await getUncachableStripeClient();
+        const sessions = await stripe.checkout.sessions.list({
+          limit: 50,
+          expand: ["data.customer"],
+        });
+        for (const s of sessions.data) {
+          if (s.payment_status !== "paid") continue;
+          stripeCharges.push({
+            id: s.id,
+            amount: s.amount_total ?? 0,
+            currency: s.currency ?? "usd",
+            description: s.mode === "subscription" ? "Monthly subscription" : "One-time download",
+            created: s.created,
+            status: "succeeded",
+            email: s.customer_details?.email ?? null,
+            mode: s.mode ?? "payment",
+          });
+        }
+      } catch (stripeErr) {
+        console.warn("Could not fetch Stripe sessions for admin stats:", stripeErr);
+      }
 
-      const recentCharges = dbPayments.map((p) => ({
-        id: p.stripeSessionId ?? String(p.id),
-        amount: p.amountCents,
-        currency: p.currency,
-        description: p.mode === "subscription" ? "Monthly subscription" : "One-time download",
-        created: Math.floor(p.createdAt.getTime() / 1000),
-        status: "succeeded",
-        email: p.customerEmail ?? null,
-      }));
+      // Merge DB records and Stripe records, preferring DB (dedup by session id)
+      const dbSessionIds = new Set(dbPayments.map(p => p.stripeSessionId).filter(Boolean));
+      const mergedCharges: ChargeEntry[] = [
+        ...dbPayments.map(p => ({
+          id: p.stripeSessionId ?? String(p.id),
+          amount: p.amountCents,
+          currency: p.currency,
+          description: p.mode === "subscription" ? "Monthly subscription" : "One-time download",
+          created: Math.floor(p.createdAt.getTime() / 1000),
+          status: "succeeded",
+          email: p.customerEmail ?? null,
+          mode: p.mode,
+        })),
+        ...stripeCharges.filter(c => !dbSessionIds.has(c.id)),
+      ].sort((a, b) => b.created - a.created).slice(0, 50);
+
+      const totalRevenue = mergedCharges.reduce((s, c) => s + c.amount, 0);
+      const activeSubscribers = mergedCharges.filter(c => c.mode === "subscription").length;
+      const monthlyRevenue = mergedCharges
+        .filter(c => c.mode === "subscription")
+        .reduce((s, c) => s + c.amount, 0);
+
+      const recentCharges = mergedCharges;
 
       res.json({
         analytics,
