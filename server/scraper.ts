@@ -249,6 +249,16 @@ function shouldSkipUrl(url: string): { skip: boolean; reason?: string } {
       }
     }
     
+    // Skip WordPress-specific non-page endpoints
+    // wp-json is the REST API (returns JSON), xmlrpc.php is the RPC endpoint,
+    // wp-admin and wp-login are backend access points — none are useful offline.
+    if (pathLower.startsWith("/wp-json/") || pathLower === "/wp-json" ||
+        pathLower.includes("/xmlrpc.php") ||
+        pathLower.startsWith("/wp-admin/") || pathLower === "/wp-admin" ||
+        pathLower.includes("/wp-login.php")) {
+      return { skip: true, reason: "WordPress API/admin endpoint" };
+    }
+    
     return { skip: false };
   } catch {
     return { skip: false };
