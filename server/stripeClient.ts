@@ -6,7 +6,7 @@ async function getCredentials() {
   // Use explicit environment variables if both are valid (secret key must start with sk_)
   const envSecret = process.env.STRIPE_SECRET_KEY;
   const envPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
-  if (envSecret?.startsWith('sk_') && envPublishable) {
+  if (envSecret && (envSecret.startsWith('sk_') || envSecret.startsWith('rk_')) && envPublishable) {
     return {
       publishableKey: envPublishable,
       secretKey: envSecret,
