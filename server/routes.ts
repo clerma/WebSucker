@@ -50,6 +50,22 @@ export async function registerRoutes(
       }
     });
   });
+
+  // Graceful shutdown: warn all connected clients before the process exits
+  // so the UI can show a specific "server restarting" message instead of a silent crash.
+  const gracefulShutdown = () => {
+    const shutdownMsg = JSON.stringify({ type: "server_restart" });
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        try { client.send(shutdownMsg); } catch {}
+      }
+    });
+    // Give messages ~1.5s to be delivered, then exit
+    setTimeout(() => process.exit(0), 1500);
+  };
+
+  process.once("SIGTERM", gracefulShutdown);
+  process.once("SIGINT", gracefulShutdown);
   
   function broadcast(jobId: string, data: any) {
     const connections = jobConnections.get(jobId);

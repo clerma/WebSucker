@@ -158,4 +158,10 @@ async function main() {
   );
 }
 
+// Prevent unhandled promise rejections (e.g. Stripe permission errors on
+// restricted keys) from crashing the entire process.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection (non-fatal):", reason);
+});
+
 main();
