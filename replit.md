@@ -108,6 +108,9 @@ The app runs on port 5000 using `npm run dev` which starts both the Vite dev ser
 - `GET /api/admin/stats` - Admin analytics (requires `x-admin-secret` header)
 
 ## Recent Changes
+- March 2026: Access codes persisted to `access_codes` PostgreSQL table — survive server restarts
+- March 2026: Image fixes — `loading="lazy"` replaced with `loading="eager"` offline; noscript imgs promoted into DOM; missing internal images get placeholder; avif recognized as image type; ZIP named `website-sucker-{hostname}.zip`
+- March 2026: Admin panel shows failed scrapes with error messages highlighted in red; Failed Scrapes stat card added
 - March 2026: 10-minute session expiry — files auto-deleted 10min after scrape; client-side countdown timer shows "Files expire in X:XX"; when timer hits 0 a toast fires and resets to the input view; timer cancelled on download
 - March 2026: Admin dashboard at /admin with usage and Stripe revenue analytics
 - March 2026: Subscriber email restore - "Already subscribed?" in pricing dialog

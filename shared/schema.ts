@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 
+// Persistent access codes table — survives server restarts
+export const accessCodes = pgTable("access_codes", {
+  code: text("code").primaryKey(),
+  note: text("note").notNull().default(""),
+  maxUses: integer("max_uses"),
+  uses: integer("uses").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Persistent analytics table — survives server restarts
 export const scrapeAnalytics = pgTable("scrape_analytics", {
   id: serial("id").primaryKey(),

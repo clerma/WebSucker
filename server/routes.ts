@@ -427,40 +427,40 @@ export async function registerRoutes(
   });
 
   // Access code management (admin-protected)
-  app.get("/api/admin/access-codes", (req, res) => {
+  app.get("/api/admin/access-codes", async (req, res) => {
     const secret = req.headers["x-admin-secret"];
     if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    res.json({ codes: storage.listAccessCodes() });
+    res.json({ codes: await storage.listAccessCodes() });
   });
 
-  app.post("/api/admin/access-codes", (req, res) => {
+  app.post("/api/admin/access-codes", async (req, res) => {
     const secret = req.headers["x-admin-secret"];
     if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
       return res.status(401).json({ message: "Unauthorized" });
     }
     const { note, maxUses } = req.body;
-    const code = storage.createAccessCode(note || "", maxUses ?? null);
+    const code = await storage.createAccessCode(note || "", maxUses ?? null);
     res.json({ code });
   });
 
-  app.delete("/api/admin/access-codes/:code", (req, res) => {
+  app.delete("/api/admin/access-codes/:code", async (req, res) => {
     const secret = req.headers["x-admin-secret"];
     if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
       return res.status(401).json({ message: "Unauthorized" });
     }
-    const deleted = storage.deleteAccessCode(req.params.code);
+    const deleted = await storage.deleteAccessCode(req.params.code);
     res.json({ deleted });
   });
 
   // Redeem an access code to authorize a download
-  app.post("/api/access-code/redeem", (req, res) => {
+  app.post("/api/access-code/redeem", async (req, res) => {
     const { code, jobId } = req.body;
     if (!code || !jobId) {
       return res.status(400).json({ success: false, message: "Code and jobId are required" });
     }
-    const valid = storage.redeemAccessCode(code);
+    const valid = await storage.redeemAccessCode(code);
     if (!valid) {
       return res.status(400).json({ success: false, message: "Invalid or expired access code" });
     }

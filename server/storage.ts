@@ -1,5 +1,8 @@
 import { randomUUID } from "crypto";
 import type { Asset, ScrapeJob, ScrapeStatus, AssetStatus, AssetType } from "@shared/schema";
+import { db } from "./db";
+import { accessCodes as accessCodesTable } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 export interface AccessCode {
   code: string;
@@ -20,6 +23,8 @@ export interface AnalyticsData {
     status: ScrapeStatus;
     totalAssets: number;
     successfulAssets: number;
+    failedAssets: number;
+    errorMessage?: string;
     createdAt: string;
     completedAt?: string;
   }>;
@@ -41,10 +46,10 @@ export interface IStorage {
   isSessionConsumed(sessionId: string): boolean;
   recordDownload(): void;
   getAnalytics(): AnalyticsData;
-  createAccessCode(note: string, maxUses: number | null): AccessCode;
-  listAccessCodes(): AccessCode[];
-  deleteAccessCode(code: string): boolean;
-  redeemAccessCode(code: string): boolean;
+  createAccessCode(note: string, maxUses: number | null): Promise<AccessCode>;
+  listAccessCodes(): Promise<AccessCode[]>;
+  deleteAccessCode(code: string): Promise<boolean>;
+  redeemAccessCode(code: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -57,7 +62,6 @@ export class MemStorage implements IStorage {
   private totalDownloads: number;
   private uniqueUrlsScraped: Set<string>;
   private recentJobs: AnalyticsData["recentJobs"];
-  private accessCodes: Map<string, AccessCode>;
 
   constructor() {
     this.jobs = new Map();
@@ -69,7 +73,6 @@ export class MemStorage implements IStorage {
     this.totalDownloads = 0;
     this.uniqueUrlsScraped = new Set();
     this.recentJobs = [];
-    this.accessCodes = new Map();
   }
 
   async createJob(url: string): Promise<ScrapeJob> {
@@ -235,38 +238,50 @@ export class MemStorage implements IStorage {
     };
   }
 
-  createAccessCode(note: string, maxUses: number | null): AccessCode {
+  async createAccessCode(note: string, maxUses: number | null): Promise<AccessCode> {
     const words = ["SUNSET", "RIVER", "FALCON", "EMBER", "WAVE", "CEDAR", "DUSK", "PINE", "FROST", "BLOOM"];
     const word = words[Math.floor(Math.random() * words.length)];
     const num = Math.floor(1000 + Math.random() * 9000);
     const code = `${word}-${num}`;
-    const entry: AccessCode = {
+    const [row] = await db.insert(accessCodesTable).values({
       code,
       note: note || "",
       maxUses,
       uses: 0,
-      createdAt: new Date().toISOString(),
+    }).returning();
+    return {
+      code: row.code,
+      note: row.note,
+      maxUses: row.maxUses ?? null,
+      uses: row.uses,
+      createdAt: row.createdAt.toISOString(),
     };
-    this.accessCodes.set(code, entry);
-    return entry;
   }
 
-  listAccessCodes(): AccessCode[] {
-    return Array.from(this.accessCodes.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+  async listAccessCodes(): Promise<AccessCode[]> {
+    const rows = await db.select().from(accessCodesTable).orderBy(accessCodesTable.createdAt);
+    return rows.reverse().map(row => ({
+      code: row.code,
+      note: row.note,
+      maxUses: row.maxUses ?? null,
+      uses: row.uses,
+      createdAt: row.createdAt.toISOString(),
+    }));
   }
 
-  deleteAccessCode(code: string): boolean {
-    return this.accessCodes.delete(code);
+  async deleteAccessCode(code: string): Promise<boolean> {
+    const result = await db.delete(accessCodesTable).where(eq(accessCodesTable.code, code));
+    return (result.rowCount ?? 0) > 0;
   }
 
-  redeemAccessCode(code: string): boolean {
-    const entry = this.accessCodes.get(code.toUpperCase().trim());
-    if (!entry) return false;
-    if (entry.maxUses !== null && entry.uses >= entry.maxUses) return false;
-    entry.uses++;
-    this.accessCodes.set(entry.code, entry);
+  async redeemAccessCode(code: string): Promise<boolean> {
+    const normalized = code.toUpperCase().trim();
+    const [row] = await db.select().from(accessCodesTable).where(eq(accessCodesTable.code, normalized));
+    if (!row) return false;
+    if (row.maxUses !== null && row.uses >= row.maxUses) return false;
+    await db.update(accessCodesTable)
+      .set({ uses: row.uses + 1 })
+      .where(eq(accessCodesTable.code, normalized));
     return true;
   }
 }
