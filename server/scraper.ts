@@ -248,40 +248,85 @@ function shouldSkipUrl(url: string): { skip: boolean; reason?: string } {
   }
 }
 
+// Map asset type to its flat output directory.
+// HTML pages mirror the site's URL structure (so navigation links work).
+// All other assets go into typed directories so they're easy to find offline.
+const ASSET_DIR: Record<string, string> = {
+  image:  "assets/images",
+  css:    "assets/css",
+  js:     "assets/js",
+  font:   "assets/fonts",
+  video:  "assets/media",
+  audio:  "assets/media",
+  other:  "assets/other",
+};
+
 function urlToLocalPath(url: string, baseUrl: string): string {
   try {
     const parsed = new URL(url);
-    const base = new URL(baseUrl);
-    
-    let localPath = parsed.pathname;
-    
-    // Handle external URLs - put them in _external folder
-    if (parsed.hostname !== base.hostname) {
-      localPath = `_external/${parsed.hostname}${parsed.pathname}`;
+    const base   = new URL(baseUrl);
+    const assetType = getAssetType(url);
+
+    // ── HTML pages: mirror the site's URL path so navigation stays intact ──
+    if (assetType === "html") {
+      let localPath = parsed.pathname;
+
+      // External HTML pages go under a small external pages folder
+      if (parsed.hostname !== base.hostname) {
+        localPath = `_pages/${parsed.hostname}${parsed.pathname}`;
+      }
+
+      if (localPath === "/" || localPath === "") localPath = "/index.html";
+
+      if (!path.extname(localPath)) {
+        localPath = localPath.endsWith("/")
+          ? `${localPath}index.html`
+          : `${localPath}/index.html`;
+      }
+
+      if (parsed.search) {
+        const h = crypto.createHash("md5").update(parsed.search).digest("hex").slice(0, 8);
+        const ext = path.extname(localPath);
+        localPath = `${localPath.slice(0, -ext.length)}_${h}${ext}`;
+      }
+
+      return localPath.replace(/^\//, "");
     }
-    
-    // Handle root path
-    if (localPath === "/" || localPath === "") {
-      localPath = "/index.html";
+
+    // ── All other assets: flat type-based directories ──
+    // This keeps the ZIP clean and navigable regardless of the source CDN/domain.
+
+    // Short hash of the full URL so same-filename files from different URLs don't collide
+    const urlHash = crypto.createHash("md5").update(url).digest("hex").slice(0, 8);
+
+    // Derive a human-readable filename from the URL
+    let rawFilename = path.basename(parsed.pathname) || "file";
+    try { rawFilename = decodeURIComponent(rawFilename); } catch {}
+    // Keep only safe filesystem chars; cap length so paths stay short
+    const safeFilename = rawFilename
+      .replace(/[^\w.\-~]/g, "_")
+      .replace(/_+/g, "_")
+      .slice(0, 64);
+
+    // Ensure the filename has an extension
+    let ext = path.extname(safeFilename);
+    if (!ext) {
+      const fallbacks: Record<string, string> = {
+        image: ".img", css: ".css", js: ".js", font: ".woff2",
+        video: ".mp4", audio: ".mp3", other: "",
+      };
+      ext = fallbacks[assetType] ?? "";
     }
-    
-    // Add index.html to directory paths
-    if (!path.extname(localPath)) {
-      localPath = localPath.endsWith("/") ? `${localPath}index.html` : `${localPath}/index.html`;
-    }
-    
-    // Add hash of query string to avoid collisions for URLs with different params
-    if (parsed.search) {
-      const hash = crypto.createHash("md5").update(parsed.search).digest("hex").slice(0, 8);
-      const ext = path.extname(localPath);
-      const base = localPath.slice(0, -ext.length);
-      localPath = `${base}_${hash}${ext}`;
-    }
-    
-    // Remove leading slash
-    return localPath.replace(/^\//, "");
+
+    const basename = ext
+      ? `${path.basename(safeFilename, ext)}_${urlHash}${ext}`
+      : `${safeFilename}_${urlHash}`;
+
+    const dir = ASSET_DIR[assetType] ?? "assets/other";
+    return `${dir}/${basename}`;
+
   } catch {
-    return "unknown.html";
+    return "assets/other/unknown";
   }
 }
 
