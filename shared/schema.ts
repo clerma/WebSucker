@@ -10,6 +10,19 @@ export const accessCodes = pgTable("access_codes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Persistent payments table — survives key changes and restarts
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  stripeSessionId: text("stripe_session_id").unique(),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  customerEmail: text("customer_email"),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull().default("usd"),
+  mode: text("mode").notNull(), // 'payment' | 'subscription'
+  jobId: text("job_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Persistent analytics table — survives server restarts
 export const scrapeAnalytics = pgTable("scrape_analytics", {
   id: serial("id").primaryKey(),

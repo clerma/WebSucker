@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as fs from "fs";
 import { storage } from "./storage";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
-import { startScrapeSchema, scrapeAnalytics } from "@shared/schema";
+import { startScrapeSchema, scrapeAnalytics, payments } from "@shared/schema";
 import type { Asset, ScrapeProgress, ScrapeJob } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { sql, desc, count, sum } from "drizzle-orm";
@@ -288,6 +288,21 @@ export async function registerRoutes(
 
         storage.authorizeDownload(jobId, session_id);
 
+        // Persist payment record to DB (survives key changes)
+        try {
+          await db.insert(payments).values({
+            stripeSessionId: session_id,
+            stripePaymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
+            customerEmail: session.customer_details?.email ?? null,
+            amountCents: session.amount_total ?? 0,
+            currency: session.currency ?? "usd",
+            mode: session.mode ?? "payment",
+            jobId,
+          }).onConflictDoNothing();
+        } catch (e) {
+          console.error("Failed to persist payment record:", e);
+        }
+
         return res.json({
           paid: true,
           jobId,
@@ -506,32 +521,23 @@ export async function registerRoutes(
         })),
       };
 
-      const stripe = await getUncachableStripeClient();
+      // Read payments from our own DB — unaffected by Stripe key changes
+      const dbPayments = await db.select().from(payments).orderBy(desc(payments.createdAt)).limit(50);
 
-      const [subscriptions, paymentIntents] = await Promise.all([
-        stripe.subscriptions.list({ status: "active", limit: 100 }),
-        stripe.paymentIntents.list({ limit: 20 }),
-      ]);
+      const totalRevenue = dbPayments.reduce((s, p) => s + p.amountCents, 0);
+      const activeSubscribers = dbPayments.filter((p) => p.mode === "subscription").length;
+      const monthlyRevenue = dbPayments
+        .filter((p) => p.mode === "subscription")
+        .reduce((s, p) => s + p.amountCents, 0);
 
-      const activeSubscribers = subscriptions.data.length;
-
-      const monthlyRevenue = subscriptions.data.reduce((sum, sub) => {
-        const item = sub.items.data[0];
-        return sum + (item?.price.unit_amount ?? 0);
-      }, 0);
-
-      const succeededPayments = paymentIntents.data.filter((p) => p.status === "succeeded");
-
-      const totalRevenue = succeededPayments.reduce((sum, p) => sum + p.amount, 0);
-
-      const recentCharges = succeededPayments.map((p) => ({
-        id: p.id,
-        amount: p.amount,
+      const recentCharges = dbPayments.map((p) => ({
+        id: p.stripeSessionId ?? String(p.id),
+        amount: p.amountCents,
         currency: p.currency,
-        description: p.description,
-        created: p.created,
-        status: p.status,
-        email: p.receipt_email ?? null,
+        description: p.mode === "subscription" ? "Monthly subscription" : "One-time download",
+        created: Math.floor(p.createdAt.getTime() / 1000),
+        status: "succeeded",
+        email: p.customerEmail ?? null,
       }));
 
       res.json({
