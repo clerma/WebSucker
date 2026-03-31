@@ -107,6 +107,14 @@ The app runs on port 5000 using `npm run dev` which starts both the Vite dev ser
 - `POST /api/stripe/customer-lookup` - Find Stripe customer by email (subscription restore)
 - `GET /api/admin/stats` - Admin analytics (requires `x-admin-secret` header)
 
+## Wix CDN Image Architecture (learned from mylaffyhouseevents.com)
+- Wix serves images via: `https://static.wixstatic.com/media/{HASH}/v1/{mode}/{params}/{filename}`
+- The `enc_avif,quality_auto` parameter causes Wix to serve AVIF binary data with the wrong file extension (.jpg/.png)
+- The base URL `https://static.wixstatic.com/media/{HASH}` serves the correct original PNG/JPEG (no transforms)
+- Wix puts the SAME image in `src` (1x) and `srcset` (1x, 2x) — all variants share the same hash
+- No `wix:image://` URIs or `data-image-info` attributes appear in the Puppeteer-rendered DOM on this site
+- **Fix**: Normalize all Wix CDN transformation URLs to base URL before downloading; hash-based fallback maps all variants to downloaded file
+
 ## Recent Changes
 - March 2026: Access codes persisted to `access_codes` PostgreSQL table — survive server restarts
 - March 2026: Image fixes — `loading="lazy"` replaced with `loading="eager"` offline; noscript imgs promoted into DOM; missing internal images get placeholder; avif recognized as image type; ZIP named `website-sucker-{hostname}.zip`

@@ -506,6 +506,10 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
     onProgress(job);
   };
 
+  // Track Wix CDN base URLs already downloaded so we don't re-download every
+  // transformation variant (1x, 2x, different sizes) of the same image.
+  const wixBaseDownloaded = new Map<string, Asset>(); // baseUrl -> asset
+
   // Process HTML pages first, then other assets
   while (urlQueue.length > 0) {
     // Enforce asset limit
@@ -539,19 +543,45 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       continue;
     }
     
-    const assetType = getAssetType(currentUrl);
-    const localPath = urlToLocalPath(currentUrl, url);
-    const isExternal = isExternalUrl(currentUrl, baseHost);
+    // Wix CDN: normalise transformation URLs to the base image URL so we download
+    // the original PNG/JPEG instead of an AVIF-encoded file with the wrong extension,
+    // and so all resize variants (1x, 2x, etc.) share a single clean local path.
+    // Pattern: https://static.wixstatic.com/media/{HASH}/v1/{mode}/{params}/{filename}
+    //       => https://static.wixstatic.com/media/{HASH}
+    let downloadUrl = currentUrl;
+    if (currentUrl.includes("static.wixstatic.com/media/") && currentUrl.includes("/v1/")) {
+      const hash = extractWixMediaHash(currentUrl);
+      if (hash) {
+        const baseUrl = `https://static.wixstatic.com/media/${hash}`;
+        const existingAsset = wixBaseDownloaded.get(baseUrl);
+        if (existingAsset) {
+          // Already downloaded this image under another transformation variant.
+          // Alias this URL to the existing asset so rewriteUrls can find it directly.
+          assetMap.set(currentUrl, existingAsset);
+          continue;
+        }
+        // Not yet downloaded — redirect the download to the base (non-transformed) URL.
+        downloadUrl = baseUrl;
+      }
+    }
+
+    const assetType = getAssetType(downloadUrl);
+    const localPath = urlToLocalPath(downloadUrl, url);
+    const isExternal = isExternalUrl(downloadUrl, baseHost);
     
     // Create asset record with referrer tracking
     let asset = await storage.addAsset(jobId, {
       type: assetType,
-      originalUrl: currentUrl,
+      originalUrl: downloadUrl,
       localPath,
       status: "downloading",
       referencedFrom: currentReferrer,
     });
     assetMap.set(currentUrl, asset);
+    // For Wix CDN normalised URLs, also index by the base URL
+    if (downloadUrl !== currentUrl) {
+      assetMap.set(downloadUrl, asset);
+    }
     
     onProgress({
       jobId,
@@ -567,7 +597,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
     }, asset);
     
     // Skip analytics/tracking scripts and feed URLs
-    const skipCheck = shouldSkipUrl(currentUrl);
+    const skipCheck = shouldSkipUrl(downloadUrl);
     if (skipCheck.skip) {
       asset = (await storage.updateAsset(jobId, asset.id, {
         status: "skipped",
@@ -609,12 +639,13 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           contentType = "text/html";
         } catch (renderErr: any) {
           console.log(`Puppeteer render failed for ${currentUrl}, falling back to fetch: ${renderErr.message}`);
-          const fetched = await fetchBytesWithTimeout(currentUrl);
+          const fetched = await fetchBytesWithTimeout(downloadUrl);
           contentType = fetched.contentType;
           content = fetched.content;
         }
       } else {
-        const fetched = await fetchBytesWithTimeout(currentUrl);
+        // Use downloadUrl (may differ from currentUrl for normalised Wix CDN images)
+        const fetched = await fetchBytesWithTimeout(downloadUrl);
         contentType = fetched.contentType;
 
         if (assetType === "html") {
@@ -643,6 +674,10 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
         size: content.length,
       }))!;
       assetMap.set(currentUrl, asset);
+      if (downloadUrl !== currentUrl) {
+        assetMap.set(downloadUrl, asset);
+        wixBaseDownloaded.set(downloadUrl, asset);
+      }
       
       // Parse HTML/CSS for more URLs (only for same-origin content or HTML)
       if (assetType === "html" && contentType.includes("text/html")) {
