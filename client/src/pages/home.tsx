@@ -390,6 +390,29 @@ export default function Home() {
               setHasActiveSubscription(true);
               setShowPricing(false);
             }}
+            onAccessGranted={async () => {
+              if (!currentJob) return;
+              setShowPricing(false);
+              setIsDownloading(true);
+              try {
+                const response = await fetch(`/api/scrape/${currentJob.id}/download`);
+                if (!response.ok) throw new Error("Download failed");
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `website-sucker-${new URL(currentJob.url).hostname}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast({ title: "Download Started", description: "Your website backup is downloading." });
+              } catch {
+                toast({ title: "Download Failed", description: "Could not download the backup. Please try again.", variant: "destructive" });
+              } finally {
+                setIsDownloading(false);
+              }
+            }}
           />
         </div>
       )}

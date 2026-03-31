@@ -24,9 +24,10 @@ interface PricingDialogProps {
   onOpenChange: (open: boolean) => void;
   jobId: string;
   onSubscriptionRestored?: (customerId: string) => void;
+  onAccessGranted?: () => void;
 }
 
-export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestored }: PricingDialogProps) {
+export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestored, onAccessGranted }: PricingDialogProps) {
   const [prices, setPrices] = useState<Price[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
@@ -139,7 +140,10 @@ export function PricingDialog({ open, onOpenChange, jobId, onSubscriptionRestore
       const data = await res.json();
       if (data.success) {
         setAccessCodeSuccess(true);
-        setTimeout(() => onOpenChange(false), 1500);
+        setTimeout(() => {
+          onOpenChange(false);
+          onAccessGranted?.();
+        }, 1500);
       } else {
         setAccessCodeError(data.message || "Invalid or expired access code.");
       }
