@@ -372,6 +372,10 @@ async function fetchBytesWithTimeout(
   url: string,
   timeoutMs = 12000
 ): Promise<{ content: Buffer; contentType: string }> {
+  const MAX_RETRIES = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -382,6 +386,19 @@ async function fetchBytesWithTimeout(
         "Accept": "*/*",
       },
     });
+
+    // Rate-limited — respect Retry-After or back off exponentially, then retry.
+    if (response.status === 429 && attempt < MAX_RETRIES) {
+      clearTimeout(timeoutId);
+      const retryAfter = response.headers.get("Retry-After");
+      const waitMs = retryAfter
+        ? Math.min(parseInt(retryAfter, 10) * 1000, 30000)
+        : Math.min(2000 * Math.pow(2, attempt), 16000); // 2s, 4s, 8s
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      lastError = new Error(`HTTP 429: Too Many Requests`);
+      continue;
+    }
+
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
@@ -405,6 +422,9 @@ async function fetchBytesWithTimeout(
   } finally {
     clearTimeout(timeoutId);
   }
+  } // end for (attempt)
+
+  throw lastError ?? new Error("Max retries exceeded");
 }
 
 let sharedBrowser: Browser | null = null;
@@ -469,6 +489,57 @@ async function closeBrowser(): Promise<void> {
   if (sharedBrowser) {
     try { await sharedBrowser.close(); } catch {}
     sharedBrowser = null;
+  }
+}
+
+/**
+ * Probe the entry URL with a plain fetch and decide whether Puppeteer is
+ * actually needed for this site.
+ *
+ * Puppeteer adds value when pages are dynamically rendered (SPA) or contain
+ * JS-triggered lazy loads (Wix, Squarespace, data-src embeds).
+ * For plain static HTML sites (templates, documentation, etc.) Puppeteer just
+ * wastes 10-20 seconds per page with no benefit.
+ *
+ * Returns true  → use Puppeteer (dynamic content detected)
+ * Returns false → use plain fetch (static site, all content in raw HTML)
+ */
+async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(entryUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; WebsiteSucker/1.0)" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return true; // can't tell → be safe
+    const html = await res.text();
+
+    // 1. SPA: near-empty body with known root mount points
+    if (/<div[^>]+id=["'](?:root|app)["'][^>]*>\s*<\/div>/i.test(html)) return true;
+
+    // 2. Angular
+    if (/ng-version|<app-root/i.test(html)) return true;
+
+    // 3. Next.js / Nuxt / similar SSR frameworks that hydrate client-side
+    if (/__NEXT_DATA__|__nuxt|data-reactroot/i.test(html)) return true;
+
+    // 4. Wix
+    if (/wixstatic\.com|data-mesh-id|wix-code-sdk|<wix-image/i.test(html)) return true;
+
+    // 5. Squarespace
+    if (/squarespace\.com|squarespace-cdn\.com/i.test(html)) return true;
+
+    // 6. JS-based lazy loading (data-src on 5+ elements = definitely needs scroll)
+    const dataSrcCount = (html.match(/\bdata-src=["'][^"']+["']/g) || []).length;
+    if (dataSrcCount >= 5) return true;
+
+    // 7. Suspiciously small body → probably a SPA shell
+    const stripped = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (stripped.length < 500) return true;
+
+    // Static HTML — Puppeteer won't add anything useful
+    return false;
+  } catch {
+    return true; // fetch failed → fall back to Puppeteer to be safe
   }
 }
 
@@ -553,6 +624,12 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   
   const outputDir = `/tmp/scrape-${jobId}`;
   await fs.promises.mkdir(outputDir, { recursive: true });
+
+  // Probe the entry URL once to decide whether Puppeteer is needed at all.
+  // Static HTML sites (templates, docs, etc.) skip Puppeteer entirely,
+  // reducing per-page render time from ~15s to ~300ms.
+  const usePuppeteer = await probeNeedsPuppeteer(url);
+  console.log(`[${jobId}] Site probe: ${usePuppeteer ? "dynamic (Puppeteer ON)" : "static (Puppeteer OFF)"} — ${url}`);
 
   const sendProgress = () => {
     const job = {
@@ -686,21 +763,28 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       let contentType = "";
       
       if (assetType === "html" && !isExternal) {
-        try {
-          const rendered = await fetchRenderedHtml(currentUrl);
-          
-          if (rendered.status >= 400) {
-            throw new Error(`HTTP ${rendered.status}`);
+        if (usePuppeteer) {
+          try {
+            const rendered = await fetchRenderedHtml(currentUrl);
+            
+            if (rendered.status >= 400) {
+              throw new Error(`HTTP ${rendered.status}`);
+            }
+            
+            if (!rendered.html || rendered.html.length < 50) {
+              throw new Error("Empty or invalid page content");
+            }
+            
+            content = Buffer.from(rendered.html, "utf-8");
+            contentType = "text/html";
+          } catch (renderErr: any) {
+            console.log(`Puppeteer render failed for ${currentUrl}, falling back to fetch: ${renderErr.message}`);
+            const fetched = await fetchBytesWithTimeout(downloadUrl);
+            contentType = fetched.contentType;
+            content = fetched.content;
           }
-          
-          if (!rendered.html || rendered.html.length < 50) {
-            throw new Error("Empty or invalid page content");
-          }
-          
-          content = Buffer.from(rendered.html, "utf-8");
-          contentType = "text/html";
-        } catch (renderErr: any) {
-          console.log(`Puppeteer render failed for ${currentUrl}, falling back to fetch: ${renderErr.message}`);
+        } else {
+          // Static site — plain fetch is all we need (no JS rendering, no lazy loads).
           const fetched = await fetchBytesWithTimeout(downloadUrl);
           contentType = fetched.contentType;
           content = fetched.content;

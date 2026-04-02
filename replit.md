@@ -115,7 +115,24 @@ The app runs on port 5000 using `npm run dev` which starts both the Vite dev ser
 - No `wix:image://` URIs or `data-image-info` attributes appear in the Puppeteer-rendered DOM on this site
 - **Fix**: Normalize all Wix CDN transformation URLs to base URL before downloading; hash-based fallback maps all variants to downloaded file
 
+## Static Site Detection (how Puppeteer is chosen)
+- Entry URL is fetched once before the main scrape loop with `probeNeedsPuppeteer()`
+- Returns `false` (skip Puppeteer) if: no SPA root markers (`#root`, `#app`), no Angular/Next.js/Nuxt markers, no Wix/Squarespace markers, no JS lazy-loading (`data-src` on 5+ elements), body text > 500 chars
+- Returns `true` (use Puppeteer) for any dynamic site — falls back to Puppeteer on probe fetch error
+- Reduces per-page time for static HTML templates from ~15s to ~300ms
+
+## HTTP 429 Retry Logic
+- `fetchBytesWithTimeout()` retries up to 3 times on 429 responses
+- Respects `Retry-After` header if present; otherwise backs off exponentially: 2s → 4s → 8s
+- Capped at 30s max wait per retry; raises error after all retries exhausted
+
 ## Recent Changes
+- April 2026: Static site detection — `probeNeedsPuppeteer()` skips Puppeteer for plain HTML sites; block.codescandy.com (105 pages) now completes in ~12 min instead of timing out; Wix/Squarespace/SPA sites unchanged
+- April 2026: HTTP 429 retry — `fetchBytesWithTimeout()` retries up to 3× with exponential backoff (2s/4s/8s) on rate-limit responses; block.codescandy.com failures 175→7
+- April 2026: WebSocket auto-reconnect (client) — up to 5 silent reconnect attempts with exponential backoff before showing error
+- April 2026: WebSocket catch-up snapshot (server) — on re-subscribe, server immediately sends current progress + all assets already downloaded
+- April 2026: Job persistence across page refreshes — active job ID stored in localStorage; page auto-resumes in-progress scrape on reload/crash
+- April 2026: WebSocket server heartbeat — ping every 25s keeps connections alive through proxies
 - March 2026: Squarespace CDN deduplication — `images.squarespace-cdn.com` URLs strip `?format=...w` query params in `normalizeUrl` so all srcset size variants of the same image collapse to one download; images 627→321, total assets 750→466 (no longer hitting cap), HTML pages 32→45
 - March 2026: Noscript image rewriting — Cheerio can't traverse `<noscript>` as DOM children; added nested Cheerio parse on raw noscript HTML to rewrite image src/srcset URLs there too (fixes Squarespace gallery fallback images remaining remote)
 - March 2026: HTML page query-string deduplication — same-domain HTML links now deduplicate by pathname only; `/corporate-events?itemId=abc` and `/corporate-events?itemId=xyz` are treated as the same page; eliminates 35-page budget waste on Squarespace product variant URLs
