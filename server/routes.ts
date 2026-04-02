@@ -38,6 +38,16 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+  // Send a ping to every connected client every 25 seconds to keep the
+  // connection alive through proxies that close idle connections.
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    });
+  }, 25000);
   
   wss.on("connection", (ws) => {
     let subscribedJobId: string | null = null;
@@ -53,6 +63,10 @@ export async function registerRoutes(
             jobConnections.set(data.jobId, new Set());
           }
           jobConnections.get(data.jobId)!.add(ws);
+        }
+
+        if (data.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong" }));
         }
       } catch (err) {
         console.error("WebSocket message error:", err);
@@ -71,6 +85,8 @@ export async function registerRoutes(
       }
     });
   });
+
+  wss.on("close", () => clearInterval(heartbeatInterval));
 
   // Graceful shutdown: close the WebSocket server cleanly before exit
   const gracefulShutdown = () => {

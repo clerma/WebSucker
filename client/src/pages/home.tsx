@@ -32,6 +32,8 @@ export default function Home() {
   });
   const wsRef = useRef<WebSocket | null>(null);
   const scrapeCompletedRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -46,6 +48,8 @@ export default function Home() {
     }
   }, []);
 
+  const MAX_RECONNECT_ATTEMPTS = 5;
+
   const connectWebSocket = useCallback(
     (jobId: string) => {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -55,6 +59,7 @@ export default function Home() {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        reconnectAttemptsRef.current = 0;
         ws.send(JSON.stringify({ type: "subscribe", jobId }));
       };
 
@@ -102,48 +107,59 @@ export default function Home() {
         }
       };
 
-      // onerror always fires right before onclose for abnormal closures.
-      // We don't act here — onclose handles all error/recovery logic so
-      // we only show one toast and can poll the REST API first.
       ws.onerror = () => { /* handled in onclose */ };
 
       ws.onclose = (event) => {
         wsRef.current = null;
-        // If already completed, nothing to do
         if (scrapeCompletedRef.current) return;
-        // Code 1000 = normal/clean close, 1001 = page navigating away
         if (event.code === 1000 || event.code === 1001) return;
-        // Unexpected close — poll the REST API to see if the job actually
-        // finished (race condition: server may have sent 'complete' then restarted)
-        if (jobId) {
-          fetch(`/api/scrape/${jobId}`)
-            .then((r) => r.json())
-            .then((job: ScrapeJob) => {
-              if (job.status === "completed") {
-                scrapeCompletedRef.current = true;
-                setCurrentJob(job);
-                setViewState("results");
-                setIsLoading(false);
-              } else {
-                toast({
-                  title: "Connection Lost",
-                  description: "The connection dropped mid-scrape. Please try again.",
-                  variant: "destructive",
-                });
-                setIsLoading(false);
-                setViewState("input");
-              }
-            })
-            .catch(() => {
+
+        // Poll the REST API first — the server may have finished the job
+        // just before the connection dropped (common race condition).
+        fetch(`/api/scrape/${jobId}`)
+          .then((r) => r.json())
+          .then((job: ScrapeJob) => {
+            if (job.status === "completed") {
+              scrapeCompletedRef.current = true;
+              setCurrentJob(job);
+              setViewState("results");
+              setIsLoading(false);
+              return;
+            }
+            // Job still running — attempt to reconnect with exponential backoff.
+            if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+              const attempt = ++reconnectAttemptsRef.current;
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+              reconnectTimerRef.current = setTimeout(() => {
+                connectWebSocket(jobId);
+              }, delay);
+            } else {
               toast({
                 title: "Connection Lost",
-                description: "The connection dropped mid-scrape. Please try again.",
+                description: "Couldn't reconnect to the scraper. Please try again.",
                 variant: "destructive",
               });
               setIsLoading(false);
               setViewState("input");
-            });
-        }
+            }
+          })
+          .catch(() => {
+            if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+              const attempt = ++reconnectAttemptsRef.current;
+              const delay = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+              reconnectTimerRef.current = setTimeout(() => {
+                connectWebSocket(jobId);
+              }, delay);
+            } else {
+              toast({
+                title: "Connection Lost",
+                description: "Couldn't reconnect to the scraper. Please try again.",
+                variant: "destructive",
+              });
+              setIsLoading(false);
+              setViewState("input");
+            }
+          });
       };
     },
     [toast]
@@ -151,6 +167,11 @@ export default function Home() {
 
   const handleSubmit = async (data: StartScrapeInput) => {
     scrapeCompletedRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     setIsLoading(true);
     setAssets([]);
     setProgress({
