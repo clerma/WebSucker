@@ -506,11 +506,17 @@ async function closeBrowser(): Promise<void> {
  */
 async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
   try {
+    // Request only the first 32KB — enough to detect all framework/CMS markers
+    // without downloading the full page. Much faster on slow production networks.
     const res = await fetch(entryUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; WebsiteSucker/1.0)" },
-      signal: AbortSignal.timeout(10000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; WebsiteSucker/1.0)",
+        "Range": "bytes=0-32767",
+      },
+      signal: AbortSignal.timeout(20000),
     });
-    if (!res.ok) return true; // can't tell → be safe
+    // 206 = range accepted, 200 = server ignored Range header (full response)
+    if (res.status !== 200 && res.status !== 206) return true;
     const html = await res.text();
 
     // 1. SPA: near-empty body with known root mount points
@@ -532,9 +538,10 @@ async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
     const dataSrcCount = (html.match(/\bdata-src=["'][^"']+["']/g) || []).length;
     if (dataSrcCount >= 5) return true;
 
-    // 7. Suspiciously small body → probably a SPA shell
+    // 7. Suspiciously small body → probably a SPA shell.
+    // Only consider the first 32KB, so threshold is lower than a full-page check.
     const stripped = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    if (stripped.length < 500) return true;
+    if (stripped.length < 200) return true;
 
     // Static HTML — Puppeteer won't add anything useful
     return false;
