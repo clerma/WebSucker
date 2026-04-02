@@ -46,6 +46,51 @@ export default function Home() {
         })
         .catch(() => {});
     }
+
+    // Resume any in-progress scrape that survived a page refresh or crash.
+    const savedJob = localStorage.getItem("websitesucker_active_job");
+    if (savedJob) {
+      try {
+        const { jobId } = JSON.parse(savedJob);
+        fetch(`/api/scrape/${jobId}`)
+          .then((r) => r.json())
+          .then((job: ScrapeJob) => {
+            if (job.status === "scraping") {
+              scrapeCompletedRef.current = false;
+              reconnectAttemptsRef.current = 0;
+              setCurrentJob(job);
+              setProgress({
+                jobId: job.id,
+                status: "scraping",
+                totalAssets: job.totalAssets,
+                processedAssets: job.processedAssets,
+                successfulAssets: job.successfulAssets,
+                failedAssets: job.failedAssets,
+                message: "Resuming…",
+              });
+              setAssets(job.assets);
+              setViewState("scraping");
+              setIsLoading(false);
+              connectWebSocket(job.id);
+            } else if (job.status === "completed") {
+              scrapeCompletedRef.current = true;
+              setCurrentJob(job);
+              setAssets(job.assets);
+              setViewState("results");
+              localStorage.removeItem("websitesucker_active_job");
+            } else {
+              // failed or unknown — clear the stale entry
+              localStorage.removeItem("websitesucker_active_job");
+            }
+          })
+          .catch(() => {
+            localStorage.removeItem("websitesucker_active_job");
+          });
+      } catch {
+        localStorage.removeItem("websitesucker_active_job");
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const MAX_RECONNECT_ATTEMPTS = 5;
@@ -85,6 +130,7 @@ export default function Home() {
 
           if (data.type === "complete") {
             scrapeCompletedRef.current = true;
+            localStorage.removeItem("websitesucker_active_job");
             setCurrentJob(data.job);
             setViewState("results");
             setIsLoading(false);
@@ -92,6 +138,7 @@ export default function Home() {
           }
 
           if (data.type === "error") {
+            localStorage.removeItem("websitesucker_active_job");
             toast({
               title: "Scraping Error",
               description: data.message,
@@ -200,6 +247,7 @@ export default function Home() {
       const job: ScrapeJob = await response.json();
       setCurrentJob(job);
       setProgress((prev) => ({ ...prev, jobId: job.id }));
+      localStorage.setItem("websitesucker_active_job", JSON.stringify({ jobId: job.id }));
       connectWebSocket(job.id);
     } catch (err) {
       toast({
@@ -268,6 +316,7 @@ export default function Home() {
   };
 
   const handleNewScrape = () => {
+    localStorage.removeItem("websitesucker_active_job");
     setViewState("input");
     setCurrentJob(null);
     setAssets([]);
