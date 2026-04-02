@@ -63,6 +63,44 @@ export async function registerRoutes(
             jobConnections.set(data.jobId, new Set());
           }
           jobConnections.get(data.jobId)!.add(ws);
+
+          // Send an immediate catch-up snapshot so reconnected clients see
+          // the current state without waiting for the next broadcast.
+          storage.getJob(data.jobId).then((job) => {
+            if (!job || ws.readyState !== ws.OPEN) return;
+
+            if (job.status === "completed") {
+              // Job already done — send complete event right away.
+              ws.send(JSON.stringify({ type: "complete", job }));
+              return;
+            }
+
+            if (job.status === "failed") {
+              ws.send(JSON.stringify({ type: "error", message: "Scraping failed." }));
+              return;
+            }
+
+            if (job.status === "scraping") {
+              // Send current progress so the counter catches up.
+              ws.send(JSON.stringify({
+                type: "progress",
+                progress: {
+                  jobId: job.id,
+                  status: job.status,
+                  totalAssets: job.totalAssets,
+                  processedAssets: job.processedAssets,
+                  successfulAssets: job.successfulAssets,
+                  failedAssets: job.failedAssets,
+                  message: "Reconnected — catching up…",
+                },
+              }));
+              // Replay all assets already downloaded so the results list isn't empty.
+              for (const asset of job.assets) {
+                if (ws.readyState !== ws.OPEN) break;
+                ws.send(JSON.stringify({ type: "asset", asset }));
+              }
+            }
+          }).catch(() => { /* job not found — ignore */ });
         }
 
         if (data.type === "ping") {
