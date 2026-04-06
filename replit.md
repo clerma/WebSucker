@@ -91,6 +91,13 @@ shared/
 ## Running Locally
 The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
 
+## Blog / SEO Articles
+- URL: `/blog` (listing page), `/blog/:slug` (individual articles)
+- 7 SEO-focused articles targeting: Squarespace export, Wix export, website backup, why backup, download images, transfer between platforms, website conversion
+- Article data in `client/src/data/articles.ts` — add new articles there
+- "Help & Guides" link in home page footer links to /blog
+- Each article has: category badge, reading time, intro, structured sections with optional bullet lists, CTA box, and prev/next navigation
+
 ## Admin Dashboard
 - URL: `/admin` (password-protected)
 - Password set via `ADMIN_SECRET` environment variable

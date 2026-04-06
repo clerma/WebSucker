@@ -11,11 +11,15 @@ import CheckoutSuccess from "@/pages/checkout-success";
 import CheckoutCancel from "@/pages/checkout-cancel";
 import Terms from "@/pages/terms";
 import Admin from "@/pages/admin";
+import Blog from "@/pages/blog";
+import BlogPost from "@/pages/blog-post";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/blog" component={Blog} />
+      <Route path="/blog/:slug" component={BlogPost} />
       <Route path="/terms" component={Terms} />
       <Route path="/admin" component={Admin} />
       <Route path="/checkout/success" component={CheckoutSuccess} />
