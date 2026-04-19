@@ -525,4 +525,72 @@ export const articles: Article[] = [
       body: "Paste any URL and get a fully converted static version of your site. Analysing is free — the complete download is $1.99.",
     },
   },
+  {
+    slug: "backup-your-website-in-60-seconds",
+    title: "How to Back Up Your Website in 60 Seconds",
+    metaDescription:
+      "Think website backups are complicated? They don't have to be. Here's how to create a complete offline backup of any website in under 60 seconds — no software to install.",
+    publishedDate: "April 2026",
+    readingTime: "3 min read",
+    category: "Website Backup",
+    intro:
+      "Most people assume website backups are complicated — servers, databases, FTP clients, cron jobs. They're not. If your site is live on the internet, you can back up the entire thing in under 60 seconds. Here's exactly how.",
+    sections: [
+      {
+        heading: "What You Need",
+        body: [
+          "Just two things: your website's URL and a browser. No software to download, no account to create, no technical knowledge required.",
+        ],
+      },
+      {
+        heading: "Step 1 — Paste Your URL (5 seconds)",
+        body: [
+          "Go to websitesucker.com. You'll see a single text field. Paste your website URL — the full address starting with https:// — and click Analyse.",
+        ],
+      },
+      {
+        heading: "Step 2 — Let It Scan (30–50 seconds)",
+        body: [
+          "Website Sucker crawls every page of your site and catalogues every asset: HTML pages, images, CSS stylesheets, JavaScript files, fonts, and more. You'll see a real-time count of what's been found as it works.",
+          "For a typical small business site with 10–30 pages, this takes around 30 seconds. Larger sites with hundreds of pages will take a few minutes, but the scan still starts immediately.",
+        ],
+      },
+      {
+        heading: "Step 3 — Download Your Backup ($1.99)",
+        body: [
+          "Once the scan is complete, click Download ZIP. A one-time payment of $1.99 unlocks the download. You'll receive a single ZIP file containing every page and asset from your site, organised into a clean folder structure.",
+          "Unzip it anywhere and open index.html in a browser — it works exactly like your live site, with no internet required.",
+        ],
+      },
+      {
+        heading: "What's in the ZIP?",
+        body: ["Your backup includes everything a visitor would see:"],
+        list: [
+          "Every HTML page — rendered as a browser sees it, not raw server templates",
+          "All images — including CDN-hosted photos, background images, and thumbnails",
+          "CSS and JavaScript — all the styling and interactivity",
+          "Fonts — so the typography looks exactly right offline",
+          "All links rewritten — click between pages in the ZIP just as you would online",
+        ],
+      },
+      {
+        heading: "Works on Any Website",
+        body: [
+          "It doesn't matter whether your site runs on WordPress, Wix, Squarespace, Shopify, Webflow, or a completely custom stack. Website Sucker works from the live URL — no access to your server, admin panel, or database needed.",
+          "This is particularly useful for sites hosted on platforms like Wix and Squarespace that have no built-in export feature. The backup captures exactly what your site looks like to any visitor.",
+        ],
+      },
+      {
+        heading: "Save It, Share It, Store It",
+        body: [
+          "Once you have the ZIP, keep it somewhere safe: a hard drive, Dropbox, Google Drive, or an external SSD. If anything ever happens to your live site — hosting issues, accidental deletion, platform shutting down — you have a complete copy you can refer to or restore from.",
+          "At $1.99 per backup, it's one of the cheapest insurance policies you can buy for your online presence.",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Back Up Your Site Right Now",
+      body: "Paste your URL, scan for free, and download the complete backup for $1.99. Done in under 60 seconds.",
+    },
+  },
 ];
