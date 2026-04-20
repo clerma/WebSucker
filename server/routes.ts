@@ -638,6 +638,39 @@ export async function registerRoutes(
 
       const recentCharges = mergedCharges;
 
+      // Fetch failed charges from Stripe
+      interface FailedPaymentEntry {
+        id: string;
+        amount: number;
+        currency: string;
+        created: number;
+        email: string | null;
+        failureCode: string | null;
+        failureMessage: string | null;
+        outcome: string | null;
+      }
+      const failedPayments: FailedPaymentEntry[] = [];
+      try {
+        const stripe = await getUncachableStripeClient();
+        const failedCharges = await stripe.charges.list({ limit: 50 });
+        for (const c of failedCharges.data) {
+          if (c.status !== "failed") continue;
+          failedPayments.push({
+            id: c.id,
+            amount: c.amount,
+            currency: c.currency,
+            created: c.created,
+            email: c.billing_details?.email ?? null,
+            failureCode: c.failure_code ?? null,
+            failureMessage: c.failure_message ?? null,
+            outcome: (c.outcome as any)?.seller_message ?? (c.outcome as any)?.reason ?? null,
+          });
+        }
+        failedPayments.sort((a, b) => b.created - a.created);
+      } catch (stripeErr) {
+        console.warn("Could not fetch failed charges:", stripeErr);
+      }
+
       res.json({
         analytics,
         stripe: {
@@ -645,6 +678,7 @@ export async function registerRoutes(
           monthlyRevenue,
           totalRevenue,
           recentCharges,
+          failedPayments,
         },
       });
     } catch (error) {

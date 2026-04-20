@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity, AlertTriangle } from "lucide-react";
+import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity, AlertTriangle, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,16 @@ interface StripeStats {
     created: number;
     status: string;
     email: string | null;
+  }>;
+  failedPayments: Array<{
+    id: string;
+    amount: number;
+    currency: string;
+    created: number;
+    email: string | null;
+    failureCode: string | null;
+    failureMessage: string | null;
+    outcome: string | null;
   }>;
 }
 
@@ -395,6 +405,55 @@ export default function Admin() {
             </CardContent>
           </Card>
         </div>
+
+        <Card className="border-destructive/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <XCircle className="h-4 w-4 text-destructive" />
+              Failed Card Attempts
+              {(stats?.stripe.failedPayments.length ?? 0) > 0 && (
+                <Badge variant="destructive" className="text-xs ml-auto">
+                  {stats!.stripe.failedPayments.length}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-64">
+              {!stats?.stripe.failedPayments.length ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No failed payments</p>
+              ) : (
+                <div className="divide-y">
+                  {stats.stripe.failedPayments.map((f) => (
+                    <div key={f.id} className="px-6 py-3 bg-destructive/5 flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{f.email ?? "Unknown email"}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(f.created * 1000).toLocaleString()}
+                        </p>
+                        {(f.failureMessage || f.outcome) && (
+                          <p className="text-xs text-destructive mt-1 flex items-start gap-1">
+                            <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                            <span>{f.failureMessage ?? f.outcome}</span>
+                          </p>
+                        )}
+                        {f.failureCode && (
+                          <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                            code: {f.failureCode}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-medium">${(f.amount / 100).toFixed(2)}</p>
+                        <Badge variant="destructive" className="text-xs">failed</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="pb-3">
