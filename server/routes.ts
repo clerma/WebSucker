@@ -146,10 +146,55 @@ export async function registerRoutes(
       });
     }
   }
-  
+
+  // Adult-content domain detection — checked before any job is created or stored.
+  const ADULT_TLDS = new Set([".xxx", ".adult", ".porn", ".sex"]);
+  const ADULT_KEYWORDS = [
+    "pornhub", "xvideos", "xnxx", "redtube", "youporn", "xhamster",
+    "brazzers", "bangbros", "realitykings", "naughtyamerica", "mofos",
+    "twistys", "hustler", "penthouse", "onlyfans", "slutload", "beeg",
+    "xtube", "tube8", "tnaflix", "porntube", "drtuber", "hardsextube",
+    "bangbus", "spankwire", "sunporno", "eporner", "hclips", "pornmd",
+    "gaytube", "gaymaletube", "dudesnude", "just-for-fans", "4tube",
+    "porndig", "alohatube", "iceporn", "hellporno", "fuqer", "hdzog",
+    "faketaxi", "publicagent", "povd", "camdolls", "stripchat",
+    "chaturbate", "myfreecams", "cam4", "livejasmin", "bongacams",
+    "sex.com", "porn.com", "xxxvideos", "xxxhd", "xxnx", "xnxx",
+    "teenagesex", "freeporn", "hotporn", "analporn", "milfhunter",
+    "maturetube", "grandmatube", "spankbang", "fuqtube", "cumlouder",
+    "ah-me", "jizzbunker", "keezmovies", "thenewporn", "pornovideoshub",
+    "watchmygf", "hentaihaven", "nhentai", "rule34", "gelbooru",
+    "sankakucomplex", "danbooru", "e-hentai", "exhentai",
+  ];
+
+  function isAdultUrl(rawUrl: string): boolean {
+    let hostname: string;
+    try {
+      hostname = new URL(rawUrl).hostname.toLowerCase();
+    } catch {
+      return false;
+    }
+    // Check adult TLDs
+    for (const tld of ADULT_TLDS) {
+      if (hostname.endsWith(tld)) return true;
+    }
+    // Check domain keywords
+    for (const kw of ADULT_KEYWORDS) {
+      if (hostname.includes(kw)) return true;
+    }
+    return false;
+  }
+
   app.post("/api/scrape", async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
+
+      if (isAdultUrl(validatedData.url)) {
+        return res.status(400).json({
+          message: "We do not back up adult websites.",
+        });
+      }
+
       const job = await storage.createJob(validatedData.url);
       
       (async () => {
