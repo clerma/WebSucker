@@ -165,6 +165,7 @@ export async function registerRoutes(
     "ah-me", "jizzbunker", "keezmovies", "thenewporn", "pornovideoshub",
     "watchmygf", "hentaihaven", "nhentai", "rule34", "gelbooru",
     "sankakucomplex", "danbooru", "e-hentai", "exhentai",
+    "onlyshare.io", "ouraidream",
   ];
 
   function isAdultUrl(rawUrl: string): boolean {
