@@ -93,10 +93,21 @@ The app runs on port 5000 using `npm run dev` which starts both the Vite dev ser
 
 ## Blog / SEO Articles
 - URL: `/blog` (listing page), `/blog/:slug` (individual articles)
-- 7 SEO-focused articles targeting: Squarespace export, Wix export, website backup, why backup, download images, transfer between platforms, website conversion
+- 13 SEO-focused articles targeting: Squarespace export, Wix export, website backup, why backup, download images, transfer between platforms, website conversion, 60-second backup, downloader tool comparison, Website Sucker vs SiteSucker, save site as ZIP, download with images/CSS/JS, legality of downloading
 - Article data in `client/src/data/articles.ts` — add new articles there
 - "Help & Guides" link in home page footer links to /blog
 - Each article has: category badge, reading time, intro, structured sections with optional bullet lists, CTA box, and prev/next navigation
+
+## Features Page
+- URL: `/features`
+- Hero, 12-card feature grid (Globe/Image/Code/PlayCircle/etc icons), 8-row comparison table vs SiteSucker/HTTrack/WebsiteDownloader.io, pricing summary, CTA
+- Linked from home footer
+
+## FAQ Page
+- URL: `/faq`
+- 19 Q&A entries covering: what it is, vs SiteSucker, pricing, what's included, JS sites, size limits, legality, paywalls, adult content, file storage, why pay, plan differences, restoring access, cancellation, troubleshooting, robots.txt, speed, self-hosting, custom plans
+- Embeds JSON-LD FAQPage schema for SEO rich results
+- Linked from home footer
 
 ## Admin Dashboard
 - URL: `/admin` (password-protected)
@@ -134,6 +145,10 @@ The app runs on port 5000 using `npm run dev` which starts both the Vite dev ser
 - Capped at 30s max wait per retry; raises error after all retries exhausted
 
 ## Recent Changes
+- April 2026: SEO expansion — 5 new blog articles (downloader comparison, vs SiteSucker, save as ZIP, download with images/CSS/JS, legality), `/features` page with comparison table, `/faq` page with FAQPage JSON-LD schema; both linked in home footer
+- April 2026: DB resilience — `server/db.ts` wraps `pool.query` to silently retry up to 3 times (500ms/1.5s/3s) on Neon "endpoint disabled / connection terminated" errors so a sleeping endpoint transparently wakes
+- April 2026: Adult content blocking — `isAdultUrl()` in routes.ts blocks 50+ adult platforms by hostname keyword/TLD before `storage.createJob()`; nothing stored when blocked
+- April 2026: Failed payment log in admin — `/api/admin/stats` returns `failedPayments` from `stripe.charges.list`, displayed in red-bordered card on /admin
 - April 2026: Static site detection — `probeNeedsPuppeteer()` skips Puppeteer for plain HTML sites; block.codescandy.com (105 pages) now completes in ~12 min instead of timing out; Wix/Squarespace/SPA sites unchanged
 - April 2026: HTTP 429 retry — `fetchBytesWithTimeout()` retries up to 3× with exponential backoff (2s/4s/8s) on rate-limit responses; block.codescandy.com failures 175→7
 - April 2026: WebSocket auto-reconnect (client) — up to 5 silent reconnect attempts with exponential backoff before showing error

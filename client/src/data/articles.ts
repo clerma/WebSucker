@@ -593,4 +593,482 @@ export const articles: Article[] = [
       body: "Paste your URL, scan for free, and download the complete backup for $1.99. Done in under 60 seconds.",
     },
   },
+  {
+    slug: "best-free-website-downloader-tools-2026",
+    title: "Best Free Website Downloader Tools in 2026 (Honest Comparison)",
+    metaDescription:
+      "We compared the most popular website downloader tools — SiteSucker, HTTrack, WebsiteDownloader.io, SaveWeb2ZIP, and Website Sucker. Here's which one fits your use case.",
+    publishedDate: "April 2026",
+    readingTime: "9 min read",
+    category: "Comparisons",
+    intro:
+      "Looking for a free way to download a complete website for offline use, archival, or migration? There are a lot of tools out there, but most haven't been updated in years and silently break on modern sites built with Wix, Squarespace, React, or anything else that loads content with JavaScript. Here's an honest, hands-on comparison of the tools that actually still work in 2026.",
+    sections: [
+      {
+        heading: "What to Look For in a Website Downloader",
+        body: [
+          "Not all downloaders are equal. Before picking one, check whether it handles the things real-world websites need:",
+        ],
+        list: [
+          "JavaScript rendering — most modern sites won't show their full content unless the tool runs them in a real browser",
+          "Lazy-loaded images — galleries and image-heavy pages often skip downloads if the tool can't trigger scrolling",
+          "Embedded videos and maps — YouTube, Vimeo, Spotify, Google Maps, etc. should keep working offline",
+          "Asset rewriting — links between pages and to images/CSS need to be rewritten to relative paths so the offline copy works",
+          "Speed and reliability — if the tool crashes on a 50-page site, it's not useful",
+          "Cost transparency — some 'free' tools nag you for $30+ before you can download anything",
+        ],
+      },
+      {
+        heading: "1. SiteSucker (macOS / iOS)",
+        body: [
+          "SiteSucker is the long-standing classic for Mac users. It's been around since 2005 and does a solid job downloading static and lightly dynamic websites. The interface is dated but functional, and once a download finishes you get a properly organised folder you can open in any browser.",
+          "Downsides: it's macOS-only (or iOS), and it doesn't run JavaScript — so for any modern Wix, Squarespace, or React-based site you'll get an incomplete copy with missing images and broken layouts. The Mac version is paid (around $5), the Pro version more.",
+        ],
+        list: [
+          "Best for: Mac users downloading older, static HTML websites",
+          "Not for: Modern JS-heavy sites, Windows/Linux users, anyone who needs embeds preserved",
+        ],
+      },
+      {
+        heading: "2. HTTrack (Windows / Linux / Mac)",
+        body: [
+          "HTTrack is the venerable open-source option. It's free, cross-platform, and extremely configurable. If you're a developer who wants to script a recursive download with very specific filters, HTTrack is powerful.",
+          "The catch: the UI looks like it's from 1999, the configuration is intimidating, and like SiteSucker it doesn't render JavaScript. Sites built with React, Vue, or any modern CMS often come back as empty shells.",
+        ],
+        list: [
+          "Best for: Power users mirroring static documentation sites or simple HTML pages",
+          "Not for: Anyone who wants a one-click experience or needs JS-rendered content",
+        ],
+      },
+      {
+        heading: "3. WebsiteDownloader.io",
+        body: [
+          "A web-based tool that doesn't require any install. You paste a URL, wait, and get a ZIP. Convenient, but in our testing it struggled with anything beyond static sites — JavaScript-rendered sites came back missing most of their content, and it has trouble with sites that lazy-load images on scroll.",
+          "It's also paid for anything beyond a small free quota.",
+        ],
+        list: [
+          "Best for: Quick one-off downloads of small static sites",
+          "Not for: Modern sites, large sites, or sites where you need every image",
+        ],
+      },
+      {
+        heading: "4. SaveWeb2ZIP",
+        body: [
+          "SaveWeb2ZIP focuses on saving a single page (not a whole site) as a ZIP. It's good for archiving a specific article or product page, but if you want a full multi-page backup it's not the right tool — you'd have to repeat the process for every URL.",
+        ],
+        list: [
+          "Best for: Saving a single web page for offline reference",
+          "Not for: Multi-page sites, full backups, or migrations",
+        ],
+      },
+      {
+        heading: "5. Website Sucker (websitesucker.com)",
+        body: [
+          "Full disclosure — this is our tool, but here's the honest pitch: Website Sucker was built specifically because the tools above don't handle modern sites well. It runs a real headless browser (Puppeteer) to render JavaScript, scrolls pages to trigger lazy-loaded images, preserves YouTube/Vimeo/Spotify/Google Maps embeds, deduplicates Wix and Squarespace CDN images, and rewrites every link to work offline.",
+          "Analysing any site is free. Downloading the complete ZIP is $1.99 one-time, or $5.99/month for unlimited downloads. No installs, runs in your browser.",
+        ],
+        list: [
+          "Best for: Modern websites (Wix, Squarespace, Shopify, React, etc.), embed-heavy sites, image-heavy galleries",
+          "Not for: Anyone who insists on free-only and is willing to fight HTTrack's config",
+        ],
+      },
+      {
+        heading: "Quick Comparison Table",
+        body: [
+          "Here's a side-by-side based on our testing on a handful of real sites:",
+        ],
+        list: [
+          "Renders JavaScript — Website Sucker: yes • SiteSucker: no • HTTrack: no • WebsiteDownloader.io: partial • SaveWeb2ZIP: yes (single page only)",
+          "Cross-platform — Website Sucker: yes (browser) • SiteSucker: macOS/iOS only • HTTrack: yes • WebsiteDownloader.io: yes • SaveWeb2ZIP: yes",
+          "Preserves embeds — Website Sucker: yes • SiteSucker: no • HTTrack: no • WebsiteDownloader.io: no • SaveWeb2ZIP: partial",
+          "Multi-page sites — Website Sucker: yes • SiteSucker: yes • HTTrack: yes • WebsiteDownloader.io: yes • SaveWeb2ZIP: no (single page)",
+          "Cost — Website Sucker: $1.99 / $5.99 mo • SiteSucker: ~$5 paid app • HTTrack: free • WebsiteDownloader.io: paid past free quota • SaveWeb2ZIP: free",
+        ],
+      },
+      {
+        heading: "Which One Should You Use?",
+        body: [
+          "If you're on Mac and downloading a plain HTML site: SiteSucker is fine.",
+          "If you're a developer mirroring a documentation site and don't mind config: HTTrack.",
+          "If you want a single article saved for offline: SaveWeb2ZIP.",
+          "If you have a modern Wix/Squarespace/Shopify/React site and just want a working offline copy without fighting any tools: try Website Sucker first — it's free to analyse and you only pay if you actually want the ZIP.",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Try It on Your Own Site",
+      body: "Paste any URL — analysing is always free. See exactly what we'd download before paying a cent.",
+    },
+  },
+  {
+    slug: "website-sucker-vs-sitesucker",
+    title: "Website Sucker vs SiteSucker: Which Should You Use in 2026?",
+    metaDescription:
+      "Confused between Website Sucker (web app) and SiteSucker (Mac app)? Here's a side-by-side breakdown of features, pricing, and which one fits your situation.",
+    publishedDate: "April 2026",
+    readingTime: "6 min read",
+    category: "Comparisons",
+    intro:
+      "SiteSucker is the well-known Mac app that's been around for almost two decades. Website Sucker is a newer, browser-based alternative built for modern sites. Despite the similar names, they're different tools with different strengths. Here's how they actually compare.",
+    sections: [
+      {
+        heading: "The Quick Summary",
+        body: [
+          "SiteSucker is a downloadable Mac/iOS app that crawls websites and saves them locally. Website Sucker is a web app — you paste a URL in your browser and download a ZIP, no install required. SiteSucker is older and more configurable. Website Sucker is newer, works on any device, and handles modern JavaScript-heavy sites that SiteSucker often can't.",
+        ],
+      },
+      {
+        heading: "Platform Support",
+        body: [
+          "SiteSucker only runs on Mac (with a separate iOS version). If you're on Windows or Linux, you can't use it at all.",
+          "Website Sucker runs in any modern browser — Chrome, Safari, Firefox, Edge, on Mac, Windows, Linux, ChromeOS, even mobile. There's nothing to download or install.",
+        ],
+      },
+      {
+        heading: "JavaScript-Rendered Sites",
+        body: [
+          "This is the biggest practical difference. SiteSucker fetches HTML the way a basic HTTP client does — it doesn't run JavaScript. So for sites built with Wix, Squarespace, Shopify, React, Vue, Angular, or any modern framework, SiteSucker often returns an empty shell with missing content, no images, and broken styling.",
+          "Website Sucker runs a real headless Chrome browser behind the scenes (using Puppeteer). It renders JavaScript, scrolls pages to trigger lazy-loaded images, and waits for content to fully load before downloading. The result: a complete offline copy of modern sites, not a broken skeleton.",
+        ],
+      },
+      {
+        heading: "Embedded Content",
+        body: [
+          "SiteSucker downloads HTML, CSS, JS, and images, but doesn't do anything special with embedded YouTube videos, Vimeo players, Google Maps, Spotify, or social embeds. They typically appear as broken iframes when you open the offline copy.",
+          "Website Sucker preserves embeds from 25+ providers so they keep working offline — videos still play (when you have internet), maps still load, and Spotify/SoundCloud players remain functional.",
+        ],
+      },
+      {
+        heading: "Pricing",
+        body: [
+          "SiteSucker is a paid Mac app — around $4.99 for the standard version, more for the Pro version with extra features. Once you buy it, it's yours.",
+          "Website Sucker is free to use for analysing any site — you see exactly what would be downloaded before paying. The download itself is $1.99 one-time, or $5.99/month for unlimited downloads. If you only need one or two backups, you'll save money. If you need dozens per month, the subscription is the better deal.",
+        ],
+      },
+      {
+        heading: "Speed & Convenience",
+        body: [
+          "SiteSucker, once installed and configured, is fast. But you have to install it, configure download depth and filters, and actually open the app each time.",
+          "Website Sucker is instant — paste a URL, hit go, watch the live progress in the browser, download the ZIP. No setup, no config screens. Each scrape gets its own session that auto-expires after 10 minutes for privacy.",
+        ],
+      },
+      {
+        heading: "When SiteSucker Is Still the Better Choice",
+        body: [
+          "SiteSucker is the right tool when:",
+        ],
+        list: [
+          "You're on a Mac and the site you want is mostly static HTML",
+          "You want very granular control over what gets downloaded (depth, file types, URL filters)",
+          "You'll be downloading the same site repeatedly and want a saved configuration",
+          "You don't want recurring fees and prefer a one-time app purchase",
+        ],
+      },
+      {
+        heading: "When Website Sucker Is the Better Choice",
+        body: [
+          "Use Website Sucker when:",
+        ],
+        list: [
+          "You're on Windows, Linux, or any non-Mac device",
+          "The site uses modern JavaScript (Wix, Squarespace, Shopify, React, Vue, Angular, Next.js, etc.)",
+          "It has lots of embedded videos, maps, or interactive content",
+          "You want it done in 60 seconds without installing anything",
+          "You're backing up a client's site and want to send them a clean ZIP without making them install software",
+        ],
+      },
+      {
+        heading: "The Bottom Line",
+        body: [
+          "Both tools have a place. SiteSucker is a solid app for Mac users with mostly static sites. Website Sucker is the modern, cross-platform, JS-aware alternative that handles today's web. Try Website Sucker free — if your site comes out clean, you're done. If you need more control, install SiteSucker.",
+        ],
+      },
+    ],
+    cta: {
+      heading: "See How Your Site Looks in Website Sucker",
+      body: "Paste your URL — analysing is free. You'll see exactly what we'd back up before deciding to download.",
+    },
+  },
+  {
+    slug: "how-to-save-a-website-as-a-zip-file",
+    title: "How to Save a Website as a ZIP File (Complete Guide for 2026)",
+    metaDescription:
+      "Learn how to save any website as a single ZIP file — every page, image, stylesheet, and asset — that opens offline without an internet connection.",
+    publishedDate: "April 2026",
+    readingTime: "5 min read",
+    category: "How-To Guides",
+    intro:
+      "Want to save a website as a ZIP file you can open later, share with a client, or store as a backup? Here's the simplest way to do it — works for any site, any device, no installs required.",
+    sections: [
+      {
+        heading: "Why Save a Website as a ZIP?",
+        body: [
+          "A ZIP gives you a single, portable file containing the entire website — every page, image, stylesheet, font, and asset, organised in folders. You can:",
+        ],
+        list: [
+          "Browse the site offline with no internet connection",
+          "Email or share the entire site with a client or colleague",
+          "Archive a project before a redesign or platform change",
+          "Use it as a starting point for a new site rebuild",
+          "Keep a snapshot of your portfolio or business as it looked at a specific date",
+          "Comply with record-keeping requirements (contracts, legal disclosures, regulated industries)",
+        ],
+      },
+      {
+        heading: "Method 1: Use Website Sucker (Recommended for Most People)",
+        body: [
+          "This is the fastest way and works on any device:",
+        ],
+        list: [
+          "Go to websitesucker.com",
+          "Paste the URL of the website you want to save",
+          "Click Start — analysing is free, watch the progress live",
+          "When it finishes, click Download ZIP ($1.99 one-time)",
+          "You'll get a ZIP file like website-sucker-yoursite-com.zip",
+          "Unzip it and open index.html in any browser to view the site offline",
+        ],
+      },
+      {
+        heading: "Method 2: Save a Single Page (Browser Built-In)",
+        body: [
+          "If you only need one page (not the whole site), every browser has a built-in option:",
+        ],
+        list: [
+          "Open the page you want to save",
+          "Right-click → Save Page As (or File → Save Page As)",
+          "Choose Web Page, Complete to also save images and styles",
+          "You'll get an HTML file plus a folder of assets — zip them yourself with right-click → Compress",
+        ],
+      },
+      {
+        heading: "Method 3: SiteSucker (Mac Only)",
+        body: [
+          "If you're on Mac and want a desktop app, SiteSucker can download a site to a folder. You'll need to manually compress that folder into a ZIP afterwards. SiteSucker doesn't render JavaScript, so it won't work well on modern Wix/Squarespace/React sites.",
+        ],
+      },
+      {
+        heading: "What Goes Inside the ZIP",
+        body: [
+          "A proper site ZIP should contain everything needed to view the site offline:",
+        ],
+        list: [
+          "All HTML pages, organised by URL path (e.g. /about/index.html, /blog/index.html)",
+          "All linked CSS stylesheets",
+          "All JavaScript files",
+          "Every image referenced on every page",
+          "Custom fonts",
+          "Embedded video/map iframes (preserved as live embeds when online)",
+          "An index.html at the top level so you can just double-click to open it",
+        ],
+      },
+      {
+        heading: "Common Pitfalls to Avoid",
+        body: [
+          "A few things to watch out for when saving a site as a ZIP:",
+        ],
+        list: [
+          "Tools that don't run JavaScript will miss most content on modern sites",
+          "Some tools download files but don't rewrite links, so the offline copy has broken navigation",
+          "Free tools sometimes have hidden size or page-count limits — check before relying on them for a big site",
+          "Always verify the offline copy works before deleting the original — open the ZIP and click around",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Save Your Website as a ZIP in 60 Seconds",
+      body: "Paste any URL — analysing is free, ZIP download is $1.99 one-time. No install, no signup, no fuss.",
+    },
+  },
+  {
+    slug: "download-website-with-images-css-javascript",
+    title: "How to Download a Website with Images, CSS, and JavaScript Intact",
+    metaDescription:
+      "Most website downloaders miss images, break stylesheets, or skip JavaScript. Here's how to download a website that actually works offline — fonts, embeds, and all.",
+    publishedDate: "April 2026",
+    readingTime: "6 min read",
+    category: "How-To Guides",
+    intro:
+      "Anyone can save raw HTML. The hard part is downloading a website where every image still loads, every stylesheet still applies, every font still renders, and the layout actually looks like the original. Here's why most tools fail at this — and how to do it right.",
+    sections: [
+      {
+        heading: "Why Most Downloads Look Broken Offline",
+        body: [
+          "When you save a webpage and it looks like a 1995 Geocities page when opened offline, one of these things has happened:",
+        ],
+        list: [
+          "Images were referenced via JavaScript and the tool didn't run JS",
+          "CSS files were loaded from a CDN that the tool didn't follow",
+          "Fonts come from Google Fonts or Adobe Fonts and weren't downloaded",
+          "Images are lazy-loaded on scroll and the tool never scrolled the page",
+          "Image src attributes use relative paths that weren't rewritten to point to the local files",
+          "Background images defined inside CSS files were ignored",
+          "Modern image formats (WebP, AVIF) weren't recognised and got skipped",
+        ],
+      },
+      {
+        heading: "What a Complete Download Should Capture",
+        body: [
+          "For an offline copy that actually looks like the original, the downloader needs to handle all of this:",
+        ],
+        list: [
+          "HTML for every page in the site",
+          "Every <img> source, including srcset and lazy-loaded variants",
+          "Every CSS file linked in <link> tags AND every @import inside those files",
+          "Background images and url() references inside CSS",
+          "Inline styles that reference images",
+          "JavaScript files (so interactive features keep working)",
+          "Fonts (TTF, WOFF, WOFF2)",
+          "Favicons and Apple touch icons",
+          "Modern formats: WebP, AVIF, SVG",
+          "Embedded video and map iframes",
+        ],
+      },
+      {
+        heading: "How Website Sucker Handles It",
+        body: [
+          "Website Sucker uses a real headless Chrome browser to load each page exactly as a visitor would see it. That means JavaScript runs, dynamic content loads, lazy-loaded images get triggered (we scroll the page in 500-pixel increments to wake them up), and everything that ends up on screen gets captured.",
+          "Then we walk every CSS file we downloaded looking for url() references and grab those too. Same with srcset attributes — we parse them, deduplicate variants of the same image, and download the highest-quality version.",
+          "Finally, every reference in the HTML and CSS gets rewritten to point to the local file path. When you unzip the result and open index.html, everything works — no broken images, no missing fonts, no flat unstyled pages.",
+        ],
+      },
+      {
+        heading: "Edge Cases We Handle (That Most Tools Don't)",
+        body: [
+          "Real websites are messy. Here are some things we've had to specifically handle so downloads come out clean:",
+        ],
+        list: [
+          "Wix CDN images served as AVIF with the wrong file extension — we normalise the URL and force the original PNG/JPEG",
+          "Squarespace srcset variants of the same image — we deduplicate by base URL so we don't download 6 copies of one image",
+          "<noscript> fallback images — we promote them into the DOM so they render offline",
+          "<wix-iframe> custom elements — converted to standard iframes for offline playback",
+          "Smooth-scroll anchor links — converted from data-anchor to proper hash links",
+          "Lazy-loaded iframes (data-src) — activated so they show on first load",
+          "Squarespace embed/video blocks — decoded from data-html attributes and inserted as live elements",
+        ],
+      },
+      {
+        heading: "Verifying Your Download",
+        body: [
+          "After you download a site, check the offline copy actually works:",
+        ],
+        list: [
+          "Unzip the file",
+          "Open index.html in your browser by double-clicking",
+          "Click around to a few pages — they should all open and look correct",
+          "Right-click → Inspect → Network tab → reload — there should be very few (or zero) failed requests",
+          "Disconnect from the internet and reload — the site should still display (videos and maps will be the only thing needing connection)",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Download a Working Offline Copy",
+      body: "Paste any URL — analysing is free. We'll show you exactly what we'd capture before you pay a cent.",
+    },
+  },
+  {
+    slug: "is-it-legal-to-download-a-website",
+    title: "Is It Legal to Download a Website? A Plain-English Guide",
+    metaDescription:
+      "Is it legal to download or scrape a website? Here's a practical, non-lawyer explanation of when it's fine, when it's risky, and the common-sense rules that keep you safe.",
+    publishedDate: "April 2026",
+    readingTime: "7 min read",
+    category: "Education",
+    intro:
+      "Lots of people want to download a website — to back up their own site, archive an article, or save something before it disappears. But is it actually legal? The short answer: usually yes, but it depends on what you're doing with it. Here's a plain-English breakdown of the rules.",
+    sections: [
+      {
+        heading: "First, the Disclaimer",
+        body: [
+          "We're not lawyers and this isn't legal advice. Laws differ by country and individual circumstances matter. If you're doing something high-stakes, talk to an actual lawyer. What follows is the common-sense framework that covers most everyday situations.",
+        ],
+      },
+      {
+        heading: "The Single Most Important Question",
+        body: [
+          "When deciding whether downloading a site is OK, ask: am I downloading a public website that anyone with a browser can access?",
+          "If yes, downloading it is generally fine. Your browser already downloads every page you visit — that's how the web works. A downloader just makes that copy more permanent and organised.",
+          "If you're trying to bypass a paywall, log in to someone's account without permission, or access content that isn't publicly available, you're in different territory and the rules change.",
+        ],
+      },
+      {
+        heading: "When Downloading Is Almost Always Fine",
+        body: [
+          "These cases are essentially never an issue:",
+        ],
+        list: [
+          "You're backing up your own website (you own the content and the copyright)",
+          "You're archiving an article or page for personal reference",
+          "You're capturing a snapshot of a site for record-keeping (e.g. proof of what was published on a certain date)",
+          "You're a researcher saving public web content for a study",
+          "You're a developer creating a local mirror of documentation to read offline",
+          "You're migrating from one platform to another and need the source files",
+        ],
+      },
+      {
+        heading: "When You Should Be Careful",
+        body: [
+          "These don't mean it's illegal — but you should think twice and check the site's terms:",
+        ],
+        list: [
+          "Downloading a competitor's site to clone their design — copyright applies to layouts, images, and copy",
+          "Republishing downloaded content under your own name — this is straight-up copyright infringement",
+          "Downloading paywalled content — if you bypassed a paywall, that's against most terms of service",
+          "Hammering a site with a thousand requests per second — even if individual requests are legal, the load can violate computer-misuse laws",
+          "Downloading personal data about other users (names, emails, etc.) — privacy laws like GDPR apply",
+        ],
+      },
+      {
+        heading: "Copyright vs. Access",
+        body: [
+          "There's a useful distinction here. Copyright governs what you can do with content (republish, sell, copy). Computer-access laws govern whether you can fetch the content in the first place.",
+          "Downloading a public website doesn't usually violate access laws — that's just normal browsing, automated. But what you do with the downloaded content (republish it, claim it as yours, sell it) can violate copyright.",
+          "Personal use, backup, archive, research — almost always fine. Republishing or commercial use of someone else's content — get permission first.",
+        ],
+      },
+      {
+        heading: "robots.txt and Terms of Service",
+        body: [
+          "Two things on every website that hint at what the owner wants:",
+          "robots.txt is a file at the root of every site (e.g. example.com/robots.txt) that tells crawlers which pages they're welcome to fetch. It's not legally binding in most jurisdictions, but ignoring it is considered impolite and can be evidence in disputes.",
+          "Terms of Service often have a clause about scraping or automated access. Whether these terms are enforceable varies by country — some courts enforce them strictly, others have ruled they don't apply to public pages. Either way, if a site explicitly forbids downloading and you do it anyway, you're on shakier ground.",
+        ],
+      },
+      {
+        heading: "Specific Common Cases",
+        body: [
+          "Backing up your own website built with Wix/Squarespace/Shopify: 100% fine. It's your content.",
+          "Saving an article you want to read on a flight: fine, personal use.",
+          "Archiving a competitor's pricing page so you can refer back to it: fine for personal/internal use, not for republication.",
+          "Cloning someone's website to launch your own copy: not OK, this is copyright infringement.",
+          "Downloading a publicly-available recipe or news article: fine for personal use, don't republish.",
+          "Mass-downloading thousands of sites for a commercial database: tread carefully — talk to a lawyer.",
+        ],
+      },
+      {
+        heading: "What Website Sucker Does to Stay on the Right Side",
+        body: [
+          "We built Website Sucker to behave responsibly:",
+        ],
+        list: [
+          "It throttles requests (~150ms between fetches) so it doesn't hammer servers",
+          "It caps each download at a reasonable size (750 assets, 50 HTML pages) — enough for any normal site, not enough to abuse",
+          "It blocks adult-content domains entirely",
+          "It identifies itself in the user agent so site owners can see who's visiting",
+          "It only downloads what's publicly accessible — no auth bypass, no paywall scraping",
+          "Files are auto-deleted from our servers 10 minutes after the scrape — we don't keep copies of your downloads",
+        ],
+      },
+      {
+        heading: "The Bottom Line",
+        body: [
+          "Downloading a public website for personal use, backup, archive, or migration is almost always legal and ethical. Republishing someone else's content, cloning their design, or hammering their server is not.",
+          "If your situation is high-stakes (commercial scraping, regulatory compliance, anything competitive), talk to a lawyer. For everyone else, common sense covers it.",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Back Up Your Site With Confidence",
+      body: "Website Sucker is designed for legitimate, polite, personal-use backups. Paste your URL, scan free, download for $1.99.",
+    },
+  },
 ];

@@ -13,6 +13,8 @@ import Terms from "@/pages/terms";
 import Admin from "@/pages/admin";
 import Blog from "@/pages/blog";
 import BlogPost from "@/pages/blog-post";
+import Features from "@/pages/features";
+import Faq from "@/pages/faq";
 
 function Router() {
   return (
@@ -20,6 +22,8 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/blog" component={Blog} />
       <Route path="/blog/:slug" component={BlogPost} />
+      <Route path="/features" component={Features} />
+      <Route path="/faq" component={Faq} />
       <Route path="/terms" component={Terms} />
       <Route path="/admin" component={Admin} />
       <Route path="/checkout/success" component={CheckoutSuccess} />

@@ -416,7 +416,21 @@ export default function Home() {
                   Analysing is always free. Your data stays private. Files are deleted 10 minutes after scraping.
                 </span>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-wrap justify-center">
+                <a
+                  href="/features"
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                  data-testid="link-features"
+                >
+                  Features
+                </a>
+                <a
+                  href="/faq"
+                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                  data-testid="link-faq"
+                >
+                  FAQ
+                </a>
                 <a
                   href="/blog"
                   className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
