@@ -1,0 +1,184 @@
+# Website Sucker - Website Scraper & Offline Backup Tool
+
+## Overview
+Website Sucker (websitesucker.com) is a web-based alternative to SiteSucker (Mac app) that allows users to scrape and analyse any website for free, then download the complete offline backup for a small fee. Perfect for CMS migrations, website backups, and archiving.
+
+## Features
+- **URL Input**: Enter any website URL to start scraping
+- **Smart Scraping**: Automatically extracts HTML, CSS, JavaScript, images, fonts, and other assets
+- **Embed Preservation**: Keeps YouTube, Vimeo, Google Maps, Spotify, and other embedded content intact
+- **Real-time Progress**: WebSocket-powered live updates showing download progress
+- **Results Summary**: Detailed breakdown of successful/failed/skipped assets by type
+- **ZIP Download**: Organized directory structure that works offline without internet
+- **Dark/Light Mode**: Theme toggle for user preference
+- **Payment Gating**: Downloads require payment via Stripe (one-time $1.99 or $5.99/month subscription)
+
+## Tech Stack
+- **Frontend**: React, TypeScript, TailwindCSS, Shadcn/UI, Wouter (routing)
+- **Backend**: Express.js, WebSocket (ws), Puppeteer (headless browser rendering), Cheerio (HTML parsing), Archiver (ZIP creation)
+- **Payments**: Stripe (via Replit integration), stripe-replit-sync for webhook/data sync
+- **Database**: PostgreSQL (for Stripe schema sync)
+- **State**: TanStack Query for data fetching
+- **Storage**: In-memory storage for scrape jobs
+
+## Project Structure
+```
+client/
+├── src/
+│   ├── components/
+│   │   ├── pricing-dialog.tsx      # Payment plan selection dialog
+│   │   ├── progress-display.tsx    # Real-time scraping progress
+│   │   ├── results-summary.tsx     # Post-scrape results view
+│   │   ├── url-input-form.tsx      # URL submission form
+│   │   ├── theme-provider.tsx      # Theme context
+│   │   └── theme-toggle.tsx        # Dark/light toggle
+│   ├── pages/
+│   │   ├── home.tsx                # Main application page
+│   │   ├── checkout-success.tsx    # Post-payment success page
+│   │   └── checkout-cancel.tsx     # Payment cancelled page
+│   └── App.tsx                     # Root component with routing
+server/
+├── routes.ts             # API endpoints + WebSocket + Stripe routes
+├── scraper.ts            # Core scraping engine
+├── storage.ts            # In-memory job storage
+├── stripeClient.ts       # Stripe SDK client (Replit connector)
+├── webhookHandlers.ts    # Stripe webhook processing
+├── seed-products.ts      # Script to create Stripe products/prices
+└── index.ts              # Express server setup + Stripe init
+shared/
+└── schema.ts             # Shared TypeScript types
+```
+
+## API Endpoints
+- `POST /api/scrape` - Start a new scrape job
+- `GET /api/scrape/:id` - Get job status
+- `GET /api/scrape/:id/download` - Download completed ZIP (requires payment verification)
+- `GET /api/stripe/publishable-key` - Get Stripe publishable key
+- `GET /api/stripe/prices` - Get available pricing plans
+- `POST /api/stripe/checkout` - Create Stripe checkout session
+- `GET /api/stripe/verify-payment` - Verify checkout session payment status
+- `GET /api/stripe/check-subscription` - Check if customer has active subscription
+- `POST /api/stripe/webhook` - Stripe webhook handler (registered before express.json())
+
+## Payment Flow
+1. User scrapes a website → sees results summary
+2. User clicks "Download ZIP" → pricing dialog shows two options
+3. One-time ($1.99): Pay once for this download
+4. Monthly ($5.99/mo): Unlimited downloads, cancel anytime
+5. User redirected to Stripe Checkout → completes payment
+6. Redirected back to /checkout/success → payment verified → download starts
+7. Subscribers: customer ID stored in localStorage, future downloads skip pricing dialog
+
+## WebSocket
+- Path: `/ws`
+- Events: `subscribe`, `progress`, `asset`, `complete`, `error`
+
+## Safety Features
+- **Asset Limits**: Max 750 assets, 50 HTML pages per scrape
+- **SSRF Protection**: Blocks private IP ranges and internal hosts
+- **Request Throttling**: 150ms delay between requests
+- **Size Limits**: 10MB max per asset
+- **Analytics Blocking**: Skips common tracking scripts
+
+## Stripe Integration
+- Uses Replit Stripe connector for credentials
+- stripe-replit-sync handles webhook processing and DB sync
+- Webhook route registered BEFORE express.json() middleware
+- Products created via seed-products.ts script
+- Product: "WebSucker" (metadata: app=websucker)
+- Prices: $1.99 one-time, $5.99/month subscription
+
+## Running Locally
+The app runs on port 5000 using `npm run dev` which starts both the Vite dev server and Express backend.
+
+## Blog / SEO Articles
+- URL: `/blog` (listing page), `/blog/:slug` (individual articles)
+- 13 SEO-focused articles targeting: Squarespace export, Wix export, website backup, why backup, download images, transfer between platforms, website conversion, 60-second backup, downloader tool comparison, Website Sucker vs SiteSucker, save site as ZIP, download with images/CSS/JS, legality of downloading
+- Article data in `client/src/data/articles.ts` — add new articles there
+- "Help & Guides" link in home page footer links to /blog
+- Each article has: category badge, reading time, intro, structured sections with optional bullet lists, CTA box, and prev/next navigation
+
+## Features Page
+- URL: `/features`
+- Hero, 12-card feature grid (Globe/Image/Code/PlayCircle/etc icons), 8-row comparison table vs SiteSucker/HTTrack/WebsiteDownloader.io, pricing summary, CTA
+- Linked from home footer
+
+## FAQ Page
+- URL: `/faq`
+- 19 Q&A entries covering: what it is, vs SiteSucker, pricing, what's included, JS sites, size limits, legality, paywalls, adult content, file storage, why pay, plan differences, restoring access, cancellation, troubleshooting, robots.txt, speed, self-hosting, custom plans
+- Embeds JSON-LD FAQPage schema for SEO rich results
+- Linked from home footer
+
+## Admin Dashboard
+- URL: `/admin` (password-protected)
+- Password set via `ADMIN_SECRET` environment variable
+- Shows: total scrapes, assets scraped, downloads, unique sites, active subscribers, MRR, total revenue
+- Recent scrapes list and recent Stripe payments
+- Stats are in-memory (reset on server restart) + live Stripe data
+
+## Subscriber Login / Restore Access
+- Subscribers can restore access via the pricing dialog: "Already subscribed? Restore access"
+- Enter subscription email → server looks up Stripe customer → restores localStorage customerID
+- Endpoint: `POST /api/stripe/customer-lookup`
+
+## API Endpoints (additional)
+- `POST /api/stripe/customer-lookup` - Find Stripe customer by email (subscription restore)
+- `GET /api/admin/stats` - Admin analytics (requires `x-admin-secret` header)
+
+## Wix CDN Image Architecture (learned from mylaffyhouseevents.com)
+- Wix serves images via: `https://static.wixstatic.com/media/{HASH}/v1/{mode}/{params}/{filename}`
+- The `enc_avif,quality_auto` parameter causes Wix to serve AVIF binary data with the wrong file extension (.jpg/.png)
+- The base URL `https://static.wixstatic.com/media/{HASH}` serves the correct original PNG/JPEG (no transforms)
+- Wix puts the SAME image in `src` (1x) and `srcset` (1x, 2x) — all variants share the same hash
+- No `wix:image://` URIs or `data-image-info` attributes appear in the Puppeteer-rendered DOM on this site
+- **Fix**: Normalize all Wix CDN transformation URLs to base URL before downloading; hash-based fallback maps all variants to downloaded file
+
+## Static Site Detection (how Puppeteer is chosen)
+- Entry URL is fetched once before the main scrape loop with `probeNeedsPuppeteer()`
+- Returns `false` (skip Puppeteer) if: no SPA root markers (`#root`, `#app`), no Angular/Next.js/Nuxt markers, no Wix/Squarespace markers, no JS lazy-loading (`data-src` on 5+ elements), body text > 500 chars
+- Returns `true` (use Puppeteer) for any dynamic site — falls back to Puppeteer on probe fetch error
+- Reduces per-page time for static HTML templates from ~15s to ~300ms
+
+## HTTP 429 Retry Logic
+- `fetchBytesWithTimeout()` retries up to 3 times on 429 responses
+- Respects `Retry-After` header if present; otherwise backs off exponentially: 2s → 4s → 8s
+- Capped at 30s max wait per retry; raises error after all retries exhausted
+
+## Recent Changes
+- April 2026: SEO expansion — 5 new blog articles (downloader comparison, vs SiteSucker, save as ZIP, download with images/CSS/JS, legality), `/features` page with comparison table, `/faq` page with FAQPage JSON-LD schema; both linked in home footer
+- April 2026: DB resilience — `server/db.ts` wraps `pool.query` to silently retry up to 3 times (500ms/1.5s/3s) on Neon "endpoint disabled / connection terminated" errors so a sleeping endpoint transparently wakes
+- April 2026: Adult content blocking — `isAdultUrl()` in routes.ts blocks 50+ adult platforms by hostname keyword/TLD before `storage.createJob()`; nothing stored when blocked
+- April 2026: Failed payment log in admin — `/api/admin/stats` returns `failedPayments` from `stripe.charges.list`, displayed in red-bordered card on /admin
+- April 2026: Static site detection — `probeNeedsPuppeteer()` skips Puppeteer for plain HTML sites; block.codescandy.com (105 pages) now completes in ~12 min instead of timing out; Wix/Squarespace/SPA sites unchanged
+- April 2026: HTTP 429 retry — `fetchBytesWithTimeout()` retries up to 3× with exponential backoff (2s/4s/8s) on rate-limit responses; block.codescandy.com failures 175→7
+- April 2026: WebSocket auto-reconnect (client) — up to 5 silent reconnect attempts with exponential backoff before showing error
+- April 2026: WebSocket catch-up snapshot (server) — on re-subscribe, server immediately sends current progress + all assets already downloaded
+- April 2026: Job persistence across page refreshes — active job ID stored in localStorage; page auto-resumes in-progress scrape on reload/crash
+- April 2026: WebSocket server heartbeat — ping every 25s keeps connections alive through proxies
+- March 2026: Squarespace CDN deduplication — `images.squarespace-cdn.com` URLs strip `?format=...w` query params in `normalizeUrl` so all srcset size variants of the same image collapse to one download; images 627→321, total assets 750→466 (no longer hitting cap), HTML pages 32→45
+- March 2026: Noscript image rewriting — Cheerio can't traverse `<noscript>` as DOM children; added nested Cheerio parse on raw noscript HTML to rewrite image src/srcset URLs there too (fixes Squarespace gallery fallback images remaining remote)
+- March 2026: HTML page query-string deduplication — same-domain HTML links now deduplicate by pathname only; `/corporate-events?itemId=abc` and `/corporate-events?itemId=xyz` are treated as the same page; eliminates 35-page budget waste on Squarespace product variant URLs
+- March 2026: Access codes persisted to `access_codes` PostgreSQL table — survive server restarts
+- March 2026: Image fixes — `loading="lazy"` replaced with `loading="eager"` offline; noscript imgs promoted into DOM; missing internal images get placeholder; avif recognized as image type; ZIP named `website-sucker-{hostname}.zip`
+- March 2026: Admin panel shows failed scrapes with error messages highlighted in red; Failed Scrapes stat card added
+- March 2026: 10-minute session expiry — files auto-deleted 10min after scrape; client-side countdown timer shows "Files expire in X:XX"; when timer hits 0 a toast fires and resets to the input view; timer cancelled on download
+- March 2026: Admin dashboard at /admin with usage and Stripe revenue analytics
+- March 2026: Subscriber email restore - "Already subscribed?" in pricing dialog
+- March 2026: Payment gating via Stripe - downloads require one-time payment ($1.99) or monthly subscription ($5.99/mo)
+- February 2026: Puppeteer headless browser rendering for HTML pages - captures JS-rendered content (dynamic embeds, lazy-loaded assets, SPA content)
+- February 2026: Full-page scrolling to trigger lazy-loaded embeds (500px increments + 5s wait)
+- February 2026: Wix `<wix-iframe>` custom elements converted to standard `<iframe>` for offline embed playback
+- February 2026: Wix `data-anchor` scroll-to-section links converted to proper `#anchor` hash links with smooth scroll script
+- February 2026: Added CSS fixes for Wix `hidden-during-prewarmup` elements and smooth scrolling
+- February 2026: Fixed srcset parsing for URLs with commas in paths (Wix image transformations)
+- February 2026: Added embed preservation - YouTube, Vimeo, Google Maps, Spotify, and 25+ embed providers are kept intact
+- February 2026: Squarespace embed/video blocks with data-html are decoded and activated for offline viewing
+- February 2026: Lazy-loaded iframes (data-src) are activated, data-video-url attributes converted to embed iframes
+- February 2026: Fixed link rewriting to resolve relative URLs against current page URL (not just base URL)
+- February 2026: Fixed meta tag extraction (og:image:width/height values no longer treated as URLs)
+- February 2026: Fixed CSS fragment references (#check, %23check) not being mistakenly downloaded
+- February 2026: Increased asset limit from 500 to 750 for image-heavy sites
+- January 2026: Fixed RSS/XML feed filtering - blog pages no longer display RSS XML content
+- January 2026: Improved skip URL detection with specific reasons (analytics vs. feeds)
+- January 2026: Content-type validation prevents RSS feeds from being saved as HTML
+- January 2026: Initial MVP with full scraping functionality, real-time progress, and ZIP download
