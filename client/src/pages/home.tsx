@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Globe, ArrowDown, Zap, Shield, FolderOpen, Lock } from "lucide-react";
+import { Globe, ArrowDown, Zap, Shield, FolderOpen, Lock, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
 import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
@@ -17,6 +18,7 @@ type ViewState = "input" | "scraping" | "results";
 export default function Home() {
   const [viewState, setViewState] = useState<ViewState>("input");
   const [isLoading, setIsLoading] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [currentJob, setCurrentJob] = useState<ScrapeJob | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -140,6 +142,7 @@ export default function Home() {
           if (data.type === "error") {
             scrapeCompletedRef.current = true;
             localStorage.removeItem("websitesucker_active_job");
+            setLastError(data.message || "Scraping failed");
             toast({
               title: "Scraping Error",
               description: data.message,
@@ -178,6 +181,7 @@ export default function Home() {
               // Server already finalized this as failed — surface message once and stop.
               scrapeCompletedRef.current = true;
               localStorage.removeItem("websitesucker_active_job");
+              setLastError(job.errorMessage || "Scraping failed");
               toast({
                 title: "Scraping Error",
                 description: job.errorMessage || "Scraping failed",
@@ -229,6 +233,7 @@ export default function Home() {
   const handleSubmit = async (data: StartScrapeInput) => {
     scrapeCompletedRef.current = false;
     reconnectAttemptsRef.current = 0;
+    setLastError(null);
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -370,6 +375,14 @@ export default function Home() {
                 No app to install, no OS restrictions — just paste a URL and go.
               </p>
             </div>
+
+            {lastError && (
+              <Alert variant="destructive" className="mb-6 max-w-xl w-full" data-testid="alert-scrape-error">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Couldn't scrape that site</AlertTitle>
+                <AlertDescription data-testid="text-scrape-error">{lastError}</AlertDescription>
+              </Alert>
+            )}
 
             <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} />
 
