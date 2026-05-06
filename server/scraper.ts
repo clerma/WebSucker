@@ -462,6 +462,23 @@ function findChromiumPath(): string | undefined {
   return undefined;
 }
 
+// Realistic browser fingerprint pool — rotated per page to avoid pattern-based
+// blocks. All UAs are recent stable Chrome on common OSes.
+const UA_POOL = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+];
+const ACCEPT_LANG_POOL = ["en-US,en;q=0.9", "en-US,en;q=0.8,es;q=0.5", "en-GB,en;q=0.9"];
+const VIEWPORT_POOL = [
+  { width: 1920, height: 1080 },
+  { width: 1536, height: 864 },
+  { width: 1440, height: 900 },
+  { width: 1366, height: 768 },
+];
+const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
 async function getBrowser(): Promise<Browser> {
   if (sharedBrowser && sharedBrowser.connected) {
     return sharedBrowser;
@@ -475,14 +492,19 @@ async function getBrowser(): Promise<Browser> {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-gpu",
+      // NOTE: --no-zygote and --disable-gpu are removed; both are tells used by
+      // bot-detection scripts to identify headless Chrome. Letting Chrome use
+      // its normal zygote/GPU stack makes it look more like a real browser.
       "--no-first-run",
-      "--no-zygote",
       "--disable-extensions",
       "--disable-background-networking",
       "--disable-default-apps",
       "--disable-sync",
       "--metrics-recording-only",
+      // Removes the "Chrome is being controlled by automated test software"
+      // banner *and* the navigator.webdriver=true property visible to JS.
+      "--disable-blink-features=AutomationControlled",
+      "--lang=en-US,en",
     ],
   };
   if (executablePath) {
@@ -583,13 +605,128 @@ async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
   }
 }
 
+/**
+ * Bypass a Cloudflare Turnstile challenge using CapSolver (paid CAPTCHA-solver
+ * API). Returns true if the challenge was successfully solved and the page is
+ * now on the real content. Returns false if no API key is configured, the
+ * sitekey can't be detected, or the solve attempt fails.
+ *
+ * Cost: ~$0.0015 per solve. Only invoked as a last resort after stealth +
+ * humanlike interaction fail to clear the challenge.
+ */
+async function trySolveTurnstileWithCapSolver(
+  page: import("puppeteer").Page,
+  pageUrl: string,
+): Promise<boolean> {
+  const apiKey = process.env.CAPSOLVER_API_KEY;
+  if (!apiKey) return false;
+
+  try {
+    // Try to extract the Turnstile sitekey from the page DOM. Cloudflare
+    // interstitials embed it as `data-sitekey` on the .cf-turnstile element
+    // OR inside the iframe src as `?sitekey=...`.
+    const sitekey = await page.evaluate(() => {
+      const el = document.querySelector("[data-sitekey]") as HTMLElement | null;
+      if (el?.dataset.sitekey) return el.dataset.sitekey;
+      const iframe = document.querySelector(
+        'iframe[src*="challenges.cloudflare.com"]'
+      ) as HTMLIFrameElement | null;
+      if (iframe?.src) {
+        const m = iframe.src.match(/[?&]k=([^&]+)/) || iframe.src.match(/[?&]sitekey=([^&]+)/);
+        if (m) return decodeURIComponent(m[1]);
+      }
+      return null;
+    });
+    if (!sitekey) return false;
+
+    console.log(`[capsolver] Submitting Turnstile task for ${pageUrl} (sitekey ${sitekey.slice(0, 10)}…)`);
+    const createRes = await fetch("https://api.capsolver.com/createTask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientKey: apiKey,
+        task: {
+          type: "AntiTurnstileTaskProxyLess",
+          websiteURL: pageUrl,
+          websiteKey: sitekey,
+        },
+      }),
+    });
+    const createJson = await createRes.json();
+    if (createJson.errorId !== 0 || !createJson.taskId) {
+      console.warn(`[capsolver] createTask failed:`, createJson.errorDescription || createJson);
+      return false;
+    }
+    const taskId = createJson.taskId;
+
+    // Poll for result (CapSolver typically takes 5-30s for Turnstile)
+    const pollStart = Date.now();
+    let token: string | null = null;
+    while (Date.now() - pollStart < 90000) {
+      await new Promise(r => setTimeout(r, 3000));
+      const res = await fetch("https://api.capsolver.com/getTaskResult", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientKey: apiKey, taskId }),
+      });
+      const json = await res.json();
+      if (json.status === "ready" && json.solution?.token) {
+        token = json.solution.token;
+        break;
+      }
+      if (json.errorId !== 0) {
+        console.warn(`[capsolver] getTaskResult error:`, json.errorDescription);
+        return false;
+      }
+    }
+    if (!token) return false;
+
+    // Inject the token. Cloudflare's challenge looks for the token via the
+    // global turnstile callback OR a hidden input named cf-turnstile-response.
+    // We try both, then submit the form.
+    await page.evaluate((tok: string) => {
+      const input = document.querySelector(
+        'input[name="cf-turnstile-response"]'
+      ) as HTMLInputElement | null;
+      if (input) input.value = tok;
+      const w = window as any;
+      try {
+        if (w.turnstile?.callback) w.turnstile.callback(tok);
+      } catch {}
+      // Most CF challenge pages auto-submit when the token is set.
+    }, token);
+
+    console.log(`[capsolver] Token injected, waiting for navigation…`);
+    // Wait up to 15s for the page to navigate past the challenge
+    try {
+      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
+    } catch {}
+    return true;
+  } catch (err) {
+    console.warn(`[capsolver] Bypass attempt failed:`, err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: string; status: number }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
   
   try {
-    await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-    await page.setViewport({ width: 1920, height: 1080 });
+    // Rotate fingerprint per request: realistic UA, viewport, and language.
+    const ua = pick(UA_POOL);
+    const acceptLang = pick(ACCEPT_LANG_POOL);
+    const viewport = pick(VIEWPORT_POOL);
+    await page.setUserAgent(ua);
+    await page.setViewport(viewport);
+    await page.setExtraHTTPHeaders({
+      "Accept-Language": acceptLang,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Sec-Ch-Ua": '"Chromium";v="125", "Not.A/Brand";v="24"',
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": ua.includes("Windows") ? '"Windows"' : ua.includes("Mac") ? '"macOS"' : '"Linux"',
+      "Upgrade-Insecure-Requests": "1",
+    });
     
     // Use "load" instead of "networkidle2" — fires when load event fires rather than
     // waiting for ALL network requests to settle (which can take 10-30s on Wix/analytics-heavy sites).
@@ -661,6 +798,17 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
         if (!isCloudflareChallenge(html)) {
           status = 200; // challenge cleared — Puppeteer is now on the real page
           break;
+        }
+      }
+      // Last resort: if stealth + humanlike interaction failed AND a CapSolver
+      // API key is configured, pay to solve the Turnstile challenge.
+      if (isCloudflareChallenge(html)) {
+        const solved = await trySolveTurnstileWithCapSolver(page, url);
+        if (solved) {
+          try {
+            html = await page.content();
+            if (!isCloudflareChallenge(html)) status = 200;
+          } catch {}
         }
       }
       if (isCloudflareChallenge(html)) {
