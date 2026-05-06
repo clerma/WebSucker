@@ -4,8 +4,15 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { execSync } from "child_process";
 import archiver from "archiver";
-import puppeteer from "puppeteer";
+import puppeteerVanilla from "puppeteer";
+import puppeteerExtra from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import type { Browser } from "puppeteer";
+
+// Apply stealth plugin to bypass common bot-detection fingerprints
+// (Cloudflare's "Just a moment..." challenge, Distil, PerimeterX, etc.)
+puppeteerExtra.use(StealthPlugin());
+const puppeteer: typeof puppeteerVanilla = puppeteerExtra as any;
 import { storage } from "./storage";
 import type { Asset, AssetType, AssetStatus, ScrapeProgress } from "@shared/schema";
 
@@ -504,6 +511,29 @@ async function closeBrowser(): Promise<void> {
  * Returns true  → use Puppeteer (dynamic content detected)
  * Returns false → use plain fetch (static site, all content in raw HTML)
  */
+/**
+ * Detect Cloudflare's "Just a moment..." JS challenge / Turnstile interstitial.
+ * These pages return 403/503 with cf-mitigated: challenge or contain the
+ * challenge platform script. Stealth-mode Puppeteer can usually clear the
+ * non-interactive variant; the interactive Turnstile cannot be bypassed.
+ */
+export function isCloudflareChallenge(
+  html: string,
+  status?: number,
+  headers?: Headers | Record<string, string>,
+): boolean {
+  if (headers) {
+    const get = (k: string) =>
+      headers instanceof Headers ? headers.get(k) : (headers[k] ?? headers[k.toLowerCase()]);
+    if (get("cf-mitigated") === "challenge") return true;
+  }
+  if (!html) return false;
+  if (/<title>\s*Just a moment\.\.\.\s*<\/title>/i.test(html)) return true;
+  if (/cdn-cgi\/challenge-platform/i.test(html)) return true;
+  if (/window\._cf_chl_opt/.test(html)) return true;
+  return false;
+}
+
 async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
   try {
     // Request only the first 32KB — enough to detect all framework/CMS markers
@@ -515,9 +545,12 @@ async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
       },
       signal: AbortSignal.timeout(20000),
     });
+    // Cloudflare challenge → must use Puppeteer (with stealth) to clear it.
+    if (isCloudflareChallenge("", res.status, res.headers)) return true;
     // 206 = range accepted, 200 = server ignored Range header (full response)
     if (res.status !== 200 && res.status !== 206) return true;
     const html = await res.text();
+    if (isCloudflareChallenge(html, res.status, res.headers)) return true;
 
     // 1. SPA: near-empty body with known root mount points
     if (/<div[^>]+id=["'](?:root|app)["'][^>]*>\s*<\/div>/i.test(html)) return true;
@@ -568,8 +601,36 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
       return page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => null);
     });
     
-    const status = response?.status() || 200;
-    
+    let status = response?.status() || 200;
+
+    // Cloudflare "Just a moment..." challenge: even after Puppeteer navigation,
+    // the response is the challenge page (HTTP 403 + cf-mitigated: challenge).
+    // With the stealth plugin the non-interactive challenge often clears
+    // automatically within 5-10s. Wait up to 20s, polling for the real page.
+    const cfHeaders = response?.headers() ?? {};
+    let html = await page.content();
+    if (isCloudflareChallenge(html, status, cfHeaders) || status === 403 || status === 503) {
+      const cfStart = Date.now();
+      while (Date.now() - cfStart < 20000) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        try {
+          html = await page.content();
+        } catch {
+          break;
+        }
+        if (!isCloudflareChallenge(html)) {
+          status = 200; // challenge cleared — Puppeteer is now on the real page
+          break;
+        }
+      }
+      if (isCloudflareChallenge(html)) {
+        throw new Error(
+          "This site is protected by Cloudflare's bot challenge and cannot be scraped. " +
+          "Ask the site owner to allow our user agent, or contact us if you own the site."
+        );
+      }
+    }
+
     if (status >= 400) {
       return { html: "", status };
     }
@@ -601,7 +662,7 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
     // Brief network idle check
     await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 }).catch(() => {});
     
-    const html = await page.content();
+    html = await page.content();
     return { html, status };
   } finally {
     await page.close();
@@ -785,6 +846,11 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             content = Buffer.from(rendered.html, "utf-8");
             contentType = "text/html";
           } catch (renderErr: any) {
+            // Cloudflare bot challenge can't be cleared by a plain fetch either —
+            // re-throw so the user sees the friendly "site is protected" message.
+            if (/Cloudflare/i.test(renderErr?.message ?? "")) {
+              throw renderErr;
+            }
             console.log(`Puppeteer render failed for ${currentUrl}, falling back to fetch: ${renderErr.message}`);
             const fetched = await fetchBytesWithTimeout(downloadUrl);
             contentType = fetched.contentType;
@@ -1040,6 +1106,13 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+      // Cloudflare bot challenge on the entry page → fail the whole job with a
+      // friendly message instead of silently returning an empty ZIP.
+      if (currentUrl === url && /Cloudflare/i.test(errorMessage)) {
+        throw error;
+      }
+
       asset = (await storage.updateAsset(jobId, asset.id, {
         status: "failed",
         error: errorMessage,
