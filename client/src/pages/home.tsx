@@ -138,6 +138,7 @@ export default function Home() {
           }
 
           if (data.type === "error") {
+            scrapeCompletedRef.current = true;
             localStorage.removeItem("websitesucker_active_job");
             toast({
               title: "Scraping Error",
@@ -171,6 +172,19 @@ export default function Home() {
               setCurrentJob(job);
               setViewState("results");
               setIsLoading(false);
+              return;
+            }
+            if (job.status === "failed") {
+              // Server already finalized this as failed — surface message once and stop.
+              scrapeCompletedRef.current = true;
+              localStorage.removeItem("websitesucker_active_job");
+              toast({
+                title: "Scraping Error",
+                description: job.errorMessage || "Scraping failed",
+                variant: "destructive",
+              });
+              setIsLoading(false);
+              setViewState("input");
               return;
             }
             // Job still running — attempt to reconnect with exponential backoff.
