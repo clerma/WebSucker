@@ -719,6 +719,57 @@ async function trySolveTurnstileWithCapSolver(
   }
 }
 
+/**
+ * Final-resort Cloudflare bypass via ScrapingBee. Their premium proxy farm +
+ * managed Chrome handles Cloudflare's "Managed Challenge" interstitial that
+ * proxyless CAPTCHA solvers can't touch (the sitekey is generated inside
+ * Cloudflare's protected iframe and never exposed to the page DOM).
+ *
+ * Cost: ~25 credits per premium request (~$0.005). Only invoked after stealth
+ * + humanlike + CapSolver have all failed and SCRAPINGBEE_API_KEY is set.
+ */
+async function tryScrapingBeeFallback(url: string): Promise<string | null> {
+  const apiKey = process.env.SCRAPINGBEE_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    console.log(`[scrapingbee] Attempting premium-proxy fallback for ${url}`);
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      url,
+      render_js: "true",
+      premium_proxy: "true",
+      country_code: "us",
+      wait_browser: "networkidle2",
+    });
+    const res = await fetch(`https://app.scrapingbee.com/api/v1/?${params}`, {
+      method: "GET",
+      // ScrapingBee can take 30-60s on premium-proxy requests
+      signal: AbortSignal.timeout(90000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(
+        `[scrapingbee] HTTP ${res.status}: ${body.slice(0, 200)}`
+      );
+      return null;
+    }
+    const html = await res.text();
+    if (!html || html.length < 100 || isCloudflareChallenge(html)) {
+      console.warn(`[scrapingbee] Returned empty / still-challenged HTML`);
+      return null;
+    }
+    console.log(`[scrapingbee] Success — got ${html.length} bytes of real HTML`);
+    return html;
+  } catch (err) {
+    console.warn(
+      `[scrapingbee] Request failed:`,
+      err instanceof Error ? err.message : err
+    );
+    return null;
+  }
+}
+
 async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: string; status: number }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -815,8 +866,9 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
           break;
         }
       }
-      // Last resort: if stealth + humanlike interaction failed AND a CapSolver
-      // API key is configured, pay to solve the Turnstile challenge.
+      // Last resort #1: if stealth + humanlike interaction failed AND a
+      // CapSolver API key is configured, pay to solve a standalone Turnstile
+      // widget (works only when the sitekey is exposed in the page DOM).
       if (isCloudflareChallenge(html)) {
         const solved = await trySolveTurnstileWithCapSolver(page, url);
         if (solved) {
@@ -824,6 +876,21 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
             html = await page.content();
             if (!isCloudflareChallenge(html)) status = 200;
           } catch {}
+        }
+      }
+      // Last resort #2: if everything else failed AND ScrapingBee is
+      // configured, route the request through their premium-proxy farm to
+      // bypass even Cloudflare's "Managed Challenge" interstitial mode.
+      if (isCloudflareChallenge(html)) {
+        const beeHtml = await tryScrapingBeeFallback(url);
+        if (beeHtml) {
+          html = beeHtml;
+          status = 200;
+          // ScrapingBee returned the rendered HTML directly. Skip the
+          // Puppeteer scroll/lazy-load step below since we no longer have
+          // the real page in `page` — assets will be discovered by the
+          // downstream cheerio-based parser.
+          return { html, status };
         }
       }
       if (isCloudflareChallenge(html)) {
