@@ -550,9 +550,18 @@ export function isCloudflareChallenge(
     if (get("cf-mitigated") === "challenge") return true;
   }
   if (!html) return false;
+  // Cloudflare-specific interstitial markers ONLY. Do not match generic words
+  // like "challenge" in titles — real marketing pages use that word too.
+  // The "Just a moment..." JS challenge interstitial.
   if (/<title>\s*Just a moment\.\.\.\s*<\/title>/i.test(html)) return true;
-  if (/cdn-cgi\/challenge-platform/i.test(html)) return true;
+  // The challenge bootstrap object — only emitted by the interstitial.
   if (/window\._cf_chl_opt/.test(html)) return true;
+  // The classic "Attention Required! | Cloudflare" block page.
+  if (/<title>\s*Attention Required!\s*\|\s*Cloudflare\s*<\/title>/i.test(html)) return true;
+  // Firewall-block page ("Sorry, you have been blocked" + Cloudflare branding).
+  if (/Sorry, you have been blocked[\s\S]{0,500}Cloudflare/i.test(html)) return true;
+  // Cloudflare error pages embed a `cf-error-details` block with Ray ID.
+  if (/<div[^>]+class=["']cf-error-details/i.test(html)) return true;
   return false;
 }
 
@@ -728,38 +737,83 @@ async function trySolveTurnstileWithCapSolver(
  * Cost: ~25 credits per premium request (~$0.005). Only invoked after stealth
  * + humanlike + CapSolver have all failed and SCRAPINGBEE_API_KEY is set.
  */
-async function tryScrapingBeeFallback(url: string): Promise<string | null> {
+// Hard cap on paid ScrapingBee calls per scrape job to bound cost. At ~75
+// credits (~$0.015) per call, this caps a single job at ~$0.075.
+const MAX_SCRAPINGBEE_FALLBACKS_PER_JOB = 5;
+const scrapingBeeUsage = new Map<string, number>();
+
+function getScrapingBeeUsage(jobId?: string): number {
+  if (!jobId) return 0;
+  return scrapingBeeUsage.get(jobId) ?? 0;
+}
+
+function bumpScrapingBeeUsage(jobId?: string): void {
+  if (!jobId) return;
+  scrapingBeeUsage.set(jobId, (scrapingBeeUsage.get(jobId) ?? 0) + 1);
+}
+
+export function resetScrapingBeeUsage(jobId: string): void {
+  scrapingBeeUsage.delete(jobId);
+}
+
+async function tryScrapingBeeFallback(
+  url: string,
+  jobId?: string,
+): Promise<string | null> {
   const apiKey = process.env.SCRAPINGBEE_API_KEY;
   if (!apiKey) return null;
+  if (jobId && getScrapingBeeUsage(jobId) >= MAX_SCRAPINGBEE_FALLBACKS_PER_JOB) {
+    console.warn(
+      `[scrapingbee] Per-job budget of ${MAX_SCRAPINGBEE_FALLBACKS_PER_JOB} reached for job ${jobId} — skipping ${url}`
+    );
+    return null;
+  }
 
   try {
-    console.log(`[scrapingbee] Attempting premium-proxy fallback for ${url}`);
+    console.log(`[scrapingbee] Attempting stealth-proxy fallback for ${url}`);
+    // stealth_proxy is ScrapingBee's strongest mode — it's specifically built
+    // to defeat Cloudflare's Managed Challenge (the kind premium_proxy can't
+    // handle). Costs ~75 credits per request (~$0.015) but is the only mode
+    // that reliably works on sites like gregorypalmerdmd.com.
     const params = new URLSearchParams({
       api_key: apiKey,
       url,
       render_js: "true",
-      premium_proxy: "true",
+      stealth_proxy: "true",
       country_code: "us",
       wait_browser: "networkidle2",
     });
     const res = await fetch(`https://app.scrapingbee.com/api/v1/?${params}`, {
       method: "GET",
-      // ScrapingBee can take 30-60s on premium-proxy requests
-      signal: AbortSignal.timeout(90000),
+      // Stealth-proxy requests can take 30-90s; allow generous timeout.
+      signal: AbortSignal.timeout(120000),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.warn(
-        `[scrapingbee] HTTP ${res.status}: ${body.slice(0, 200)}`
+        `[scrapingbee] HTTP ${res.status}: ${body.slice(0, 300)}`
       );
       return null;
     }
     const html = await res.text();
-    if (!html || html.length < 100 || isCloudflareChallenge(html)) {
-      console.warn(`[scrapingbee] Returned empty / still-challenged HTML`);
+    if (!html || html.length < 100) {
+      console.warn(
+        `[scrapingbee] Empty/tiny response (${html.length} bytes): ${html.slice(0, 200)}`
+      );
       return null;
     }
-    console.log(`[scrapingbee] Success — got ${html.length} bytes of real HTML`);
+    if (isCloudflareChallenge(html)) {
+      console.warn(
+        `[scrapingbee] Returned a still-challenged page (${html.length} bytes). ` +
+        `First 200 chars: ${html.slice(0, 200).replace(/\s+/g, " ")}`
+      );
+      return null;
+    }
+    bumpScrapingBeeUsage(jobId);
+    console.log(
+      `[scrapingbee] Success — got ${html.length} bytes of real HTML ` +
+      `(job usage: ${getScrapingBeeUsage(jobId)}/${MAX_SCRAPINGBEE_FALLBACKS_PER_JOB})`
+    );
     return html;
   } catch (err) {
     console.warn(
@@ -770,7 +824,7 @@ async function tryScrapingBeeFallback(url: string): Promise<string | null> {
   }
 }
 
-async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: string; status: number }> {
+async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
   
@@ -882,7 +936,7 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
       // configured, route the request through their premium-proxy farm to
       // bypass even Cloudflare's "Managed Challenge" interstitial mode.
       if (isCloudflareChallenge(html)) {
-        const beeHtml = await tryScrapingBeeFallback(url);
+        const beeHtml = await tryScrapingBeeFallback(url, jobId);
         if (beeHtml) {
           html = beeHtml;
           status = 200;
@@ -1103,7 +1157,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       if (assetType === "html" && !isExternal) {
         if (usePuppeteer) {
           try {
-            const rendered = await fetchRenderedHtml(currentUrl);
+            const rendered = await fetchRenderedHtml(currentUrl, 45000, jobId);
             
             if (rendered.status >= 400) {
               throw new Error(`HTTP ${rendered.status}`);
@@ -2229,4 +2283,6 @@ export async function cleanupScrapeFiles(jobId: string): Promise<void> {
   } catch {
     // Ignore cleanup errors
   }
+  // Clear per-job ScrapingBee budget tracker so the Map doesn't grow forever.
+  resetScrapingBeeUsage(jobId);
 }
