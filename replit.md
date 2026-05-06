@@ -34,7 +34,7 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 - **Dynamic Content Handling**: Uses Puppeteer for scraping to capture JavaScript-rendered content, embeds, and lazy-loaded assets.
 - **Wix CDN Normalization**: Rewrites Wix CDN image URLs to their base form to prevent duplicate downloads and handle various image transformations.
 - **Static Site Optimization**: Implements `probeNeedsPuppeteer()` to skip Puppeteer for static HTML sites, significantly reducing scrape time.
-- **Robust Error Handling**: Includes HTTP 429 retry logic with exponential backoff and Cloudflare bot challenge bypassing using `puppeteer-extra-plugin-stealth`.
+- **Robust Error Handling**: HTTP 429 retry with exponential backoff. Cloudflare bypass uses stealth plugin + rotating UA/viewport/lang fingerprints + humanlike mouse interaction + optional CapSolver fallback (`CAPSOLVER_API_KEY`). Cloudflare's "Managed Challenge" interstitial mode (no exposed sitekey) still cannot be bypassed without a residential proxy or paid commercial scraping API — surfaces a friendly error toast + persistent inline alert.
 - **Payment Gating**: Integrates Stripe for secure one-time and subscription-based downloads, with customer lookup for restoring access.
 
 ## Product

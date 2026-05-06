@@ -622,22 +622,33 @@ async function trySolveTurnstileWithCapSolver(
   if (!apiKey) return false;
 
   try {
-    // Try to extract the Turnstile sitekey from the page DOM. Cloudflare
-    // interstitials embed it as `data-sitekey` on the .cf-turnstile element
-    // OR inside the iframe src as `?sitekey=...`.
-    const sitekey = await page.evaluate(() => {
+    // Try to extract the Turnstile sitekey from the page. Cloudflare
+    // interstitials may expose it as: data-sitekey, iframe src param,
+    // or buried in the raw HTML/script source.
+    const extracted = await page.evaluate(() => {
       const el = document.querySelector("[data-sitekey]") as HTMLElement | null;
-      if (el?.dataset.sitekey) return el.dataset.sitekey;
+      if (el?.dataset.sitekey) return { sitekey: el.dataset.sitekey, source: "data-sitekey" };
       const iframe = document.querySelector(
         'iframe[src*="challenges.cloudflare.com"]'
       ) as HTMLIFrameElement | null;
       if (iframe?.src) {
         const m = iframe.src.match(/[?&]k=([^&]+)/) || iframe.src.match(/[?&]sitekey=([^&]+)/);
-        if (m) return decodeURIComponent(m[1]);
+        if (m) return { sitekey: decodeURIComponent(m[1]), source: "iframe-src" };
       }
+      // Fallback: scan raw HTML for a 0x...-prefixed Turnstile key (32 chars).
+      const html = document.documentElement.outerHTML;
+      const keyMatch = html.match(/(?:sitekey|0x[A-Za-z0-9]{20,40})['"]?\s*[:=]\s*['"]?(0x[A-Za-z0-9_-]{20,40})/);
+      if (keyMatch) return { sitekey: keyMatch[1], source: "html-regex" };
+      const bareKey = html.match(/(0x4[A-Z0-9]{20,40})/);
+      if (bareKey) return { sitekey: bareKey[1], source: "html-bare" };
       return null;
     });
-    if (!sitekey) return false;
+    if (!extracted) {
+      console.log(`[capsolver] No Turnstile sitekey found on ${pageUrl} — Cloudflare interstitial likely uses an internal challenge that CapSolver's AntiTurnstileTaskProxyLess can't solve. Try AntiCloudflareTask with a residential proxy if you have one.`);
+      return false;
+    }
+    const sitekey = extracted.sitekey;
+    console.log(`[capsolver] Found sitekey via ${extracted.source}: ${sitekey.slice(0, 12)}…`);
 
     console.log(`[capsolver] Submitting Turnstile task for ${pageUrl} (sitekey ${sitekey.slice(0, 10)}…)`);
     const createRes = await fetch("https://api.capsolver.com/createTask", {
@@ -747,7 +758,11 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
     // mouse movement + click the checkbox iframe to trigger pass.
     const cfHeaders = response?.headers() ?? {};
     let html = await page.content();
-    if (isCloudflareChallenge(html, status, cfHeaders) || status === 403 || status === 503) {
+    // Only enter the Cloudflare bypass path when the page actually looks like
+    // a Cloudflare challenge. Generic 403/503 (auth wall, geo-block, plain
+    // WAF, maintenance) must propagate as failure — otherwise we'd silently
+    // rewrite their status to 200 below and return error HTML as success.
+    if (isCloudflareChallenge(html, status, cfHeaders)) {
       // Humanlike interaction: random mouse movement to satisfy
       // "real browser" heuristics, then attempt to click any Turnstile iframe.
       try {
