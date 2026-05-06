@@ -606,13 +606,53 @@ async function fetchRenderedHtml(url: string, timeout = 45000): Promise<{ html: 
     // Cloudflare "Just a moment..." challenge: even after Puppeteer navigation,
     // the response is the challenge page (HTTP 403 + cf-mitigated: challenge).
     // With the stealth plugin the non-interactive challenge often clears
-    // automatically within 5-10s. Wait up to 20s, polling for the real page.
+    // automatically within 5-10s. For interactive Turnstile, simulate human
+    // mouse movement + click the checkbox iframe to trigger pass.
     const cfHeaders = response?.headers() ?? {};
     let html = await page.content();
     if (isCloudflareChallenge(html, status, cfHeaders) || status === 403 || status === 503) {
+      // Humanlike interaction: random mouse movement to satisfy
+      // "real browser" heuristics, then attempt to click any Turnstile iframe.
+      try {
+        for (let i = 0; i < 6; i++) {
+          await page.mouse.move(
+            200 + Math.random() * 800,
+            200 + Math.random() * 400,
+            { steps: 8 }
+          );
+          await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+        }
+      } catch {}
+
       const cfStart = Date.now();
-      while (Date.now() - cfStart < 20000) {
+      let clickedCheckbox = false;
+      while (Date.now() - cfStart < 45000) {
         await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // Try clicking the Turnstile checkbox once (if present). The checkbox
+        // lives inside a cross-origin iframe at challenges.cloudflare.com; we
+        // can't reach into it via DOM, but clicking at the iframe's screen
+        // coords triggers the same event.
+        if (!clickedCheckbox) {
+          try {
+            const box = await page.evaluate(() => {
+              const iframe = document.querySelector(
+                'iframe[src*="challenges.cloudflare.com"]'
+              ) as HTMLIFrameElement | null;
+              if (!iframe) return null;
+              const r = iframe.getBoundingClientRect();
+              return { x: r.x, y: r.y, w: r.width, h: r.height };
+            });
+            if (box && box.w > 0 && box.h > 0) {
+              // Cloudflare's checkbox sits ~30px from the left edge of the widget.
+              await page.mouse.move(box.x + 30, box.y + box.h / 2, { steps: 12 });
+              await new Promise(r => setTimeout(r, 400));
+              await page.mouse.click(box.x + 30, box.y + box.h / 2);
+              clickedCheckbox = true;
+            }
+          } catch {}
+        }
+
         try {
           html = await page.content();
         } catch {
