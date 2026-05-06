@@ -238,8 +238,9 @@ export async function registerRoutes(
           
         } catch (error) {
           console.error("Scrape error:", error);
-          await storage.updateJobStatus(job.id, "failed");
           const errMsg = error instanceof Error ? error.message : "Scraping failed";
+          await storage.updateJobStatus(job.id, "failed");
+          await storage.updateJobProgress(job.id, { errorMessage: errMsg });
 
           // Persist failure to DB
           db.insert(scrapeAnalytics).values({
