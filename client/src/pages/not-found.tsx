@@ -1,7 +1,15 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle } from "lucide-react";
+import { useSeo } from "@/lib/seo";
 
 export default function NotFound() {
+  useSeo({
+    title: "Page Not Found | Website Sucker",
+    description:
+      "The page you're looking for doesn't exist. Head back to Website Sucker to back up, archive, or transfer any website.",
+    noIndex: true,
+  });
+
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
       <Card className="w-full max-w-md mx-4">

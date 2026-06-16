@@ -3,6 +3,7 @@ import { CheckCircle2, Download, Loader2, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useSeo } from "@/lib/seo";
 
 export default function CheckoutSuccess() {
   const [status, setStatus] = useState<"verifying" | "success" | "failed">("verifying");
@@ -12,6 +13,13 @@ export default function CheckoutSuccess() {
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [isSubscription, setIsSubscription] = useState(false);
   const { toast } = useToast();
+
+  useSeo({
+    title: "Download Your Website Backup | Website Sucker",
+    description:
+      "Your payment is confirmed. Download your complete offline website backup.",
+    noIndex: true,
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

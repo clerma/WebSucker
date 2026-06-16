@@ -1,6 +1,14 @@
 import { Scale, ArrowLeft } from "lucide-react";
+import { useSeo } from "@/lib/seo";
 
 export default function Terms() {
+  useSeo({
+    title: "Terms & Conditions | Website Sucker",
+    description:
+      "The terms and conditions for using Website Sucker — the online tool to back up, archive, and transfer any website. Permitted use, pricing, privacy, and your responsibilities.",
+    canonicalPath: "/terms",
+  });
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-4 py-16">
