@@ -1,8 +1,15 @@
 import { XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useSeo } from "@/lib/seo";
 
 export default function CheckoutCancel() {
+  useSeo({
+    title: "Payment Cancelled | Website Sucker",
+    description: "Your payment was cancelled and no charges were made.",
+    noIndex: true,
+  });
+
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md" data-testid="checkout-cancel-card">

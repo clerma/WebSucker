@@ -1,7 +1,30 @@
 import { ArrowLeft, ArrowRight, BookOpen, Clock } from "lucide-react";
 import { articles } from "@/data/articles";
+import { useSeo, SITE_URL } from "@/lib/seo";
 
 export default function Blog() {
+  useSeo({
+    title: "Website Backup, Archive & Migration Guides | Website Sucker Blog",
+    description:
+      "Practical, step-by-step guides on backing up, archiving, transferring, and converting websites — for Squarespace, Wix, WordPress, and any platform. Free help from the Website Sucker team.",
+    canonicalPath: "/blog",
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "Blog",
+      name: "Website Sucker Help & Guides",
+      url: `${SITE_URL}/blog`,
+      description:
+        "Guides on backing up, archiving, transferring, and converting websites on any platform.",
+      blogPost: articles.map((a) => ({
+        "@type": "BlogPosting",
+        headline: a.title,
+        description: a.metaDescription,
+        url: `${SITE_URL}/blog/${a.slug}`,
+        articleSection: a.category,
+      })),
+    },
+  });
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}

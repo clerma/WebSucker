@@ -1,10 +1,57 @@
 import { ArrowLeft, ArrowRight, Clock, Tag } from "lucide-react";
 import { useParams } from "wouter";
 import { articles } from "@/data/articles";
+import { useSeo, SITE_URL } from "@/lib/seo";
+
+const MONTHS: Record<string, string> = {
+  January: "01", February: "02", March: "03", April: "04", May: "05", June: "06",
+  July: "07", August: "08", September: "09", October: "10", November: "11", December: "12",
+};
+
+function toIsoDate(human: string): string | undefined {
+  const [month, year] = human.split(" ");
+  const mm = MONTHS[month];
+  return mm && year ? `${year}-${mm}-01` : undefined;
+}
 
 export default function BlogPost() {
   const { slug } = useParams<{ slug: string }>();
   const article = articles.find((a) => a.slug === slug);
+
+  const articleUrl = `${SITE_URL}/blog/${slug}`;
+  const isoDate = article ? toIsoDate(article.publishedDate) : undefined;
+
+  useSeo({
+    title: article
+      ? `${article.title} | Website Sucker`
+      : "Article not found | Website Sucker",
+    description: article?.metaDescription,
+    canonicalPath: `/blog/${slug}`,
+    jsonLd: article
+      ? [
+          {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            headline: article.title,
+            description: article.metaDescription,
+            articleSection: article.category,
+            ...(isoDate ? { datePublished: isoDate, dateModified: isoDate } : {}),
+            author: { "@type": "Organization", name: "Website Sucker", url: SITE_URL },
+            publisher: { "@type": "Organization", name: "Website Sucker", url: SITE_URL },
+            mainEntityOfPage: { "@type": "WebPage", "@id": articleUrl },
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+              { "@type": "ListItem", position: 2, name: "Help & Guides", item: `${SITE_URL}/blog` },
+              { "@type": "ListItem", position: 3, name: article.title, item: articleUrl },
+            ],
+          },
+        ]
+      : undefined,
+  });
 
   if (!article) {
     return (

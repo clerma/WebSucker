@@ -16,7 +16,7 @@ import {
   RefreshCw,
   CheckCircle2,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useSeo } from "@/lib/seo";
 
 interface Feature {
   icon: typeof Globe;
@@ -167,9 +167,12 @@ const comparison: CompareRow[] = [
 ];
 
 export default function Features() {
-  useEffect(() => {
-    document.title = "Features — Website Sucker";
-  }, []);
+  useSeo({
+    title: "Features — Website Backup, Archive & Transfer Tools | Website Sucker",
+    description:
+      "See every Website Sucker feature: real headless-browser rendering, full asset capture, embed preservation, and a one-click offline ZIP. The modern website backup, archive, and transfer tool — compared honestly to SiteSucker, HTTrack, and more.",
+    canonicalPath: "/features",
+  });
 
   return (
     <div className="min-h-screen bg-background">

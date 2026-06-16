@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, HelpCircle } from "lucide-react";
-import { useEffect } from "react";
+import { useSeo } from "@/lib/seo";
 
 interface QA {
   q: string;
@@ -124,10 +124,12 @@ const faqs: QA[] = [
 ];
 
 export default function Faq() {
-  useEffect(() => {
-    document.title = "FAQ — Website Sucker";
-
-    const faqSchema = {
+  useSeo({
+    title: "FAQ — How to Back Up, Archive & Transfer a Website | Website Sucker",
+    description:
+      "Answers to common questions about Website Sucker: how to back up a website, archive a site, transfer it to a new platform, what's included in the download, pricing, and how it compares to other website tools.",
+    canonicalPath: "/faq",
+    jsonLd: {
       "@context": "https://schema.org",
       "@type": "FAQPage",
       mainEntity: faqs.map((f) => ({
@@ -138,19 +140,8 @@ export default function Faq() {
           text: f.a.join(" "),
         },
       })),
-    };
-
-    const script = document.createElement("script");
-    script.type = "application/ld+json";
-    script.text = JSON.stringify(faqSchema);
-    script.id = "faq-schema";
-    document.head.appendChild(script);
-
-    return () => {
-      const existing = document.getElementById("faq-schema");
-      if (existing) existing.remove();
-    };
-  }, []);
+    },
+  });
 
   return (
     <div className="min-h-screen bg-background">

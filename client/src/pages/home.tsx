@@ -6,6 +6,7 @@ import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
 import { PricingDialog } from "@/components/pricing-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useSeo } from "@/lib/seo";
 import type {
   Asset,
   ScrapeJob,
@@ -37,6 +38,94 @@ export default function Home() {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
+
+  useSeo({
+    title: "Website Sucker — Back Up, Archive & Transfer Any Website Online",
+    description:
+      "Website Sucker is a free online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JS, images, and fonts — in minutes. Free to analyse, from $1.99 to download.",
+    canonicalPath: "/",
+    jsonLd: [
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: [
+          {
+            "@type": "Question",
+            name: "What is Website Sucker?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Website Sucker is a free online tool to back up, archive, and transfer any website. It downloads a site as a complete offline copy — every page, image, stylesheet, JavaScript file, and font — packaged into a single ZIP. There's nothing to install; analysing is free and downloads start at $1.99.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "How do I back up a website?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "To back up a website with Website Sucker, paste the site's URL, let it analyse every page and asset for free, then download the complete offline copy as a ZIP for $1.99. The backup includes all HTML, CSS, JavaScript, images, and fonts, and opens in any browser without an internet connection.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "How do I archive a website?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Archive a website by downloading a full offline snapshot you can keep forever. Website Sucker captures every page exactly as it renders — including JavaScript-heavy sites like Wix and Squarespace — so your archive stays usable even if the live site changes or goes offline.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "How do I transfer a website to a new platform?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "To transfer a website, download a complete copy of its HTML, CSS, JavaScript, images, and fonts with Website Sucker, then upload those files to your new host or use them as a reference when rebuilding on a new platform like WordPress, Webflow, or Shopify.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "What free tools can back up a website?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Website Sucker is free to analyse any website and lets you download a complete backup from $1.99. Unlike older desktop tools such as SiteSucker (Mac-only) or HTTrack, it runs in any browser on Windows, Linux, Mac, or Chromebook and renders JavaScript-heavy modern sites with a real headless browser.",
+            },
+          },
+        ],
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "HowTo",
+        name: "How to back up a website",
+        description:
+          "Back up, archive, or transfer any website online with Website Sucker in three steps.",
+        totalTime: "PT3M",
+        estimatedCost: {
+          "@type": "MonetaryAmount",
+          currency: "USD",
+          value: "1.99",
+        },
+        step: [
+          {
+            "@type": "HowToStep",
+            position: 1,
+            name: "Enter the website URL",
+            text: "Paste the address of the website you want to back up into Website Sucker. Analysing is completely free and needs no account.",
+          },
+          {
+            "@type": "HowToStep",
+            position: 2,
+            name: "Review every asset",
+            text: "Website Sucker scans the site and lists every page, image, stylesheet, script, and font it found, so you can confirm the backup before paying.",
+          },
+          {
+            "@type": "HowToStep",
+            position: 3,
+            name: "Download the offline copy",
+            text: "Download a single organised ZIP for $1.99 (or unlimited at $5.99/month). Unzip it and the whole website opens offline in any browser.",
+          },
+        ],
+      },
+    ],
+  });
 
   useEffect(() => {
     const customerId = localStorage.getItem("websitesucker_customer_id");
@@ -371,8 +460,9 @@ export default function Home() {
                 Website Sucker
               </h1>
               <p className="text-lg text-muted-foreground max-w-lg mx-auto">
-                The browser-based way to download any website for offline viewing.
-                No app to install, no OS restrictions — just paste a URL and go.
+                The free online tool to back up, archive, and transfer any website.
+                No app to install, no OS restrictions — just paste a URL and download
+                a complete offline copy.
               </p>
             </div>
 
@@ -431,6 +521,48 @@ export default function Home() {
               <p className="text-center text-sm text-muted-foreground mt-6">
                 Including CDN assets, background images, fonts, and embedded
                 resources
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t py-16 px-4">
+            <div className="max-w-3xl mx-auto">
+              <h2 className="text-2xl font-semibold text-center mb-4">
+                What is Website Sucker?
+              </h2>
+              <p className="text-muted-foreground leading-relaxed text-center max-w-2xl mx-auto">
+                Website Sucker is a free online tool to <strong className="text-foreground font-medium">back up, archive, and transfer any website</strong>.
+                Paste a URL and it downloads a complete offline copy — every page, image, stylesheet,
+                JavaScript file, and font — packaged into a single ZIP that opens in any browser.
+                There's nothing to install, and analysing is always free.
+              </p>
+
+              <div className="grid sm:grid-cols-3 gap-4 mt-10">
+                <div className="rounded-xl border bg-card p-5">
+                  <h3 className="font-semibold mb-1.5">Back up a website</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Keep a complete, offline copy of any site — pages, images, styles, and scripts included.
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-card p-5">
+                  <h3 className="font-semibold mb-1.5">Archive a website</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Preserve a snapshot that stays usable even if the live site changes or goes offline.
+                  </p>
+                </div>
+                <div className="rounded-xl border bg-card p-5">
+                  <h3 className="font-semibold mb-1.5">Transfer a website</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Move the HTML, CSS, JS, images, and fonts to a new host or platform with no lock-in.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-center text-sm text-muted-foreground mt-8">
+                Works on Squarespace, Wix, WordPress, Webflow, Shopify, and custom sites — in any browser on
+                Windows, Linux, Mac, or Chromebook. A cross-platform{" "}
+                <a href="/blog/website-sucker-vs-sitesucker" className="underline underline-offset-2 hover:text-foreground">SiteSucker alternative</a>{" "}
+                that runs entirely online.
               </p>
             </div>
           </div>

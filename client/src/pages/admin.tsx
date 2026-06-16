@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { useSeo } from "@/lib/seo";
 
 interface AnalyticsData {
   totalJobsCreated: number;
@@ -66,6 +67,7 @@ interface AccessCode {
 const STORAGE_KEY = "websitesucker_admin_authed";
 
 export default function Admin() {
+  useSeo({ title: "Admin Dashboard | Website Sucker", noIndex: true });
   const [authed, setAuthed] = useState(() => sessionStorage.getItem(STORAGE_KEY) === "true");
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState(false);
