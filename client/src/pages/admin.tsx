@@ -341,7 +341,7 @@ export default function Admin() {
                         className={`px-4 sm:px-6 py-3 flex items-start justify-between gap-3 ${job.status === "failed" ? "bg-destructive/5" : ""}`}
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-mono truncate">{job.url}</p>
+                          <p className="text-sm font-mono break-all">{job.url}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {job.status === "completed"
                               ? `${job.successfulAssets}/${job.totalAssets} assets · `
@@ -349,9 +349,9 @@ export default function Admin() {
                             {new Date(job.createdAt).toLocaleString()}
                           </p>
                           {job.status === "failed" && job.errorMessage && (
-                            <p className="text-xs text-destructive mt-1 flex items-center gap-1">
-                              <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                              {job.errorMessage}
+                            <p className="text-xs text-destructive mt-1 flex items-start gap-1">
+                              <AlertTriangle className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                              <span className="break-words min-w-0">{job.errorMessage}</span>
                             </p>
                           )}
                         </div>
