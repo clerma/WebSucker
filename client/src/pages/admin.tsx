@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { useSeo } from "@/lib/seo";
 
@@ -330,7 +329,7 @@ export default function Admin() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <ScrollArea className="h-80">
+              <div className="h-80 overflow-y-auto overflow-x-hidden">
                 {!stats?.analytics.recentJobs.length ? (
                   <p className="text-sm text-muted-foreground text-center py-8">No scrapes yet</p>
                 ) : (
@@ -365,7 +364,7 @@ export default function Admin() {
                     ))}
                   </div>
                 )}
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
 
@@ -377,7 +376,7 @@ export default function Admin() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <ScrollArea className="h-80">
+              <div className="h-80 overflow-y-auto overflow-x-hidden">
                 {!stats?.stripe.recentCharges.length ? (
                   <p className="text-sm text-muted-foreground text-center py-8">No payments yet</p>
                 ) : (
@@ -403,7 +402,7 @@ export default function Admin() {
                     ))}
                   </div>
                 )}
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -421,7 +420,7 @@ export default function Admin() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-64">
+            <div className="h-64 overflow-y-auto overflow-x-hidden">
               {!stats?.stripe.failedPayments.length ? (
                 <p className="text-sm text-muted-foreground text-center py-8">No failed payments</p>
               ) : (
@@ -453,7 +452,7 @@ export default function Admin() {
                   ))}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
 
