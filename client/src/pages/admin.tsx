@@ -229,7 +229,7 @@ export default function Admin() {
   const totalRev = stats?.stripe.totalRevenue ?? 0;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden">
       <div className="border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <BarChart3 className="h-5 w-5 text-primary shrink-0" />
@@ -547,7 +547,7 @@ export default function Admin() {
             <CardContent>
               <div className="flex flex-wrap gap-2">
                 {stats!.analytics.uniqueUrlsScraped.map((url) => (
-                  <Badge key={url} variant="secondary" className="font-mono text-xs">
+                  <Badge key={url} variant="secondary" className="font-mono text-xs whitespace-normal break-all max-w-full text-left">
                     {url}
                   </Badge>
                 ))}
@@ -577,12 +577,12 @@ function StatCard({
     <Card>
       <CardContent className="pt-5 pb-4">
         <div className="flex items-center gap-3">
-          <div className={`flex items-center justify-center w-9 h-9 rounded-lg ${bg}`}>
+          <div className={`flex items-center justify-center w-9 h-9 rounded-lg shrink-0 ${bg}`}>
             <Icon className={`h-4 w-4 ${color}`} />
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">{label}</p>
-            <p className="text-xl font-bold leading-tight">{value}</p>
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground truncate">{label}</p>
+            <p className="text-xl font-bold leading-tight truncate">{value}</p>
           </div>
         </div>
       </CardContent>
