@@ -1,1 +1,2 @@
 - [SPA SEO hook discipline](spa-seo-hook.md) — no react-helmet; useSeo must clear omitted head fields or meta/canonical leak across client routes; page JSON-LD goes in useSeo not index.html.
+- [Admin revenue computation](admin-revenue.md) — admin revenue = Stripe succeeded charges (one-time + every sub invoice incl renewals); sessions/payments table miss renewals; MRR from active subscriptions.

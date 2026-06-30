@@ -622,11 +622,11 @@ export async function registerRoutes(
         })),
       };
 
-      // Read payments from our own DB (persisted since we added DB tracking)
-      const dbPayments = await db.select().from(payments).orderBy(desc(payments.createdAt)).limit(50);
-
-      // Also fetch recent completed checkout sessions directly from Stripe so historical
-      // payments (before DB tracking was added) still appear in the dashboard.
+      // Revenue source of truth: Stripe SUCCEEDED charges. Every payment produces a
+      // charge — one-time downloads AND every subscription invoice (the initial one
+      // plus all monthly renewals). checkout.sessions alone miss renewals because a
+      // recurring billing cycle never creates a new checkout session, so subscription
+      // revenue after month one was previously invisible.
       interface ChargeEntry {
         id: string;
         amount: number;
@@ -637,53 +637,113 @@ export async function registerRoutes(
         email: string | null;
         mode: string;
       }
-      const stripeCharges: ChargeEntry[] = [];
+
+      const netAmount = (c: any): number =>
+        (c.amount_captured ?? c.amount ?? 0) - (c.amount_refunded ?? 0);
+      const chargeEmail = (c: any): string | null => {
+        if (c.billing_details?.email) return c.billing_details.email;
+        if (c.customer && typeof c.customer === "object" && !c.customer.deleted) {
+          return c.customer.email ?? null;
+        }
+        return null;
+      };
+
+      let totalRevenue = 0;
+      let activeSubscribers = 0;
+      let monthlyRevenue = 0;
+      let recentCharges: ChargeEntry[] = [];
+      let revenueLoaded = false;
+      let subsLoaded = false;
+
+      // Revenue from every succeeded charge: one-time downloads AND every subscription
+      // invoice (initial + renewals). charges.list returns newest-first, so the first
+      // 50 succeeded charges are the most recent — we keep those for the activity list
+      // while continuing to sum all charges for an accurate lifetime total.
       try {
         const stripe = await getUncachableStripeClient();
-        const sessions = await stripe.checkout.sessions.list({
-          limit: 50,
-          expand: ["data.customer"],
-        });
-        for (const s of sessions.data) {
-          if (s.payment_status !== "paid") continue;
-          stripeCharges.push({
-            id: s.id,
-            amount: s.amount_total ?? 0,
-            currency: s.currency ?? "usd",
-            description: s.mode === "subscription" ? "Monthly subscription" : "One-time download",
-            created: s.created,
-            status: "succeeded",
-            email: s.customer_details?.email ?? null,
-            mode: s.mode ?? "payment",
-          });
+        let scanned = 0;
+        for await (const c of stripe.charges.list({ limit: 100, expand: ["data.customer"] })) {
+          scanned++;
+          if (c.status === "succeeded" && c.paid) {
+            const amount = netAmount(c);
+            if (amount > 0) {
+              const isSub = !!(c as any).invoice;
+              totalRevenue += amount;
+              if (recentCharges.length < 50) {
+                recentCharges.push({
+                  id: c.id,
+                  amount,
+                  currency: c.currency ?? "usd",
+                  description: isSub ? "Subscription payment" : "One-time download",
+                  created: c.created,
+                  status: "succeeded",
+                  email: chargeEmail(c),
+                  mode: isSub ? "subscription" : "payment",
+                });
+              }
+            }
+          }
+          if (scanned >= 50000) {
+            console.warn("Admin revenue: hit 50000-charge scan bound; totalRevenue may undercount.");
+            break; // hard safety bound against runaway pagination
+          }
         }
+        revenueLoaded = true;
       } catch (stripeErr) {
-        console.warn("Could not fetch Stripe sessions for admin stats:", stripeErr);
+        console.warn("Could not fetch Stripe charges for admin revenue:", stripeErr);
       }
 
-      // Merge DB records and Stripe records, preferring DB (dedup by session id)
-      const dbSessionIds = new Set(dbPayments.map(p => p.stripeSessionId).filter(Boolean));
-      const mergedCharges: ChargeEntry[] = [
-        ...dbPayments.map(p => ({
+      // True MRR + active subscriber count from currently-active subscriptions,
+      // normalised to a monthly amount regardless of billing interval.
+      try {
+        const stripe = await getUncachableStripeClient();
+        for await (const sub of stripe.subscriptions.list({ status: "active", limit: 100 })) {
+          activeSubscribers++;
+          for (const item of sub.items.data) {
+            const unit = item.price.unit_amount ?? 0;
+            const qty = item.quantity ?? 1;
+            const count = item.price.recurring?.interval_count ?? 1;
+            const line = unit * qty;
+            switch (item.price.recurring?.interval) {
+              case "year": monthlyRevenue += line / (12 * count); break;
+              case "week": monthlyRevenue += (line * 52) / (12 * count); break;
+              case "day": monthlyRevenue += (line * 365) / (12 * count); break;
+              default: monthlyRevenue += line / count; // monthly
+            }
+          }
+          if (activeSubscribers >= 5000) break;
+        }
+        monthlyRevenue = Math.round(monthlyRevenue);
+        subsLoaded = true;
+      } catch (stripeErr) {
+        console.warn("Could not fetch Stripe subscriptions for admin stats:", stripeErr);
+      }
+
+      // Per-metric fallback: for whatever Stripe couldn't provide, derive figures from
+      // our own payments table so the dashboard still shows historical data.
+      if (!revenueLoaded || !subsLoaded) {
+        const dbPayments = await db.select().from(payments).orderBy(desc(payments.createdAt)).limit(50);
+        const dbCharges: ChargeEntry[] = dbPayments.map(p => ({
           id: p.stripeSessionId ?? String(p.id),
           amount: p.amountCents,
           currency: p.currency,
-          description: p.mode === "subscription" ? "Monthly subscription" : "One-time download",
+          description: p.mode === "subscription" ? "Subscription payment" : "One-time download",
           created: Math.floor(p.createdAt.getTime() / 1000),
           status: "succeeded",
           email: p.customerEmail ?? null,
           mode: p.mode,
-        })),
-        ...stripeCharges.filter(c => !dbSessionIds.has(c.id)),
-      ].sort((a, b) => b.created - a.created).slice(0, 50);
-
-      const totalRevenue = mergedCharges.reduce((s, c) => s + c.amount, 0);
-      const activeSubscribers = mergedCharges.filter(c => c.mode === "subscription").length;
-      const monthlyRevenue = mergedCharges
-        .filter(c => c.mode === "subscription")
-        .reduce((s, c) => s + c.amount, 0);
-
-      const recentCharges = mergedCharges;
+        }));
+        if (!revenueLoaded) {
+          recentCharges = dbCharges;
+          totalRevenue = dbCharges.reduce((s, c) => s + c.amount, 0);
+        }
+        if (!subsLoaded) {
+          activeSubscribers = dbCharges.filter(c => c.mode === "subscription").length;
+          monthlyRevenue = dbCharges
+            .filter(c => c.mode === "subscription")
+            .reduce((s, c) => s + c.amount, 0);
+        }
+      }
 
       // Fetch failed charges from Stripe
       interface FailedPaymentEntry {
