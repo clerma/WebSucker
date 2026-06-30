@@ -230,12 +230,12 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <BarChart3 className="h-5 w-5 text-primary" />
-          <h1 className="font-semibold text-lg">Website Sucker — Admin</h1>
+      <div className="border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <BarChart3 className="h-5 w-5 text-primary shrink-0" />
+          <h1 className="font-semibold text-base sm:text-lg truncate">Website Sucker — Admin</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {lastRefreshed && (
             <span className="text-xs text-muted-foreground hidden sm:block">
               Updated {lastRefreshed.toLocaleTimeString()}
@@ -243,16 +243,16 @@ export default function Admin() {
           )}
           <Button variant="outline" size="sm" onClick={fetchStats} disabled={loading} className="gap-2">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
           <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2 text-muted-foreground">
             <LogOut className="h-4 w-4" />
-            Sign Out
+            <span className="hidden sm:inline">Sign Out</span>
           </Button>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
         <div>
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">Usage</h2>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -338,7 +338,7 @@ export default function Admin() {
                     {stats.analytics.recentJobs.map((job) => (
                       <div
                         key={job.id}
-                        className={`px-6 py-3 flex items-start justify-between gap-3 ${job.status === "failed" ? "bg-destructive/5" : ""}`}
+                        className={`px-4 sm:px-6 py-3 flex items-start justify-between gap-3 ${job.status === "failed" ? "bg-destructive/5" : ""}`}
                       >
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-mono truncate">{job.url}</p>
@@ -383,7 +383,7 @@ export default function Admin() {
                 ) : (
                   <div className="divide-y">
                     {stats.stripe.recentCharges.map((charge) => (
-                      <div key={charge.id} className="px-6 py-3 flex items-start justify-between gap-3">
+                      <div key={charge.id} className="px-4 sm:px-6 py-3 flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm truncate">{charge.email ?? "Unknown"}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
@@ -427,7 +427,7 @@ export default function Admin() {
               ) : (
                 <div className="divide-y">
                   {stats.stripe.failedPayments.map((f) => (
-                    <div key={f.id} className="px-6 py-3 bg-destructive/5 flex items-start justify-between gap-3">
+                    <div key={f.id} className="px-4 sm:px-6 py-3 bg-destructive/5 flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{f.email ?? "Unknown email"}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
