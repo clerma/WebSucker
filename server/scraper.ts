@@ -824,7 +824,188 @@ async function tryScrapingBeeFallback(
   }
 }
 
-async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number }> {
+/**
+ * Robust auto-scroll for a Puppeteer page. Drives the main document AND any
+ * inner scroll containers to the bottom, repeating while the page keeps growing
+ * (infinite scroll). Hard-capped by iteration count and wall-clock time so it
+ * can never hang, no matter how the page behaves.
+ */
+async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
+  await page.evaluate(async () => {
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+    const docHeight = () => Math.max(
+      document.body?.scrollHeight || 0,
+      document.documentElement?.scrollHeight || 0,
+      document.body?.offsetHeight || 0,
+      document.documentElement?.offsetHeight || 0,
+    );
+
+    // Find inner scroll containers (overflow auto/scroll with real overflow).
+    const scrollContainers: HTMLElement[] = [];
+    try {
+      const all = Array.from(document.querySelectorAll<HTMLElement>("*")).slice(0, 3000);
+      for (const el of all) {
+        const style = getComputedStyle(el);
+        const oy = style.overflowY;
+        if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 200) {
+          scrollContainers.push(el);
+          if (scrollContainers.length >= 8) break;
+        }
+      }
+    } catch {}
+
+    const start = Date.now();
+    const MAX_MS = 20000;
+    const MAX_ITERS = 60;
+    const distance = 800;
+    let lastHeight = 0;
+    let stableCount = 0;
+
+    for (let i = 0; i < MAX_ITERS; i++) {
+      if (Date.now() - start > MAX_MS) break;
+
+      window.scrollBy(0, distance);
+      for (const c of scrollContainers) {
+        try { c.scrollTop += distance; } catch {}
+      }
+      await sleep(120);
+
+      const atBottom = window.innerHeight + window.scrollY >= docHeight() - 2;
+      const h = docHeight();
+      if (h === lastHeight) {
+        stableCount++;
+        // Height stopped growing AND we're at the bottom → done.
+        if (atBottom && stableCount >= 2) break;
+        if (stableCount >= 5) break;
+      } else {
+        stableCount = 0;
+        lastHeight = h;
+      }
+    }
+  });
+}
+
+/**
+ * Non-destructive interaction sweep. Best-effort hover over nav/menu triggers
+ * and open collapsible UI (tabs, accordions, "show more", <details>) so lazily-
+ * injected content and assets get added to the DOM. Strictly guarded so it
+ * NEVER navigates away, submits a form, or throws.
+ */
+async function interactionSweep(page: import("puppeteer").Page): Promise<void> {
+  await page.evaluate(async () => {
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    const fire = (el: Element, type: string) => {
+      try {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      } catch {}
+    };
+
+    // 1. Hover navigation / menu triggers to reveal dropdown submenus.
+    try {
+      const hoverTargets = Array.from(document.querySelectorAll<HTMLElement>(
+        "nav a, nav button, nav li, [class*='menu'] > a, [class*='menu'] > button, [class*='nav'] li, [aria-haspopup]"
+      )).slice(0, 40);
+      for (const el of hoverTargets) {
+        fire(el, "mouseover");
+        fire(el, "mouseenter");
+      }
+      await sleep(300);
+    } catch {}
+
+    // 2. Open collapsible UI that reveals content, guarded against navigation.
+    try {
+      // Native <details> — safe to open directly.
+      document.querySelectorAll<HTMLDetailsElement>("details").forEach(d => {
+        try { d.open = true; } catch {}
+      });
+
+      // Only target elements with EXPLICIT expand/collapse semantics — never a
+      // bare `button` (those can carry JS navigation handlers). Elements must
+      // also expose a safe toggle signal (aria-controls / aria-expanded / a
+      // known accordion|tab|show-more class).
+      const clickTargets = Array.from(document.querySelectorAll<HTMLElement>(
+        "[role='tab'], [aria-expanded='false'], [aria-controls][role='button'], " +
+        "[class*='accordion']:not(a), [class*='collapse']:not(a), " +
+        "[class*='show-more']:not(a), [class*='load-more']:not(a), [class*='read-more']:not(a)"
+      )).slice(0, 60);
+
+      for (const el of clickTargets) {
+        const tag = el.tagName.toLowerCase();
+        // Never touch links or anything that acts like a link.
+        if (tag === "a" || el.hasAttribute("href")) continue;
+        if (el.getAttribute("role") === "link") continue;
+        const type = (el.getAttribute("type") || "").toLowerCase();
+        if (type === "submit" || type === "reset") continue;
+        if (el.closest("form")) continue;
+        // Require a genuine toggle signal so we don't click arbitrary controls.
+        const hasToggleSignal =
+          el.hasAttribute("aria-controls") ||
+          el.hasAttribute("aria-expanded") ||
+          el.getAttribute("role") === "tab" ||
+          /accordion|collapse|show-more|load-more|read-more/i.test(el.className || "");
+        if (!hasToggleSignal) continue;
+        const label = (el.textContent || "").trim().toLowerCase();
+        // Avoid destructive / navigational actions.
+        if (/sign|log ?in|log ?out|buy|checkout|pay|delete|remove|subscribe|submit|next|previous|prev/.test(label)) continue;
+
+        fire(el, "click");
+      }
+      await sleep(500);
+    } catch {}
+  });
+}
+
+/**
+ * Collect asset URLs referenced by the currently-rendered DOM. Used for the
+ * mobile-viewport pass to discover responsive/mobile-only assets. Returns
+ * absolute URLs (img currentSrc/src, srcset candidates, <source>, video/audio,
+ * poster, and computed background images).
+ */
+async function collectRenderedAssetUrls(page: import("puppeteer").Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const urls = new Set<string>();
+    const add = (v?: string | null) => {
+      if (!v) return;
+      const s = v.trim();
+      if (!s || s.startsWith("data:") || s.startsWith("blob:")) return;
+      try { urls.add(new URL(s, document.baseURI).href); } catch {}
+    };
+    const addSrcset = (v?: string | null) => {
+      if (!v) return;
+      v.split(",").forEach(part => add(part.trim().split(/\s+/)[0]));
+    };
+
+    document.querySelectorAll("img").forEach(img => {
+      add((img as HTMLImageElement).currentSrc);
+      add(img.getAttribute("src"));
+      addSrcset(img.getAttribute("srcset"));
+    });
+    document.querySelectorAll("source").forEach(s => {
+      add(s.getAttribute("src"));
+      addSrcset(s.getAttribute("srcset"));
+    });
+    document.querySelectorAll("video, audio").forEach(m => {
+      add(m.getAttribute("src"));
+      add(m.getAttribute("poster"));
+    });
+
+    // Computed background images (catches media-query backgrounds).
+    const els = Array.from(document.querySelectorAll<HTMLElement>("*")).slice(0, 4000);
+    for (const el of els) {
+      let bg = "";
+      try { bg = getComputedStyle(el).backgroundImage; } catch {}
+      if (bg && bg !== "none") {
+        const re = /url\((['"]?)(.*?)\1\)/g;
+        let m;
+        while ((m = re.exec(bg)) !== null) add(m[2]);
+      }
+    }
+    return Array.from(urls);
+  });
+}
+
+async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number; extraAssetUrls?: string[] }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
   
@@ -961,33 +1142,71 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
     
     // Short settle wait after load event
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Scroll the page to trigger lazy-loaded images and embeds
-    await page.evaluate(async () => {
-      await new Promise<void>(resolve => {
-        let totalHeight = 0;
-        const distance = 500;
-        const timer = setInterval(() => {
-          window.scrollBy(0, distance);
-          totalHeight += distance;
-          if (totalHeight >= document.body.scrollHeight) {
-            clearInterval(timer);
-            resolve();
-          }
-        }, 80);
-      });
-    });
-    
-    // Wait for lazy-loaded content to appear (reduced from 5s → 2s)
+
+    // --- Capture-fidelity passes (Puppeteer-only) -------------------------
+    // Each pass is wrapped in try/catch so any failure degrades gracefully to
+    // the previous behaviour instead of aborting the whole render.
+
+    // Pass 1: robust auto-scroll — trigger lazy-loaded images/embeds. Uses the
+    // real document/element scroll height (not just document.body), also drives
+    // any inner scroll containers, and keeps going while the page keeps growing
+    // (infinite scroll). Hard-capped by iterations + wall-clock time so it can
+    // never hang.
+    await robustAutoScroll(page).catch(() => {});
+
+    // Wait for lazy-loaded content to appear
     await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    await page.evaluate(() => window.scrollTo(0, 0));
-    
+
+    // Pass 2: non-destructive interaction sweep — hover nav/menu triggers and
+    // open collapsible UI (tabs, accordions, "show more", <details>) so any
+    // lazily-injected content/assets get added to the DOM. Guaranteed never to
+    // navigate away, submit a form, or throw. As defense-in-depth, if any
+    // interaction still manages to navigate the page, we detect the URL change
+    // and restore the original page before capturing HTML.
+    const urlBeforeSweep = page.url();
+    // Compare ignoring the hash — in-page tab/anchor changes (#section) are not
+    // real navigation and must not trigger a needless reload.
+    const stripHash = (u: string) => { try { const p = new URL(u); return p.origin + p.pathname + p.search; } catch { return u; } };
+    await interactionSweep(page).catch(() => {});
+    if (stripHash(page.url()) !== stripHash(urlBeforeSweep)) {
+      console.warn(`[render] interaction sweep navigated away (${page.url()}); restoring ${urlBeforeSweep}`);
+      await page.goto(urlBeforeSweep, { waitUntil: "load", timeout: 20000 }).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    // Re-run lazy discovery after interactions revealed new content.
+    await robustAutoScroll(page).catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+
     // Brief network idle check
     await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 }).catch(() => {});
-    
+
+    // Desktop DOM is the primary offline copy we save.
     html = await page.content();
-    return { html, status };
+
+    // Pass 3: multi-viewport asset pass — re-render at a mobile viewport so
+    // responsive/mobile-only assets (<picture> media sources, mobile srcset
+    // candidates, media-query background images, and JS-injected mobile-only
+    // DOM) get loaded, then collect any newly-referenced asset URLs. These are
+    // returned to the caller to be downloaded so the offline copy looks right
+    // at any screen size. We do NOT overwrite the desktop HTML.
+    let extraAssetUrls: string[] | undefined;
+    try {
+      await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+      // Nudge the page to re-evaluate responsive images / media queries.
+      await page.evaluate(() => window.dispatchEvent(new Event("resize"))).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await robustAutoScroll(page).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await page.waitForNetworkIdle({ idleTime: 800, timeout: 4000 }).catch(() => {});
+      extraAssetUrls = await collectRenderedAssetUrls(page).catch(() => [] as string[]);
+    } catch {
+      // Mobile pass is best-effort; ignore failures.
+    }
+
+    return { html, status, extraAssetUrls };
   } finally {
     await page.close();
   }
@@ -1169,6 +1388,19 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             
             content = Buffer.from(rendered.html, "utf-8");
             contentType = "text/html";
+
+            // Queue any extra assets discovered by the mobile-viewport pass
+            // (responsive / mobile-only images, media-query backgrounds, etc.)
+            // so the offline copy looks right at any screen size.
+            if (rendered.extraAssetUrls?.length) {
+              for (const extra of rendered.extraAssetUrls) {
+                const normalized = normalizeUrl(extra, currentUrl);
+                if (normalized && !discoveredUrls.has(normalized)) {
+                  discoveredUrls.add(normalized);
+                  urlQueue.push({ url: normalized, referrer: currentUrl });
+                }
+              }
+            }
           } catch (renderErr: any) {
             // Cloudflare bot challenge can't be cleared by a plain fetch either —
             // re-throw so the user sees the friendly "site is protected" message.
