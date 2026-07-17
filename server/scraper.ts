@@ -836,15 +836,60 @@ async function tryScrapingBeeFallback(
  * the raw server HTML (e.g. Wix/React hydration wiping SSR content before
  * the client re-render finishes).
  */
-function htmlContentScore(html: string): { textLen: number; imgCount: number } {
+function htmlContentScore(html: string): { textLen: number; imgCount: number; iframeCount: number } {
   try {
     const $ = cheerio.load(html);
     $("script, style, noscript").remove();
     const textLen = $("body").text().replace(/\s+/g, " ").trim().length;
     const imgCount = $("img").length;
-    return { textLen, imgCount };
+    const iframeCount = $("iframe").length;
+    return { textLen, imgCount, iframeCount };
   } catch {
-    return { textLen: 0, imgCount: 0 };
+    return { textLen: 0, imgCount: 0, iframeCount: 0 };
+  }
+}
+
+/**
+ * Graft JS-created <iframe> embeds from the rendered DOM into raw server HTML.
+ * Used when we fall back to raw HTML (rendered capture lost text content) but
+ * the rendered DOM contains embeds (Wix HtmlComponent, maps, widgets) that the
+ * raw HTML lacks. Matches each iframe's nearest ancestor with an id that also
+ * exists in the raw HTML and inserts the iframe there.
+ */
+function mergeRenderedIframes(rawHtml: string, renderedHtml: string): string {
+  try {
+    const $raw = cheerio.load(rawHtml);
+    const $rendered = cheerio.load(renderedHtml);
+    const rawSrcs = new Set(
+      $raw("iframe").map((_, el) => $raw(el).attr("src") || "").get()
+    );
+    let merged = false;
+    $rendered("iframe").each((_, el) => {
+      const $el = $rendered(el);
+      const src = $el.attr("src") || "";
+      if (!src || rawSrcs.has(src)) return;
+      // Find the nearest rendered ancestor whose id also exists in the raw doc.
+      let target: ReturnType<typeof $raw> | null = null;
+      let cur = $el.parent();
+      while (cur.length) {
+        const id = cur.attr("id");
+        if (id) {
+          const inRaw = $raw(`#${id.replace(/([^\w-])/g, "\\$1")}`);
+          if (inRaw.length) { target = inRaw.first(); break; }
+        }
+        cur = cur.parent();
+      }
+      const iframeHtml = $rendered.html($el);
+      if (target) {
+        target.append(iframeHtml);
+      } else {
+        $raw("body").append(iframeHtml);
+      }
+      merged = true;
+    });
+    return merged ? $raw.html() : rawHtml;
+  } catch {
+    return rawHtml;
   }
 }
 
@@ -1170,7 +1215,12 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
       let stable = 0;
       const hydrateStart = Date.now();
       while (Date.now() - hydrateStart < 8000) {
-        const len = await page.evaluate(() => (document.body?.innerText || "").length);
+        // Track iframes as well as text: Wix HtmlComponent embeds attach their
+        // <iframe> late in hydration — text can be stable while the embed is
+        // still missing, and capturing then loses it.
+        const len = await page.evaluate(
+          () => (document.body?.innerText || "").length + document.querySelectorAll("iframe").length * 5000
+        );
         if (len === lastLen && len > 0) {
           stable++;
           if (stable >= 2) break; // unchanged across 2 consecutive polls → settled
@@ -1447,7 +1497,13 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
                       `[render] rendered DOM lost content vs raw HTML for ${currentUrl} ` +
                       `(text ${renderedScore.textLen} vs ${rawScore.textLen}, imgs ${renderedScore.imgCount} vs ${rawScore.imgCount}) — using raw server HTML`
                     );
-                    chosenHtml = rawHtml;
+                    // Raw server HTML never contains JS-created embeds (Wix
+                    // HtmlComponent, maps, widgets); graft any iframes the
+                    // rendered DOM had into the raw HTML so we don't trade the
+                    // text for the embed.
+                    chosenHtml = renderedScore.iframeCount > rawScore.iframeCount
+                      ? mergeRenderedIframes(rawHtml, chosenHtml)
+                      : rawHtml;
                   }
                 }
               }
@@ -2178,7 +2234,71 @@ async function transformForOffline(outputDir: string): Promise<void> {
       </script>
     `;
     $("body").append(scrollScript);
-    
+
+    // Offline gallery lightbox: JS-driven galleries (Wix pro-gallery etc.) rely
+    // on runtime CDN chunks + API calls that can't run from an offline copy, so
+    // clicking a gallery image does nothing. Inject a tiny self-contained
+    // lightbox so gallery images stay clickable offline (zoom + prev/next).
+    if ($('[id*="gallery" i] img, [class*="gallery" i] img, [data-hook*="gallery" i] img').length > 0) {
+      const lightboxScript = `
+      <script id="offline-lightbox">
+        (function(){
+          var imgs = Array.prototype.slice.call(document.querySelectorAll('[id*="gallery" i] img, [class*="gallery" i] img, [data-hook*="gallery" i] img'));
+          imgs = imgs.filter(function(im, i){ return imgs.indexOf(im) === i && (im.naturalWidth === 0 || im.naturalWidth > 60); });
+          if (!imgs.length) return;
+          var overlay, big, counter, idx = 0;
+          function btn(t, css){ var b = document.createElement('button'); b.textContent = t;
+            b.style.cssText = 'position:absolute;color:#fff;background:rgba(0,0,0,.35);border:none;cursor:pointer;font-size:34px;line-height:1;padding:8px 16px;border-radius:6px;' + css; return b; }
+          function ensure(){ if (overlay) return;
+            overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.93);display:none;z-index:2147483647;align-items:center;justify-content:center;cursor:zoom-out;';
+            big = document.createElement('img');
+            big.style.cssText = 'max-width:92vw;max-height:90vh;object-fit:contain;cursor:default;';
+            big.addEventListener('click', function(e){ e.stopPropagation(); });
+            counter = document.createElement('div');
+            counter.style.cssText = 'position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:#ccc;font:14px/1 sans-serif;';
+            var prev = btn('\\u2039', 'left:12px;top:50%;transform:translateY(-50%);');
+            var next = btn('\\u203a', 'right:12px;top:50%;transform:translateY(-50%);');
+            var close = btn('\\u00d7', 'right:12px;top:12px;');
+            prev.onclick = function(e){ e.stopPropagation(); show(idx - 1); };
+            next.onclick = function(e){ e.stopPropagation(); show(idx + 1); };
+            close.onclick = function(e){ e.stopPropagation(); hide(); };
+            overlay.appendChild(big); overlay.appendChild(prev); overlay.appendChild(next); overlay.appendChild(close); overlay.appendChild(counter);
+            overlay.addEventListener('click', hide);
+            document.body.appendChild(overlay);
+            document.addEventListener('keydown', function(e){
+              if (!overlay || overlay.style.display === 'none') return;
+              if (e.key === 'Escape') hide();
+              else if (e.key === 'ArrowLeft') show(idx - 1);
+              else if (e.key === 'ArrowRight') show(idx + 1);
+            });
+          }
+          function srcOf(im){ return im.currentSrc || im.src; }
+          function show(i){ ensure(); idx = (i + imgs.length) % imgs.length; big.src = srcOf(imgs[idx]);
+            counter.textContent = (idx + 1) + ' / ' + imgs.length; overlay.style.display = 'flex'; }
+          function hide(){ if (overlay) overlay.style.display = 'none'; }
+          imgs.forEach(function(im){ im.style.cursor = 'zoom-in'; });
+          // Delegated capture-phase handler with coordinate hit-testing:
+          // gallery items usually have an overlay <a> ON TOP of the <img>, so
+          // per-image listeners never fire — the img is not in the event path.
+          document.addEventListener('click', function(e){
+            if (overlay && overlay.style.display === 'flex') return;
+            var inGallery = e.target && e.target.closest && e.target.closest('[id*="gallery" i], [class*="gallery" i], [data-hook*="gallery" i]');
+            if (!inGallery) return;
+            for (var i = 0; i < imgs.length; i++) {
+              var r = imgs[i].getBoundingClientRect();
+              if (r.width > 30 && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+                e.preventDefault(); e.stopPropagation(); show(i); return;
+              }
+            }
+          }, true);
+        })();
+      </script>
+      `;
+      $("body").append(lightboxScript);
+      modified = true;
+    }
+
     await fs.promises.writeFile(file, $.html());
   }
 }
