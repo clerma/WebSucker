@@ -88,19 +88,19 @@ const faqs: QA[] = [
   {
     q: "Can I cancel my subscription?",
     a: [
-      "Yes, anytime. Use the link in your Stripe receipt email or contact us and we'll cancel it on our side. There's no minimum term and no cancellation fee.",
+      "Yes, anytime. Use the link in your Stripe receipt email or email us at hello@websitesucker.com and we'll cancel it on our side. There's no minimum term and no cancellation fee.",
     ],
   },
   {
     q: "What if the download doesn't work or is missing things?",
     a: [
-      "Most issues come from edge cases on specific sites. If the analysis shows everything but the final ZIP looks wrong, contact us and tell us the URL — we'll investigate. We've added specific handling for Wix, Squarespace, Shopify, and many other platforms over time and add more as we hit edge cases.",
+      "Most issues come from edge cases on specific sites. If the analysis shows everything but the final ZIP looks wrong, email us at hello@websitesucker.com and tell us the URL — we'll investigate. We've added specific handling for Wix, Squarespace, Shopify, and many other platforms over time and add more as we hit edge cases.",
     ],
   },
   {
     q: "Do you respect robots.txt?",
     a: [
-      "We respect rate limits and identify ourselves in the user agent. We don't aggressively crawl sites that ask us not to. If you're a site owner and you want our scraper to skip your site, contact us.",
+      "We respect rate limits and identify ourselves in the user agent. We don't aggressively crawl sites that ask us not to. If you're a site owner and you want our scraper to skip your site, email us at hello@websitesucker.com.",
     ],
   },
   {
