@@ -836,16 +836,17 @@ async function tryScrapingBeeFallback(
  * the raw server HTML (e.g. Wix/React hydration wiping SSR content before
  * the client re-render finishes).
  */
-function htmlContentScore(html: string): { textLen: number; imgCount: number; iframeCount: number } {
+function htmlContentScore(html: string): { textLen: number; imgCount: number; iframeCount: number; navLinkCount: number } {
   try {
     const $ = cheerio.load(html);
     $("script, style, noscript").remove();
     const textLen = $("body").text().replace(/\s+/g, " ").trim().length;
     const imgCount = $("img").length;
     const iframeCount = $("iframe").length;
-    return { textLen, imgCount, iframeCount };
+    const navLinkCount = $("nav a, [role='navigation'] a").length;
+    return { textLen, imgCount, iframeCount, navLinkCount };
   } catch {
-    return { textLen: 0, imgCount: 0, iframeCount: 0 };
+    return { textLen: 0, imgCount: 0, iframeCount: 0, navLinkCount: 0 };
   }
 }
 
@@ -868,8 +869,13 @@ function mergeRenderedIframes(rawHtml: string, renderedHtml: string): string {
       const $el = $rendered(el);
       const src = $el.attr("src") || "";
       if (!src || rawSrcs.has(src)) return;
-      // Find the nearest rendered ancestor whose id also exists in the raw doc.
+      // Find the nearest rendered ancestor whose id also exists in the raw doc,
+      // remembering the child subtree of that ancestor which holds the iframe.
+      // Grafting the WHOLE wrapper subtree (not the bare iframe) preserves the
+      // sizing/positioning wrapper divs — a bare 100%x100% absolute iframe
+      // dropped straight into a section container paints over sibling content.
       let target: ReturnType<typeof $raw> | null = null;
+      let subtree = $el;
       let cur = $el.parent();
       while (cur.length) {
         const id = cur.attr("id");
@@ -877,13 +883,17 @@ function mergeRenderedIframes(rawHtml: string, renderedHtml: string): string {
           const inRaw = $raw(`#${id.replace(/([^\w-])/g, "\\$1")}`);
           if (inRaw.length) { target = inRaw.first(); break; }
         }
+        subtree = cur;
         cur = cur.parent();
       }
-      const iframeHtml = $rendered.html($el);
+      // Skip if the raw doc already has the subtree root (avoid duplicates).
+      const subtreeId = subtree.attr("id");
+      if (subtreeId && $raw(`#${subtreeId.replace(/([^\w-])/g, "\\$1")}`).length) return;
+      const graftHtml = $rendered.html(subtree);
       if (target) {
-        target.append(iframeHtml);
+        target.append(graftHtml);
       } else {
-        $raw("body").append(iframeHtml);
+        $raw("body").append(graftHtml);
       }
       merged = true;
     });
@@ -1219,7 +1229,9 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
         // <iframe> late in hydration — text can be stable while the embed is
         // still missing, and capturing then loses it.
         const len = await page.evaluate(
-          () => (document.body?.innerText || "").length + document.querySelectorAll("iframe").length * 5000
+          () => (document.body?.innerText || "").length
+            + document.querySelectorAll("iframe").length * 5000
+            + document.querySelectorAll("nav a, [role='navigation'] a").length * 500
         );
         if (len === lastLen && len > 0) {
           stable++;
@@ -1485,17 +1497,21 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
               // Only pay for the extra raw fetch when the rendered capture looks
               // suspiciously thin — a fully rendered page with plenty of text and
               // images can't have "lost" content worth restoring.
-              if (renderedScore.textLen < 2000 || renderedScore.imgCount < 5) {
+              if (renderedScore.textLen < 2000 || renderedScore.imgCount < 5 || renderedScore.navLinkCount === 0) {
                 const rawFetch = await fetchBytesWithTimeout(downloadUrl);
                 if (rawFetch.contentType.includes("text/html")) {
                   const rawHtml = rawFetch.content.toString("utf-8");
                   const rawScore = htmlContentScore(rawHtml);
                   const lostText = rawScore.textLen > 500 && renderedScore.textLen < rawScore.textLen * 0.6;
                   const lostImgs = rawScore.imgCount >= 5 && renderedScore.imgCount < rawScore.imgCount * 0.5;
-                  if (lostText || lostImgs) {
+                  // Wix menus render their items late; a capture can save the
+                  // nav with an EMPTY <ul> while the raw SSR HTML has the full
+                  // menu. Treat "raw has nav links, rendered has none" as loss.
+                  const lostNav = rawScore.navLinkCount >= 2 && renderedScore.navLinkCount === 0;
+                  if (lostText || lostImgs || lostNav) {
                     console.warn(
                       `[render] rendered DOM lost content vs raw HTML for ${currentUrl} ` +
-                      `(text ${renderedScore.textLen} vs ${rawScore.textLen}, imgs ${renderedScore.imgCount} vs ${rawScore.imgCount}) — using raw server HTML`
+                      `(text ${renderedScore.textLen} vs ${rawScore.textLen}, imgs ${renderedScore.imgCount} vs ${rawScore.imgCount}, navLinks ${renderedScore.navLinkCount} vs ${rawScore.navLinkCount}) — using raw server HTML`
                     );
                     // Raw server HTML never contains JS-created embeds (Wix
                     // HtmlComponent, maps, widgets); graft any iframes the
