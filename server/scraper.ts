@@ -1224,7 +1224,7 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
       let lastLen = -1;
       let stable = 0;
       const hydrateStart = Date.now();
-      while (Date.now() - hydrateStart < 8000) {
+      while (Date.now() - hydrateStart < 15000) {
         // Track iframes as well as text: Wix HtmlComponent embeds attach their
         // <iframe> late in hydration — text can be stable while the embed is
         // still missing, and capturing then loses it.
@@ -1255,8 +1255,51 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
     // never hang.
     await robustAutoScroll(page).catch(() => {});
 
-    // Wait for lazy-loaded content to appear
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Wait for lazy-loaded content to appear. Below-the-fold embeds (e.g. Wix
+    // contact forms) often only mount AFTER the auto-scroll brings them into
+    // view, and then take a few seconds to attach their iframe and load it.
+    // Poll iframe count + text length until stable again instead of a fixed
+    // short delay, then give attached iframes a chance to finish loading.
+    try {
+      let lastLen = -1;
+      let stable = 0;
+      const lazyStart = Date.now();
+      while (Date.now() - lazyStart < 8000) {
+        const len = await page.evaluate(
+          () => (document.body?.innerText || "").length
+            + document.querySelectorAll("iframe").length * 5000
+        );
+        if (len === lastLen && len > 0) {
+          stable++;
+          if (stable >= 2) break;
+        } else {
+          stable = 0;
+          lastLen = len;
+        }
+        await new Promise(resolve => setTimeout(resolve, 700));
+      }
+      // Wait (bounded) for any iframes that are still loading their content.
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        const frames = Array.from(document.querySelectorAll("iframe"));
+        if (frames.length === 0) return resolve();
+        let pending = frames.length;
+        const done = () => { if (--pending <= 0) resolve(); };
+        const timer = setTimeout(() => resolve(), 5000);
+        for (const f of frames) {
+          try {
+            // Same-origin frames with a complete document are already done;
+            // cross-origin access throws, so fall back to the load event.
+            const doc = (f as HTMLIFrameElement).contentDocument;
+            if (doc && doc.readyState === "complete") { done(); continue; }
+          } catch {}
+          f.addEventListener("load", done, { once: true });
+          f.addEventListener("error", done, { once: true });
+        }
+        if (pending <= 0) { clearTimeout(timer); resolve(); }
+      }));
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
 
     // Pass 2: non-destructive interaction sweep — hover nav/menu triggers and
     // open collapsible UI (tabs, accordions, "show more", <details>) so any
