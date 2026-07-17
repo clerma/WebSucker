@@ -58,6 +58,8 @@ _Populate as you build_
 - **Admin Access**: The admin dashboard at `/admin` requires the `ADMIN_SECRET` environment variable to be set for authentication.
 - **Cloudflare**: While `puppeteer-extra-plugin-stealth` helps with Cloudflare challenges, persistent Turnstile challenges will result in a "site protected by Cloudflare" error.
 - **Database Resilience**: PostgreSQL connection errors (e.g., Neon sleeping endpoint) are silently retried up to 3 times.
+- **Hydration Content Loss**: Wix/React sites can wipe SSR content during hydration; the scraper's hydration-settle wait and rendered-vs-raw content-loss guard in the Puppeteer HTML path prevent saving empty page shells. Asset size cap is 20MB.
+- **Contact Info**: The only public contact for the product is hello@websitesucker.com — never expose personal emails/phones anywhere user-facing. (Stripe's public business profile is a separate setting in the Stripe Dashboard.)
 
 ## Pointers
 

@@ -27,7 +27,7 @@ interface ScrapeOptions {
 // Safety limits to prevent runaway crawling
 const MAX_ASSETS = 750;
 const MAX_HTML_PAGES = 50;
-const MAX_ASSET_SIZE = 10 * 1024 * 1024; // 10MB per asset
+const MAX_ASSET_SIZE = 20 * 1024 * 1024; // 20MB per asset
 const REQUEST_DELAY = 150; // ms between requests
 
 const ALLOWED_EXTENSIONS = new Set([
@@ -830,6 +830,24 @@ async function tryScrapingBeeFallback(
  * (infinite scroll). Hard-capped by iteration count and wall-clock time so it
  * can never hang, no matter how the page behaves.
  */
+/**
+ * Rough "content richness" score for an HTML document: visible text length
+ * plus a weight per <img>. Used to detect renders that LOST content versus
+ * the raw server HTML (e.g. Wix/React hydration wiping SSR content before
+ * the client re-render finishes).
+ */
+function htmlContentScore(html: string): { textLen: number; imgCount: number } {
+  try {
+    const $ = cheerio.load(html);
+    $("script, style, noscript").remove();
+    const textLen = $("body").text().replace(/\s+/g, " ").trim().length;
+    const imgCount = $("img").length;
+    return { textLen, imgCount };
+  } catch {
+    return { textLen: 0, imgCount: 0 };
+  }
+}
+
 async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
   await page.evaluate(async () => {
     const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -1143,6 +1161,27 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
     // Short settle wait after load event
     await new Promise(resolve => setTimeout(resolve, 1000));
 
+    // Hydration settle: SPA frameworks (Wix/React) can WIPE the server-rendered
+    // content during hydration and re-render it client-side. Capturing mid-wipe
+    // produces a page with empty text nodes. Poll the visible text length until
+    // it stabilizes (or a hard cap) so we never capture mid-hydration.
+    try {
+      let lastLen = -1;
+      let stable = 0;
+      const hydrateStart = Date.now();
+      while (Date.now() - hydrateStart < 8000) {
+        const len = await page.evaluate(() => (document.body?.innerText || "").length);
+        if (len === lastLen && len > 0) {
+          stable++;
+          if (stable >= 2) break; // unchanged across 2 consecutive polls → settled
+        } else {
+          stable = 0;
+          lastLen = len;
+        }
+        await new Promise(resolve => setTimeout(resolve, 700));
+      }
+    } catch {}
+
     // --- Capture-fidelity passes (Puppeteer-only) -------------------------
     // Each pass is wrapped in try/catch so any failure degrades gracefully to
     // the previous behaviour instead of aborting the whole render.
@@ -1386,7 +1425,37 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
               throw new Error("Empty or invalid page content");
             }
             
-            content = Buffer.from(rendered.html, "utf-8");
+            // Content-loss guard: hydration on SPA builders (Wix, etc.) can wipe
+            // the server-rendered content and leave the captured DOM emptier than
+            // the raw HTML the server sent. Compare richness and keep whichever
+            // version actually contains the content.
+            let chosenHtml = rendered.html;
+            try {
+              const renderedScore = htmlContentScore(rendered.html);
+              // Only pay for the extra raw fetch when the rendered capture looks
+              // suspiciously thin — a fully rendered page with plenty of text and
+              // images can't have "lost" content worth restoring.
+              if (renderedScore.textLen < 2000 || renderedScore.imgCount < 5) {
+                const rawFetch = await fetchBytesWithTimeout(downloadUrl);
+                if (rawFetch.contentType.includes("text/html")) {
+                  const rawHtml = rawFetch.content.toString("utf-8");
+                  const rawScore = htmlContentScore(rawHtml);
+                  const lostText = rawScore.textLen > 500 && renderedScore.textLen < rawScore.textLen * 0.6;
+                  const lostImgs = rawScore.imgCount >= 5 && renderedScore.imgCount < rawScore.imgCount * 0.5;
+                  if (lostText || lostImgs) {
+                    console.warn(
+                      `[render] rendered DOM lost content vs raw HTML for ${currentUrl} ` +
+                      `(text ${renderedScore.textLen} vs ${rawScore.textLen}, imgs ${renderedScore.imgCount} vs ${rawScore.imgCount}) — using raw server HTML`
+                    );
+                    chosenHtml = rawHtml;
+                  }
+                }
+              }
+            } catch {
+              // Raw-fetch comparison is best-effort; keep the rendered HTML.
+            }
+
+            content = Buffer.from(chosenHtml, "utf-8");
             contentType = "text/html";
 
             // Queue any extra assets discovered by the mobile-viewport pass
