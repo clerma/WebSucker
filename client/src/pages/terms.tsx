@@ -126,7 +126,7 @@ export default function Terms() {
 
           <section className="border-t pt-8">
             <p className="text-sm text-muted-foreground">
-              If you have any questions about these terms, please contact us before using the service. By using Website Sucker, you confirm that you have read, understood, and agree to these Terms &amp; Conditions.
+              If you have any questions about these terms, please email us at hello@websitesucker.com before using the service. By using Website Sucker, you confirm that you have read, understood, and agree to these Terms &amp; Conditions.
             </p>
           </section>
         </div>
