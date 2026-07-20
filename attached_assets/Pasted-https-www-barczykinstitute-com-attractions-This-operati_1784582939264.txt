@@ -1,0 +1,130 @@
+https://www.barczykinstitute.com/attractions
+This operation was aborted
+
+html
+https://www.barczykinstitute.com/Crash/registration
+Could not connect to the site (connection timed out or refused)
+
+html
+https://www.barczykinstitute.com/law-enforcement/registration
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+html
+https://www.barczykinstitute.com/guests-speakers/greg-sully-sullenberger
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+html
+https://www.barczykinstitute.com/guests-speakers/narayan-yoganandan-phd
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+html
+https://www.barczykinstitute.com/cms-assets/css/main.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/css/normalize.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/css/foundation.min.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/css/font-awesome.min.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/css/font.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/js/vendor/slick/slick.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/css/jplayer.blue.monday.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/css/ucmaster.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/css/uccustom.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/favicon.png?v=1
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/favicon.ico
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/_assets/css/recaptcha_overrides.css
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+css
+https://www.barczykinstitute.com/_assets/js/vendor/custom.modernizr.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/js/vendor/jquery.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/js/vendor/slick/slick.min.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/js/foundation.min.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/js/vendor/fastclick.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/js/scripts.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/js/jquery.jplayer.min.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/js/jquery.vide.js
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+js
+https://www.barczykinstitute.com/_assets/img/Logo.png
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/_assets/img/Barczyk.jpg
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/_assets/img/Greg-Sullenberger-Photo.jpg
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/_assets/img/yoga.jpg
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/_assets/img/DrDavidBarczyk.jpg
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/_assets/img/Logo-Alt.png
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+image
+https://www.barczykinstitute.com/crash/physician-accommodations
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
+
+html
+https://www.barczykinstitute.com/crash/location-accommodations-law
+The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). Wait a few minutes and try again — the backup will resume from scratch.
