@@ -437,6 +437,63 @@ const HOST_BLOCKED_MESSAGE =
   "The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). " +
   "Wait a few minutes and try again — the backup will resume from scratch.";
 
+// --- ScrapingBee plain-proxy relay for IP-blocked hosts ----------------------
+// When a host firewalls OUR IP, the same request from a different IP usually
+// works fine. ScrapingBee's classic (non-stealth) mode relays the request
+// through their proxy pool at ~1 credit (~$0.0002) per call, so it's cheap
+// enough to use for every remaining asset on a blocked host. Budget-capped
+// per host to bound cost (~$0.10 worst case).
+const MAX_PROXY_RELAYS_PER_HOST = 500;
+const proxyRelayUsage = new Map<string, number>();
+
+function proxyRelayBudgetLeft(host: string): boolean {
+  return (proxyRelayUsage.get(host) ?? 0) < MAX_PROXY_RELAYS_PER_HOST;
+}
+
+async function fetchViaProxyRelay(
+  url: string
+): Promise<{ content: Buffer; contentType: string } | null> {
+  const apiKey = process.env.SCRAPINGBEE_API_KEY;
+  if (!apiKey) return null;
+  let host: string;
+  try { host = new URL(url).hostname; } catch { return null; }
+  if (!proxyRelayBudgetLeft(host)) {
+    console.warn(`[proxy-relay] Per-host budget of ${MAX_PROXY_RELAYS_PER_HOST} reached — skipping ${url}`);
+    return null;
+  }
+  // Count the attempt (not just successes) so cost stays bounded even if
+  // some failed calls are billed or the API keeps erroring.
+  const used = (proxyRelayUsage.get(host) ?? 0) + 1;
+  proxyRelayUsage.set(host, used);
+  if (used === 1 || used % 50 === 0) {
+    console.log(`[proxy-relay] Relaying ${host} through proxy IPs (${used} requests so far)`);
+  }
+  try {
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      url,
+      render_js: "false", // plain relay — no browser, ~1 credit
+    });
+    const res = await fetch(`https://app.scrapingbee.com/api/v1/?${params}`, {
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(`[proxy-relay] HTTP ${res.status} for ${url}: ${body.slice(0, 200)}`);
+      return null;
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_ASSET_SIZE) {
+      throw new Error(`Asset exceeds ${MAX_ASSET_SIZE / 1024 / 1024}MB limit`);
+    }
+    return { content: buf, contentType: res.headers.get("content-type") || "" };
+  } catch (e: any) {
+    if (/exceeds/.test(e?.message ?? "")) throw e;
+    console.warn(`[proxy-relay] Request failed for ${url}: ${e?.message}`);
+    return null;
+  }
+}
+
 // Fetch the full response body under a single unified timeout.
 // The AbortController is kept alive until the body is fully read,
 // so a slow/stalled body transfer is caught just like a slow connection.
@@ -449,6 +506,9 @@ async function fetchBytesWithTimeout(
   const breaker = getHostBreaker(url);
 
   if (breaker?.blocked) {
+    // Host firewalled our IP — relay through proxy IPs instead of giving up.
+    const relayed = await fetchViaProxyRelay(url);
+    if (relayed) return relayed;
     throw new Error(HOST_BLOCKED_MESSAGE);
   }
   // Politeness: once a host has shown connection trouble, slow down so we
@@ -511,6 +571,8 @@ async function fetchBytesWithTimeout(
       if (fails >= BREAKER_BLOCK_AFTER) {
         breaker.blocked = true;
         console.warn(`[breaker] Host blocked after ${fails} consecutive connection failures: ${url}`);
+        const relayed = await fetchViaProxyRelay(url);
+        if (relayed) return relayed;
         throw new Error(HOST_BLOCKED_MESSAGE);
       }
       if (fails >= BREAKER_COOLDOWN_AFTER && !breaker.cooldownUsed) {
@@ -527,6 +589,10 @@ async function fetchBytesWithTimeout(
         lastError = err as Error;
         continue;
       }
+      // Direct retries exhausted on a connection-level failure — try relaying
+      // through a proxy IP before giving up on this asset.
+      const relayed = await fetchViaProxyRelay(url);
+      if (relayed) return relayed;
     }
     throw err;
   } finally {
@@ -1625,15 +1691,15 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       let content: Buffer;
       let contentType = "";
       
-      // Fail fast if the host's circuit breaker has tripped — every further
-      // Puppeteer render or fetch would just burn its full timeout.
+      // If the host's circuit breaker has tripped, skip Puppeteer entirely —
+      // the browser can't use the proxy relay, so go straight to
+      // fetchBytesWithTimeout which relays blocked hosts through proxy IPs
+      // (or fails fast with a friendly message when no relay is available).
       const hostBreaker = getHostBreaker(downloadUrl);
-      if (hostBreaker?.blocked) {
-        throw new Error(HOST_BLOCKED_MESSAGE);
-      }
+      const hostIsBlocked = hostBreaker?.blocked === true;
 
       if (assetType === "html" && !isExternal) {
-        if (usePuppeteer) {
+        if (usePuppeteer && !hostIsBlocked) {
           try {
             const rendered = await fetchRenderedHtml(currentUrl, 45000, jobId);
             
