@@ -372,6 +372,71 @@ async function fetchWithTimeout(url: string, timeout = 12000): Promise<Response>
   }
 }
 
+// --- Per-host connection circuit breaker ------------------------------------
+// Sites with aggressive firewalls (e.g. barczykinstitute.com) can BLOCK our IP
+// mid-crawl after too many rapid requests. Once that happens every subsequent
+// connection times out, and without a breaker the crawl burns ~12s per asset
+// marking the entire rest of the job failed. Strategy:
+//   1. Connection-level failures (connect timeout / refused / reset) are
+//      retried with backoff, just like HTTP 429.
+//   2. After the first connection failure on a host, a politeness delay is
+//      inserted before every subsequent request to that host.
+//   3. After several CONSECUTIVE connection failures the breaker pauses the
+//      whole crawl once (~45s) to let a temporary rate-limit block lift.
+//   4. If failures continue after the cooldown, the host is marked blocked and
+//      remaining fetches to it fail fast with a clear, friendly error instead
+//      of individually timing out.
+interface HostBreakerState {
+  consecutiveConnectFailures: number;
+  cooldownUsed: boolean;
+  blocked: boolean;
+  sawConnectFailure: boolean;
+}
+const hostBreakers = new Map<string, HostBreakerState>();
+const BREAKER_COOLDOWN_AFTER = 4;   // consecutive connect failures before pausing
+const BREAKER_BLOCK_AFTER = 8;      // consecutive connect failures before giving up on host
+const BREAKER_COOLDOWN_MS = 45000;  // one-time pause hoping the block lifts
+const BREAKER_POLITENESS_MS = 1000; // per-request delay once a host has shown trouble
+
+function getHostBreaker(url: string): HostBreakerState | null {
+  try {
+    const host = new URL(url).hostname;
+    let st = hostBreakers.get(host);
+    if (!st) {
+      st = { consecutiveConnectFailures: 0, cooldownUsed: false, blocked: false, sawConnectFailure: false };
+      hostBreakers.set(host, st);
+    }
+    return st;
+  } catch {
+    return null;
+  }
+}
+
+export function resetHostBreaker(url: string): void {
+  try { hostBreakers.delete(new URL(url).hostname); } catch {}
+}
+
+function isConnectError(err: unknown, breaker?: HostBreakerState | null): boolean {
+  const e = err as any;
+  if (!e) return false;
+  // Our own timeout abort: only treat as a connection failure once the host
+  // has already shown a REAL connect error — a slow-but-healthy host that
+  // occasionally exceeds the fetch timeout shouldn't trip the breaker.
+  if (e.name === "AbortError") return breaker?.sawConnectFailure === true;
+  const msg = String(e.message || "");
+  const causeCode = String(e.cause?.code || e.cause?.message || "");
+  return (
+    msg === "fetch failed" ||
+    /UND_ERR_CONNECT_TIMEOUT|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|socket hang up/i.test(
+      msg + " " + causeCode
+    )
+  );
+}
+
+const HOST_BLOCKED_MESSAGE =
+  "The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). " +
+  "Wait a few minutes and try again — the backup will resume from scratch.";
+
 // Fetch the full response body under a single unified timeout.
 // The AbortController is kept alive until the body is fully read,
 // so a slow/stalled body transfer is caught just like a slow connection.
@@ -381,6 +446,16 @@ async function fetchBytesWithTimeout(
 ): Promise<{ content: Buffer; contentType: string }> {
   const MAX_RETRIES = 3;
   let lastError: Error | null = null;
+  const breaker = getHostBreaker(url);
+
+  if (breaker?.blocked) {
+    throw new Error(HOST_BLOCKED_MESSAGE);
+  }
+  // Politeness: once a host has shown connection trouble, slow down so we
+  // don't keep tripping its rate limiter.
+  if (breaker?.sawConnectFailure) {
+    await new Promise(resolve => setTimeout(resolve, BREAKER_POLITENESS_MS));
+  }
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
   const controller = new AbortController();
@@ -425,7 +500,35 @@ async function fetchBytesWithTimeout(
       }
       chunks.push(value);
     }
+    if (breaker) breaker.consecutiveConnectFailures = 0; // healthy again
     return { content: Buffer.concat(chunks), contentType };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (isConnectError(err, breaker) && breaker) {
+      breaker.sawConnectFailure = true;
+      breaker.consecutiveConnectFailures++;
+      const fails = breaker.consecutiveConnectFailures;
+      if (fails >= BREAKER_BLOCK_AFTER) {
+        breaker.blocked = true;
+        console.warn(`[breaker] Host blocked after ${fails} consecutive connection failures: ${url}`);
+        throw new Error(HOST_BLOCKED_MESSAGE);
+      }
+      if (fails >= BREAKER_COOLDOWN_AFTER && !breaker.cooldownUsed) {
+        breaker.cooldownUsed = true;
+        console.warn(
+          `[breaker] ${fails} consecutive connection failures — pausing ${BREAKER_COOLDOWN_MS / 1000}s ` +
+          `to let a possible rate-limit block lift (${url})`
+        );
+        await new Promise(resolve => setTimeout(resolve, BREAKER_COOLDOWN_MS));
+      }
+      if (attempt < MAX_RETRIES) {
+        // Back off before retrying the connection: 2s, 4s, 8s.
+        await new Promise(resolve => setTimeout(resolve, Math.min(2000 * Math.pow(2, attempt), 8000)));
+        lastError = err as Error;
+        continue;
+      }
+    }
+    throw err;
   } finally {
     clearTimeout(timeoutId);
   }
@@ -1371,6 +1474,11 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
     throw new Error("Only HTTP and HTTPS URLs are supported");
   }
   
+  // Fresh circuit-breaker state for this job — a host block observed during a
+  // previous scrape shouldn't poison a fresh attempt (blocks are usually
+  // temporary rate limits that lift after a few minutes).
+  resetHostBreaker(url);
+
   const discoveredUrls = new Set<string>();
   const processedUrls = new Set<string>();
   const urlQueue: Array<{ url: string; referrer: string }> = [{ url, referrer: "Entry point" }];
@@ -1517,6 +1625,13 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       let content: Buffer;
       let contentType = "";
       
+      // Fail fast if the host's circuit breaker has tripped — every further
+      // Puppeteer render or fetch would just burn its full timeout.
+      const hostBreaker = getHostBreaker(downloadUrl);
+      if (hostBreaker?.blocked) {
+        throw new Error(HOST_BLOCKED_MESSAGE);
+      }
+
       if (assetType === "html" && !isExternal) {
         if (usePuppeteer) {
           try {
@@ -1845,12 +1960,26 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       }, asset);
       
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      let errorMessage = error instanceof Error ? error.message : "Unknown error";
+      // Translate low-level connection errors into a user-readable message.
+      if (isConnectError(error, getHostBreaker(currentUrl)) || errorMessage === "fetch failed") {
+        errorMessage = "Could not connect to the site (connection timed out or refused)";
+      }
 
       // Cloudflare bot challenge on the entry page → fail the whole job with a
       // friendly message instead of silently returning an empty ZIP.
       if (currentUrl === url && /Cloudflare/i.test(errorMessage)) {
         throw error;
+      }
+
+      // Entry page itself unreachable → nothing to back up; fail the whole job
+      // with a clear message instead of "completing" with an empty ZIP.
+      if (currentUrl === url) {
+        throw new Error(
+          getHostBreaker(url)?.sawConnectFailure
+            ? HOST_BLOCKED_MESSAGE
+            : `Could not load the site's first page: ${errorMessage}`
+        );
       }
 
       asset = (await storage.updateAsset(jobId, asset.id, {
