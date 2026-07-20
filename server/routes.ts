@@ -76,7 +76,7 @@ export async function registerRoutes(
             }
 
             if (job.status === "failed") {
-              ws.send(JSON.stringify({ type: "error", message: "Scraping failed." }));
+              ws.send(JSON.stringify({ type: "error", message: (job as any).errorMessage || "Scraping failed." }));
               return;
             }
 
