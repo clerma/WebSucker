@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "wouter";
 import { Globe, ArrowDown, Zap, Shield, FolderOpen, Lock, AlertCircle } from "lucide-react";
+import { useAuth, refreshAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
 import { ProgressDisplay } from "@/components/progress-display";
@@ -24,7 +26,6 @@ export default function Home() {
   const [currentJob, setCurrentJob] = useState<ScrapeJob | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [showPricing, setShowPricing] = useState(false);
-  const [hasActiveSubscription, setHasActiveSubscription] = useState(false);
   const [progress, setProgress] = useState<ScrapeProgress>({
     jobId: "",
     status: "idle",
@@ -38,11 +39,13 @@ export default function Home() {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { toast } = useToast();
+  const { user, isLoading: authLoading } = useAuth();
+  const [, navigate] = useLocation();
 
   useSeo({
     title: "Website Sucker — Back Up, Archive & Transfer Any Website Online",
     description:
-      "Website Sucker is a free online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JS, images, and fonts — in minutes. Free to analyse, from $1.99 to download.",
+      "Website Sucker is a free online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JS, images, and fonts — in minutes. First backup free, then credits from $1.30 or $5.99/mo unlimited.",
     canonicalPath: "/",
     jsonLd: [
       {
@@ -54,7 +57,7 @@ export default function Home() {
             name: "What is Website Sucker?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Website Sucker is a free online tool to back up, archive, and transfer any website. It downloads a site as a complete offline copy — every page, image, stylesheet, JavaScript file, and font — packaged into a single ZIP. There's nothing to install; analysing is free and downloads start at $1.99.",
+              text: "Website Sucker is a free online tool to back up, archive, and transfer any website. It downloads a site as a complete offline copy — every page, image, stylesheet, JavaScript file, and font — packaged into a single ZIP. There's nothing to install; your first backup is free and credit packs start at $1.30 per backup.",
             },
           },
           {
@@ -62,7 +65,7 @@ export default function Home() {
             name: "How do I back up a website?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "To back up a website with Website Sucker, paste the site's URL, let it analyse every page and asset for free, then download the complete offline copy as a ZIP for $1.99. The backup includes all HTML, CSS, JavaScript, images, and fonts, and opens in any browser without an internet connection.",
+              text: "To back up a website with Website Sucker, paste the site's URL, let it analyse every page and asset for free, then download the complete offline copy as a ZIP — your first backup is free, then credits from $1.30. The backup includes all HTML, CSS, JavaScript, images, and fonts, and opens in any browser without an internet connection.",
             },
           },
           {
@@ -86,7 +89,7 @@ export default function Home() {
             name: "What free tools can back up a website?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Website Sucker is free to analyse any website and lets you download a complete backup from $1.99. Unlike older desktop tools such as SiteSucker (Mac-only) or HTTrack, it runs in any browser on Windows, Linux, Mac, or Chromebook and renders JavaScript-heavy modern sites with a real headless browser.",
+              text: "Website Sucker is free to analyse any website and gives you your first complete backup free, with credit packs from $1.30 per backup after that. Unlike older desktop tools such as SiteSucker (Mac-only) or HTTrack, it runs in any browser on Windows, Linux, Mac, or Chromebook and renders JavaScript-heavy modern sites with a real headless browser.",
             },
           },
         ],
@@ -101,14 +104,14 @@ export default function Home() {
         estimatedCost: {
           "@type": "MonetaryAmount",
           currency: "USD",
-          value: "1.99",
+          value: "0",
         },
         step: [
           {
             "@type": "HowToStep",
             position: 1,
             name: "Enter the website URL",
-            text: "Paste the address of the website you want to back up into Website Sucker. Analysing is completely free and needs no account.",
+            text: "Paste the address of the website you want to back up into Website Sucker. Create a free account — your first complete backup is included free.",
           },
           {
             "@type": "HowToStep",
@@ -120,7 +123,7 @@ export default function Home() {
             "@type": "HowToStep",
             position: 3,
             name: "Download the offline copy",
-            text: "Download a single organised ZIP for $1.99 (or unlimited at $5.99/month). Unzip it and the whole website opens offline in any browser.",
+            text: "Download a single organised ZIP — first backup free, then credits from $1.30 (or unlimited at $5.99/month). Unzip it and the whole website opens offline in any browser.",
           },
         ],
       },
@@ -128,16 +131,6 @@ export default function Home() {
   });
 
   useEffect(() => {
-    const customerId = localStorage.getItem("websitesucker_customer_id");
-    if (customerId) {
-      fetch(`/api/stripe/check-subscription?customer_id=${customerId}`)
-        .then((res) => res.json())
-        .then((data) => {
-          setHasActiveSubscription(data.active);
-        })
-        .catch(() => {});
-    }
-
     // Resume any in-progress scrape that survived a page refresh or crash.
     const savedJob = localStorage.getItem("websitesucker_active_job");
     if (savedJob) {
@@ -320,6 +313,16 @@ export default function Home() {
   );
 
   const handleSubmit = async (data: StartScrapeInput) => {
+    // Scraping requires an account — send new visitors to sign up (first scrape is free).
+    if (!authLoading && !user) {
+      toast({
+        title: "Create a free account",
+        description: "Sign up in seconds and your first scrape is free.",
+      });
+      navigate("/auth");
+      return;
+    }
+
     scrapeCompletedRef.current = false;
     reconnectAttemptsRef.current = 0;
     setLastError(null);
@@ -347,6 +350,24 @@ export default function Home() {
         body: JSON.stringify(data),
       });
 
+      if (response.status === 401) {
+        setIsLoading(false);
+        setViewState("input");
+        toast({
+          title: "Please sign in",
+          description: "Create a free account — your first scrape is free.",
+        });
+        navigate("/auth");
+        return;
+      }
+
+      if (response.status === 402) {
+        setIsLoading(false);
+        setViewState("input");
+        setShowPricing(true);
+        return;
+      }
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || "Failed to start scrape");
@@ -357,6 +378,7 @@ export default function Home() {
       setProgress((prev) => ({ ...prev, jobId: job.id }));
       localStorage.setItem("websitesucker_active_job", JSON.stringify({ jobId: job.id }));
       connectWebSocket(job.id);
+      refreshAuth(); // credit balance may have changed
     } catch (err) {
       toast({
         title: "Error",
@@ -371,55 +393,41 @@ export default function Home() {
   const handleDownload = async () => {
     if (!currentJob) return;
 
-    if (hasActiveSubscription) {
-      const customerId = localStorage.getItem("websitesucker_customer_id");
-      setIsDownloading(true);
-      try {
-        const authResponse = await fetch("/api/stripe/authorize-subscriber-download", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customerId, jobId: currentJob.id }),
-        });
-        const authData = await authResponse.json();
-
-        if (!authData.authorized) {
-          setHasActiveSubscription(false);
-          localStorage.removeItem("websitesucker_is_subscriber");
-          setShowPricing(true);
-          setIsDownloading(false);
-          return;
-        }
-
-        const response = await fetch(`/api/scrape/${currentJob.id}/download`);
-        if (!response.ok) {
-          throw new Error("Download failed");
-        }
-
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `website-sucker-${new URL(currentJob.url).hostname}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        toast({
-          title: "Download Started",
-          description: "Your website backup is downloading.",
-        });
-      } catch (err) {
-        toast({
-          title: "Download Failed",
-          description: "Could not download the backup. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsDownloading(false);
+    // Downloads are included with every scrape — the server authorized this
+    // job when the scrape started (free scrape, credit, or subscription).
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`/api/scrape/${currentJob.id}/download`);
+      if (response.status === 402) {
+        setShowPricing(true);
+        return;
       }
-    } else {
-      setShowPricing(true);
+      if (!response.ok) {
+        throw new Error("Download failed");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `website-sucker-${new URL(currentJob.url).hostname}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Download Started",
+        description: "Your website backup is downloading.",
+      });
+    } catch (err) {
+      toast({
+        title: "Download Failed",
+        description: "Could not download the backup. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -490,18 +498,18 @@ export default function Home() {
               <div className="grid md:grid-cols-3 gap-8">
                 <FeatureCard
                   icon={Globe}
-                  title="1. Enter URL — Free"
-                  description="Paste any website URL. Analysing is completely free with no account needed."
+                  title="1. Create a Free Account"
+                  description="Sign up in seconds and get your first complete website backup free — no card required."
                 />
                 <FeatureCard
                   icon={Zap}
-                  title="2. See Everything — Free"
-                  description="We scan and list every asset — HTML, CSS, JS, images, fonts, and more."
+                  title="2. Paste Any URL"
+                  description="We scan and capture every asset — HTML, CSS, JS, images, fonts, and more."
                 />
                 <FeatureCard
                   icon={Lock}
-                  title="3. Download — From $1.99"
-                  description="Happy with the results? Pay once for $1.99 or get unlimited downloads for $5.99/month."
+                  title="3. Download Your Backup"
+                  description="Every scrape includes the full ZIP download. Buy credits from $1.30/scrape or go unlimited for $5.99/month."
                 />
               </div>
             </div>
@@ -572,7 +580,7 @@ export default function Home() {
               <div className="flex items-center justify-center gap-2 text-muted-foreground">
                 <Shield className="h-4 w-4" />
                 <span className="text-sm">
-                  Analysing is always free. Your data stays private. Files are deleted 10 minutes after scraping.
+                  Your first scrape is free. Your data stays private. Files are deleted 10 minutes after scraping.
                 </span>
               </div>
               <div className="flex items-center gap-4 flex-wrap justify-center">
@@ -631,40 +639,10 @@ export default function Home() {
               handleNewScrape();
             }}
           />
-          <PricingDialog
-            open={showPricing}
-            onOpenChange={setShowPricing}
-            jobId={currentJob.id}
-            onSubscriptionRestored={(customerId) => {
-              setHasActiveSubscription(true);
-              setShowPricing(false);
-            }}
-            onAccessGranted={async () => {
-              if (!currentJob) return;
-              setShowPricing(false);
-              setIsDownloading(true);
-              try {
-                const response = await fetch(`/api/scrape/${currentJob.id}/download`);
-                if (!response.ok) throw new Error("Download failed");
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `website-sucker-${new URL(currentJob.url).hostname}.zip`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                toast({ title: "Download Started", description: "Your website backup is downloading." });
-              } catch {
-                toast({ title: "Download Failed", description: "Could not download the backup. Please try again.", variant: "destructive" });
-              } finally {
-                setIsDownloading(false);
-              }
-            }}
-          />
         </div>
       )}
+
+      <PricingDialog open={showPricing} onOpenChange={setShowPricing} />
     </div>
   );
 }
