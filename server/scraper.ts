@@ -1108,24 +1108,40 @@ async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
     );
 
     // Find inner scroll containers (overflow auto/scroll with real overflow).
-    const scrollContainers: HTMLElement[] = [];
-    try {
-      const all = Array.from(document.querySelectorAll<HTMLElement>("*")).slice(0, 3000);
-      for (const el of all) {
-        const style = getComputedStyle(el);
-        const oy = style.overflowY;
-        if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 200) {
-          scrollContainers.push(el);
-          if (scrollContainers.length >= 8) break;
+    const findScrollContainers = (): HTMLElement[] => {
+      const found: HTMLElement[] = [];
+      try {
+        const all = Array.from(document.querySelectorAll<HTMLElement>("*")).slice(0, 3000);
+        for (const el of all) {
+          const style = getComputedStyle(el);
+          const oy = style.overflowY;
+          if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 200) {
+            found.push(el);
+            if (found.length >= 8) break;
+          }
         }
+      } catch {}
+      return found;
+    };
+    let scrollContainers = findScrollContainers();
+
+    const containerExhausted = (c: HTMLElement) => {
+      try { return c.scrollTop + c.clientHeight >= c.scrollHeight - 2; } catch { return true; }
+    };
+    const containersHeight = () => {
+      let sum = 0;
+      for (const c of scrollContainers) {
+        try { sum += c.scrollHeight; } catch {}
       }
-    } catch {}
+      return sum;
+    };
 
     const start = Date.now();
     const MAX_MS = 20000;
     const MAX_ITERS = 60;
     const distance = 800;
     let lastHeight = 0;
+    let lastInnerHeight = 0;
     let stableCount = 0;
 
     for (let i = 0; i < MAX_ITERS; i++) {
@@ -1137,16 +1153,28 @@ async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
       }
       await sleep(120);
 
+      // Periodically re-scan: lazy content can introduce new inner scrollers.
+      if (i % 5 === 4) {
+        const fresh = findScrollContainers();
+        for (const c of fresh) {
+          if (!scrollContainers.includes(c)) scrollContainers.push(c);
+        }
+        if (scrollContainers.length > 12) scrollContainers = scrollContainers.slice(0, 12);
+      }
+
       const atBottom = window.innerHeight + window.scrollY >= docHeight() - 2;
+      const innersDone = scrollContainers.every(containerExhausted);
       const h = docHeight();
-      if (h === lastHeight) {
+      const ih = containersHeight();
+      if (h === lastHeight && ih === lastInnerHeight) {
         stableCount++;
-        // Height stopped growing AND we're at the bottom → done.
-        if (atBottom && stableCount >= 2) break;
+        // Nothing growing AND window + every inner scroller at bottom → done.
+        if (atBottom && innersDone && stableCount >= 2) break;
         if (stableCount >= 5) break;
       } else {
         stableCount = 0;
         lastHeight = h;
+        lastInnerHeight = ih;
       }
     }
   });

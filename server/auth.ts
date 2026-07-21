@@ -14,6 +14,9 @@ declare module "express-session" {
 }
 
 export function setupSession(app: Express) {
+  if (!process.env.SESSION_SECRET && process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set in production");
+  }
   const PgStore = connectPgSimple(session);
   app.set("trust proxy", 1);
   app.use(
