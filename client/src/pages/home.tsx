@@ -45,7 +45,7 @@ export default function Home() {
   useSeo({
     title: "Website Sucker — Back Up, Archive & Transfer Any Website Online",
     description:
-      "Website Sucker is a free online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JS, images, and fonts — in minutes. First backup free, then credits from $1.30 or $5.99/mo unlimited.",
+      "Website Sucker is a free online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JS, images, and fonts — in minutes. First scrape free to preview; downloads from $1.30 or $5.99/mo unlimited.",
     canonicalPath: "/",
     jsonLd: [
       {
@@ -57,7 +57,7 @@ export default function Home() {
             name: "What is Website Sucker?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Website Sucker is a free online tool to back up, archive, and transfer any website. It downloads a site as a complete offline copy — every page, image, stylesheet, JavaScript file, and font — packaged into a single ZIP. There's nothing to install; your first backup is free and credit packs start at $1.30 per backup.",
+              text: "Website Sucker is a free online tool to back up, archive, and transfer any website. It downloads a site as a complete offline copy — every page, image, stylesheet, JavaScript file, and font — packaged into a single ZIP. There's nothing to install; your first scrape is free to preview and ZIP downloads start at $1.30 with a credit pack.",
             },
           },
           {
@@ -65,7 +65,7 @@ export default function Home() {
             name: "How do I back up a website?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "To back up a website with Website Sucker, paste the site's URL, let it analyse every page and asset for free, then download the complete offline copy as a ZIP — your first backup is free, then credits from $1.30. The backup includes all HTML, CSS, JavaScript, images, and fonts, and opens in any browser without an internet connection.",
+              text: "To back up a website with Website Sucker, paste the site's URL, let it analyse every page and asset for free, then download the complete offline copy as a ZIP with a credit (from $1.30) — your first scrape is free to preview. The backup includes all HTML, CSS, JavaScript, images, and fonts, and opens in any browser without an internet connection.",
             },
           },
           {
@@ -89,7 +89,7 @@ export default function Home() {
             name: "What free tools can back up a website?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Website Sucker is free to analyse any website and gives you your first complete backup free, with credit packs from $1.30 per backup after that. Unlike older desktop tools such as SiteSucker (Mac-only) or HTTrack, it runs in any browser on Windows, Linux, Mac, or Chromebook and renders JavaScript-heavy modern sites with a real headless browser.",
+              text: "Website Sucker is free to analyse any website and lets you preview your first scrape free, with ZIP downloads from $1.30 via credit packs. Unlike older desktop tools such as SiteSucker (Mac-only) or HTTrack, it runs in any browser on Windows, Linux, Mac, or Chromebook and renders JavaScript-heavy modern sites with a real headless browser.",
             },
           },
         ],
@@ -111,7 +111,7 @@ export default function Home() {
             "@type": "HowToStep",
             position: 1,
             name: "Enter the website URL",
-            text: "Paste the address of the website you want to back up into Website Sucker. Create a free account — your first complete backup is included free.",
+            text: "Paste the address of the website you want to back up into Website Sucker. Create a free account — your first scrape is free to preview.",
           },
           {
             "@type": "HowToStep",
@@ -123,7 +123,7 @@ export default function Home() {
             "@type": "HowToStep",
             position: 3,
             name: "Download the offline copy",
-            text: "Download a single organised ZIP — first backup free, then credits from $1.30 (or unlimited at $5.99/month). Unzip it and the whole website opens offline in any browser.",
+            text: "Download a single organised ZIP with a credit — from $1.30 (or unlimited at $5.99/month). Unzip it and the whole website opens offline in any browser.",
           },
         ],
       },
@@ -393,12 +393,17 @@ export default function Home() {
   const handleDownload = async () => {
     if (!currentJob) return;
 
-    // Downloads are included with every scrape — the server authorized this
-    // job when the scrape started (free scrape, credit, or subscription).
+    // Credit and subscription scrapes include the download. Free scrapes
+    // don't — the server charges a credit at download time, and returns 402
+    // if the account has none.
     setIsDownloading(true);
     try {
       const response = await fetch(`/api/scrape/${currentJob.id}/download`);
       if (response.status === 402) {
+        toast({
+          title: "Download requires a credit",
+          description: "Your free scrape lets you preview the results. Buy a credit pack or subscribe to download the ZIP.",
+        });
         setShowPricing(true);
         return;
       }
@@ -420,6 +425,8 @@ export default function Home() {
         title: "Download Started",
         description: "Your website backup is downloading.",
       });
+      // A credit may have been spent at download time — refresh the balance.
+      refreshAuth();
     } catch (err) {
       toast({
         title: "Download Failed",
@@ -499,7 +506,7 @@ export default function Home() {
                 <FeatureCard
                   icon={Globe}
                   title="1. Create a Free Account"
-                  description="Sign up in seconds and get your first complete website backup free — no card required."
+                  description="Sign up in seconds and preview your first scrape free — no card required."
                 />
                 <FeatureCard
                   icon={Zap}
@@ -509,7 +516,7 @@ export default function Home() {
                 <FeatureCard
                   icon={Lock}
                   title="3. Download Your Backup"
-                  description="Every scrape includes the full ZIP download. Buy credits from $1.30/scrape or go unlimited for $5.99/month."
+                  description="Download the full ZIP with a credit — from $1.30 — or go unlimited for $5.99/month."
                 />
               </div>
             </div>

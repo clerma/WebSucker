@@ -89,7 +89,7 @@ export default function Blog() {
         <div className="max-w-4xl mx-auto px-4 py-12 text-center">
           <h2 className="text-xl font-semibold mb-3">Ready to back up your site?</h2>
           <p className="text-muted-foreground mb-6">
-            Create a free account and your first complete backup is free — then credits from $1.30 per backup.
+            Create a free account and preview your first scrape free — ZIP downloads from $1.30 with a credit pack.
           </p>
           <a
             href="/"

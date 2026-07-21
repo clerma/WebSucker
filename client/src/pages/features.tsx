@@ -260,7 +260,7 @@ export default function Features() {
         <div className="max-w-5xl mx-auto px-4 py-16">
           <div className="text-center mb-10">
             <h2 className="text-2xl font-bold mb-3">Simple, fair pricing</h2>
-            <p className="text-muted-foreground">Your first backup is free. Buy credits only when you need more.</p>
+            <p className="text-muted-foreground">Your first scrape is free to preview. Downloads take a credit.</p>
           </div>
           <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             <div className="border rounded-xl p-8 bg-card">
@@ -301,7 +301,7 @@ export default function Features() {
         <div className="max-w-4xl mx-auto px-4 py-14 text-center">
           <h2 className="text-2xl font-bold mb-3">Try it on your own site</h2>
           <p className="text-muted-foreground mb-6">
-            Your first complete backup is free — no card required.
+            Preview your first scrape free — no card required.
           </p>
           <a
             href="/"
