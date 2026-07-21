@@ -65,7 +65,7 @@ export const articles: Article[] = [
           "Go to websitesucker.com and paste your Squarespace URL (e.g. yourname.squarespace.com or your custom domain)",
           "Click Analyse — the tool scans every page and asset for free",
           "Review the results: you'll see every HTML page, image, CSS file, and more",
-          "Click Download ZIP and you'll receive a complete offline backup (first one free, then credits from $1.30)",
+          "Click Download ZIP and you'll receive a complete offline backup (credits from $1.30)",
           "Unzip the file and open index.html in any browser — it works without internet",
         ],
       },
@@ -136,7 +136,7 @@ export const articles: Article[] = [
           "Paste your published Wix URL — this must be the live site, not the editor",
           "Click Analyse — scraping is completely free",
           "You'll see all HTML pages, images, CSS, and other assets listed",
-          "Click Download ZIP to get your complete offline backup (first backup free, then credits from $1.30)",
+          "Click Download ZIP to get your complete offline backup (credits from $1.30)",
         ],
       },
       {
@@ -156,7 +156,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Export Your Wix Site Now",
-      body: "Just paste your published Wix URL. Create a free account and your first complete ZIP backup is free — after that, credits start at $1.30 per backup.",
+      body: "Just paste your published Wix URL. Create a free account — your first scrape is free to preview. Download the complete ZIP with a credit (from $1.30).",
     },
   },
   {
@@ -211,7 +211,7 @@ export const articles: Article[] = [
           "Paste the URL of the website you want to back up",
           "Click Analyse — the scan is completely free",
           "Review the list of pages and assets found",
-          "Click Download ZIP to get the complete offline backup (first backup free, then credits from $1.30)",
+          "Click Download ZIP to get the complete offline backup (credits from $1.30)",
           "Unzip and open in a browser — no internet required",
         ],
       },
@@ -232,7 +232,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Back Up Your Website Now",
-      body: "Paste any URL and get a complete offline backup. Your first backup is free — after that, downloads start at $1.30 with a credit pack.",
+      body: "Paste any URL and get a complete offline backup. Your first scrape is free to preview — downloads start at $1.30 with a credit pack.",
     },
   },
   {
@@ -288,13 +288,13 @@ export const articles: Article[] = [
         heading: "How Easy It Is to Do It Now",
         body: [
           "The barrier to backing up a website has never been lower. You don't need to understand servers, databases, or FTP. You just need the URL of your live website.",
-          "Website Sucker crawls any public website and packages every page, image, stylesheet, and file into a single downloadable ZIP — your first backup is free, then credits start at $1.30 per backup. That's it. One URL, one credit, one offline copy that works in any browser without internet.",
+          "Website Sucker crawls any public website and packages every page, image, stylesheet, and file into a single downloadable ZIP — your first scrape is free to preview, and credits start at $1.30 per download. That's it. One URL, one credit, one offline copy that works in any browser without internet.",
         ],
       },
     ],
     cta: {
       heading: "Don't Wait Until Something Goes Wrong",
-      body: "Back up your site today. Your first backup is free — after that, credits start at $1.30 per backup.",
+      body: "Back up your site today. Your first scrape is free to preview — downloads start at $1.30 with a credit pack.",
     },
   },
   {
@@ -344,7 +344,7 @@ export const articles: Article[] = [
           "Go to websitesucker.com and enter your website URL",
           "Click Analyse — the scan is completely free",
           "You'll see a breakdown of all assets found, including how many images",
-          "Click Download ZIP to get everything (first backup free, then credits from $1.30)",
+          "Click Download ZIP to get everything (credits from $1.30)",
           "In the ZIP, all images are in the assets/images folder, named and organised",
         ],
       },
@@ -372,7 +372,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Download All Your Site's Images Now",
-      body: "Paste any URL and see every image on your site for free. Download the complete set in a single ZIP — your first backup is free, then credits from $1.30.",
+      body: "Paste any URL and see every image on your site for free. Download the complete set in a single ZIP with a credit (from $1.30) — your first scrape is free to preview.",
     },
   },
   {
@@ -449,7 +449,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Start With a Complete Backup",
-      body: "Before you transfer anything, download a complete offline copy of your current site. Your first full ZIP backup is free — after that, credits start at $1.30.",
+      body: "Before you transfer anything, download a complete offline copy of your current site. Your first scrape is free to preview — ZIP downloads start at $1.30 with a credit pack.",
     },
   },
   {
@@ -522,7 +522,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Convert Your Website Now",
-      body: "Paste any URL and get a fully converted static version of your site. Your first complete backup is free — after that, credits start at $1.30.",
+      body: "Paste any URL and get a fully converted static version of your site. Your first scrape is free to preview — downloads start at $1.30 with a credit pack.",
     },
   },
   {
@@ -558,7 +558,7 @@ export const articles: Article[] = [
       {
         heading: "Step 3 — Download Your Backup",
         body: [
-          "Once the scan is complete, click Download ZIP. Your first backup is free; after that a single credit (from $1.30) unlocks the download. You'll receive a single ZIP file containing every page and asset from your site, organised into a clean folder structure.",
+          "Once the scan is complete, click Download ZIP. A single credit (from $1.30) unlocks the download; your first scrape is free to preview. You'll receive a single ZIP file containing every page and asset from your site, organised into a clean folder structure.",
           "Unzip it anywhere and open index.html in a browser — it works exactly like your live site, with no internet required.",
         ],
       },
@@ -590,7 +590,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Back Up Your Site Right Now",
-      body: "Paste your URL, and download your first complete backup free. Done in under 60 seconds.",
+      body: "Paste your URL, preview your first scrape free, and download with a credit from $1.30. Done in under 60 seconds.",
     },
   },
   {
@@ -665,7 +665,7 @@ export const articles: Article[] = [
         heading: "5. Website Sucker (websitesucker.com)",
         body: [
           "Full disclosure — this is our tool, but here's the honest pitch: Website Sucker was built specifically because the tools above don't handle modern sites well. It runs a real headless browser (Puppeteer) to render JavaScript, scrolls pages to trigger lazy-loaded images, preserves YouTube/Vimeo/Spotify/Google Maps embeds, deduplicates Wix and Squarespace CDN images, and rewrites every link to work offline.",
-          "Analysing any site is free. Your first backup is free, credit packs start at $1.30 per backup, or $5.99/month for unlimited scrapes. No installs, runs in your browser.",
+          "Your first scrape is free to preview. ZIP downloads take a credit — packs from $1.30 per download — or $5.99/month for unlimited scrapes and downloads. No installs, runs in your browser.",
         ],
         list: [
           "Best for: Modern websites (Wix, Squarespace, Shopify, React, etc.), embed-heavy sites, image-heavy galleries",
@@ -742,7 +742,7 @@ export const articles: Article[] = [
         heading: "Pricing",
         body: [
           "SiteSucker is a paid Mac app — around $4.99 for the standard version, more for the Pro version with extra features. Once you buy it, it's yours.",
-          "Website Sucker is free to use for analysing any site — you see exactly what would be downloaded before paying. Your first backup is free; after that credit packs start at $1.30 per backup, or $5.99/month for unlimited scrapes. If you only need one or two backups, you'll save money. If you need dozens per month, the subscription is the better deal.",
+          "Website Sucker is free to use for analysing any site — you see exactly what would be downloaded before paying. Downloads take a credit — packs start at $1.30 per backup — or $5.99/month for unlimited scrapes and downloads. If you only need one or two backups, you'll save money. If you need dozens per month, the subscription is the better deal.",
         ],
       },
       {
@@ -823,7 +823,7 @@ export const articles: Article[] = [
           "Go to websitesucker.com",
           "Paste the URL of the website you want to save",
           "Click Start — analysing is free, watch the progress live",
-          "When it finishes, click Download ZIP (first backup free, then credits from $1.30)",
+          "When it finishes, click Download ZIP (credits from $1.30)",
           "You'll get a ZIP file like website-sucker-yoursite-com.zip",
           "Unzip it and open index.html in any browser to view the site offline",
         ],
@@ -876,7 +876,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Save Your Website as a ZIP in 60 Seconds",
-      body: "Paste any URL — your first ZIP backup is free, then credits from $1.30. No install, no fuss.",
+      body: "Paste any URL — preview your first scrape free, then download the ZIP with a credit from $1.30. No install, no fuss.",
     },
   },
   {
@@ -1068,7 +1068,7 @@ export const articles: Article[] = [
     ],
     cta: {
       heading: "Back Up Your Site With Confidence",
-      body: "Website Sucker is designed for legitimate, polite, personal-use backups. Paste your URL and download — your first backup is free, then credits from $1.30.",
+      body: "Website Sucker is designed for legitimate, polite, personal-use backups. Paste your URL, preview free, and download with a credit from $1.30.",
     },
   },
 ];

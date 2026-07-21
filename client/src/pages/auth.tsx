@@ -19,7 +19,7 @@ export default function AuthPage() {
 
   useSeo({
     title: mode === "register" ? "Create Account — 1 Free Scrape | Website Sucker" : "Sign In | Website Sucker",
-    description: "Create a free Website Sucker account and get your first website backup free.",
+    description: "Create a free Website Sucker account and preview your first scrape free.",
     canonicalPath: "/auth",
   });
 
@@ -42,7 +42,7 @@ export default function AuthPage() {
         title: mode === "register" ? "Welcome!" : "Welcome back!",
         description:
           mode === "register"
-            ? "Your account is ready — your first scrape is free."
+            ? "Your account is ready — your first scrape is free to preview."
             : "You're signed in.",
       });
       navigate("/");
@@ -69,7 +69,7 @@ export default function AuthPage() {
           </CardTitle>
           <CardDescription>
             {mode === "register"
-              ? "Your first website scrape is free — no card required."
+              ? "Your first scrape is free to preview — no card required."
               : "Welcome back. Sign in to keep scraping."}
           </CardDescription>
         </CardHeader>

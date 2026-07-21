@@ -44,6 +44,10 @@ export async function registerRoutes(
   // their lifetime. Enforced on job status reads and downloads.
   const jobOwners = new Map<string, number>();
 
+  // Jobs currently having a download charge applied — prevents concurrent
+  // requests from double-charging the same job.
+  const chargingJobs = new Set<string>();
+
   // Send a ping to every connected client every 25 seconds to keep the
   // connection alive through proxies that close idle connections.
   const heartbeatInterval = setInterval(() => {
@@ -264,8 +268,12 @@ export async function registerRoutes(
       }
 
       const job = await storage.createJob(validatedData.url);
-      // Scrape is paid for upfront, so the download is included.
-      storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+      // Subscription and credit scrapes include the download. The free scrape
+      // covers scraping/analysis only — downloading the ZIP requires a credit
+      // or subscription (charged at download time).
+      if (paidWith !== "free") {
+        storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+      }
       jobOwners.set(job.id, user.id);
 
       // Refund the free scrape or credit if the job fails outright.
@@ -665,7 +673,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scrape/:id/download", async (req, res) => {
+  app.get("/api/scrape/:id/download", requireAuth, async (req, res) => {
     try {
       const job = await storage.getJob(req.params.id);
       if (!job) {
@@ -680,14 +688,50 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Job not found" });
       }
 
-      if (!storage.isDownloadAuthorized(req.params.id)) {
-        return res.status(402).json({ message: "Payment required" });
-      }
-
+      // Verify the artifact exists BEFORE any charging, so a user is never
+      // charged for a file that can't be served.
       try {
         await fs.promises.access(job.downloadPath);
       } catch {
         return res.status(404).json({ message: "Download file not found" });
+      }
+
+      if (!storage.isDownloadAuthorized(req.params.id)) {
+        // Free scrapes don't include the download — try to pay for it now
+        // with a subscription or a credit. A per-job in-flight lock makes the
+        // charge single-consumer so concurrent requests can't double-charge.
+        if (chargingJobs.has(job.id)) {
+          return res.status(409).json({ message: "Download is already being prepared — try again in a moment." });
+        }
+        chargingJobs.add(job.id);
+        try {
+          const user = await getUserById(req.session.userId!);
+          if (!user || owner !== user.id) {
+            return res.status(402).json({ message: "Payment required" });
+          }
+          // Re-check after acquiring the lock — another request may have
+          // authorized the job while we were waiting.
+          if (!storage.isDownloadAuthorized(job.id)) {
+            if (await userHasActiveSubscription(user)) {
+              storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+            } else {
+              const updated = await db
+                .update(users)
+                .set({ credits: sql`${users.credits} - 1` })
+                .where(sql`${users.id} = ${user.id} AND ${users.credits} > 0`)
+                .returning({ credits: users.credits });
+              if (updated.length === 0) {
+                return res.status(402).json({
+                  message: "Downloading requires a credit. Buy a credit pack or subscribe for unlimited scrapes.",
+                  code: "NO_CREDITS",
+                });
+              }
+              storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+            }
+          }
+        } finally {
+          chargingJobs.delete(job.id);
+        }
       }
 
       // Cancel the 10-minute expiry timer so it doesn't delete files mid-download
