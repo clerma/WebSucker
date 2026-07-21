@@ -794,8 +794,17 @@ async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
 
     // Static HTML — Puppeteer won't add anything useful
     return false;
-  } catch {
-    return true; // fetch failed → fall back to Puppeteer to be safe
+  } catch (err: any) {
+    // Connection-level failure (host firewalled our IP, DNS dead, refused):
+    // Puppeteer runs from the SAME IP and can't connect either — running it
+    // would just burn minutes of protocol timeouts per page. Treat as static
+    // so the fetch path (which can relay through proxy IPs) handles it.
+    const code = err?.cause?.code ?? err?.code ?? "";
+    if (/UND_ERR_CONNECT|ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT/.test(String(code))) {
+      console.warn(`[probe] Connection-level failure (${code}) — skipping Puppeteer (same IP would fail too)`);
+      return false;
+    }
+    return true; // other fetch failure → fall back to Puppeteer to be safe
   }
 }
 
