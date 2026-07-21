@@ -398,6 +398,12 @@ const BREAKER_BLOCK_AFTER = 8;      // consecutive connect failures before givin
 const BREAKER_COOLDOWN_MS = 45000;  // one-time pause hoping the block lifts
 const BREAKER_POLITENESS_MS = 1000; // per-request delay once a host has shown trouble
 
+// Page-load delay (Puppeteer real-browser path): after the `load` event, wait
+// up to this long for the network to go quiet so slow / JS-heavy sites finish
+// loading deferred assets and client-rendered content before we capture...
+const PAGE_LOAD_DELAY_MS = 8000;  // max wait for network to settle after load
+const PAGE_SETTLE_MS = 2500;      // fixed extra settle on top of network idle
+
 function getHostBreaker(url: string): HostBreakerState | null {
   try {
     const host = new URL(url).hostname;
@@ -1434,9 +1440,18 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
     if (status >= 400) {
       return { html: "", status };
     }
-    
-    // Short settle wait after load event
-    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Page-load delay: let the real browser keep loading after the `load`
+    // event so slow / JS-heavy sites finish fetching deferred assets and
+    // rendering client-side content before we capture. First wait (bounded)
+    // for the network to go quiet, then a fixed settle on top.
+    try {
+      await page.waitForNetworkIdle({ idleTime: 800, timeout: PAGE_LOAD_DELAY_MS });
+    } catch {
+      // Network never fully quieted (long-polling, analytics beacons, etc.) —
+      // fall through to the fixed settle rather than failing the capture.
+    }
+    await new Promise(resolve => setTimeout(resolve, PAGE_SETTLE_MS));
 
     // Hydration settle: SPA frameworks (Wix/React) can WIPE the server-rendered
     // content during hydration and re-render it client-side. Capturing mid-wipe
