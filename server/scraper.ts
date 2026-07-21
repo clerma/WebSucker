@@ -445,6 +445,17 @@ const HOST_BLOCKED_MESSAGE =
 // per host to bound cost (~$0.10 worst case).
 const MAX_PROXY_RELAYS_PER_HOST = 500;
 const proxyRelayUsage = new Map<string, number>();
+// Once ScrapingBee reports its monthly quota exhausted there is no point in
+// retrying it for every remaining asset — flip this and fail fast instead.
+let proxyRelayQuotaExhausted = false;
+
+export function isProxyRelayQuotaExhausted(): boolean {
+  return proxyRelayQuotaExhausted;
+}
+
+const HOST_BLOCKED_NO_PROXY_MESSAGE =
+  "The site blocked our server's IP address, and the backup proxy service has used up its monthly request quota, " +
+  "so we couldn't route around the block. Try again later once the site lifts the block, or contact support about proxy capacity.";
 
 function proxyRelayBudgetLeft(host: string): boolean {
   return (proxyRelayUsage.get(host) ?? 0) < MAX_PROXY_RELAYS_PER_HOST;
@@ -455,6 +466,7 @@ async function fetchViaProxyRelay(
 ): Promise<{ content: Buffer; contentType: string } | null> {
   const apiKey = process.env.SCRAPINGBEE_API_KEY;
   if (!apiKey) return null;
+  if (proxyRelayQuotaExhausted) return null;
   let host: string;
   try { host = new URL(url).hostname; } catch { return null; }
   if (!proxyRelayBudgetLeft(host)) {
@@ -480,6 +492,10 @@ async function fetchViaProxyRelay(
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.warn(`[proxy-relay] HTTP ${res.status} for ${url}: ${body.slice(0, 200)}`);
+      if (res.status === 401 && /limit reached/i.test(body)) {
+        proxyRelayQuotaExhausted = true;
+        console.warn(`[proxy-relay] Monthly quota exhausted — disabling relay for the rest of this process`);
+      }
       return null;
     }
     const buf = Buffer.from(await res.arrayBuffer());
@@ -509,7 +525,7 @@ async function fetchBytesWithTimeout(
     // Host firewalled our IP — relay through proxy IPs instead of giving up.
     const relayed = await fetchViaProxyRelay(url);
     if (relayed) return relayed;
-    throw new Error(HOST_BLOCKED_MESSAGE);
+    throw new Error(proxyRelayQuotaExhausted ? HOST_BLOCKED_NO_PROXY_MESSAGE : HOST_BLOCKED_MESSAGE);
   }
   // Politeness: once a host has shown connection trouble, slow down so we
   // don't keep tripping its rate limiter.
@@ -573,7 +589,7 @@ async function fetchBytesWithTimeout(
         console.warn(`[breaker] Host blocked after ${fails} consecutive connection failures: ${url}`);
         const relayed = await fetchViaProxyRelay(url);
         if (relayed) return relayed;
-        throw new Error(HOST_BLOCKED_MESSAGE);
+        throw new Error(proxyRelayQuotaExhausted ? HOST_BLOCKED_NO_PROXY_MESSAGE : HOST_BLOCKED_MESSAGE);
       }
       if (fails >= BREAKER_COOLDOWN_AFTER && !breaker.cooldownUsed) {
         breaker.cooldownUsed = true;
@@ -2043,7 +2059,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       if (currentUrl === url) {
         throw new Error(
           getHostBreaker(url)?.sawConnectFailure
-            ? HOST_BLOCKED_MESSAGE
+            ? (proxyRelayQuotaExhausted ? HOST_BLOCKED_NO_PROXY_MESSAGE : HOST_BLOCKED_MESSAGE)
             : `Could not load the site's first page: ${errorMessage}`
         );
       }
