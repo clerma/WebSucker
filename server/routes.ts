@@ -4,11 +4,12 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as fs from "fs";
 import { storage } from "./storage";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
-import { startScrapeSchema, scrapeAnalytics, payments } from "@shared/schema";
-import type { Asset, ScrapeProgress, ScrapeJob } from "@shared/schema";
+import { startScrapeSchema, scrapeAnalytics, payments, users } from "@shared/schema";
+import type { Asset, ScrapeProgress, ScrapeJob, User } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
-import { sql, desc, count, sum } from "drizzle-orm";
+import { sql, desc, count, sum, eq } from "drizzle-orm";
 import { db } from "./db";
+import { requireAuth, registerAuthRoutes, getUserById } from "./auth";
 
 // Send a notification to a configurable webhook URL (Discord, Slack, Make, etc.)
 async function sendNotification(payload: { title: string; message: string; url: string; status: "completed" | "failed" }) {
@@ -38,6 +39,10 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+  // Job ownership: jobId -> userId. Jobs live in memory, so this map matches
+  // their lifetime. Enforced on job status reads and downloads.
+  const jobOwners = new Map<string, number>();
 
   // Send a ping to every connected client every 25 seconds to keep the
   // connection alive through proxies that close idle connections.
@@ -186,7 +191,34 @@ export async function registerRoutes(
     return false;
   }
 
-  app.post("/api/scrape", async (req, res) => {
+  registerAuthRoutes(app);
+
+  // Check whether a user has an active subscription. Links the Stripe customer
+  // to the user record on first successful lookup by email.
+  async function userHasActiveSubscription(user: User): Promise<boolean> {
+    try {
+      const stripe = await getUncachableStripeClient();
+      if (user.stripeCustomerId) {
+        const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 1 });
+        if (subs.data.length > 0) return true;
+      }
+      const customers = await stripe.customers.list({ email: user.email, limit: 5 });
+      for (const customer of customers.data) {
+        if (customer.id === user.stripeCustomerId) continue;
+        const subs = await stripe.subscriptions.list({ customer: customer.id, status: "active", limit: 1 });
+        if (subs.data.length > 0) {
+          await db.update(users).set({ stripeCustomerId: customer.id }).where(eq(users.id, user.id));
+          return true;
+        }
+      }
+      return false;
+    } catch (err) {
+      console.error("Subscription check failed:", err);
+      return false;
+    }
+  }
+
+  app.post("/api/scrape", requireAuth, async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
 
@@ -196,7 +228,58 @@ export async function registerRoutes(
         });
       }
 
+      const user = await getUserById(req.session.userId!);
+      if (!user) {
+        return res.status(401).json({ message: "Please sign in to continue" });
+      }
+
+      // Determine how this scrape is paid for: subscription > free scrape > credit.
+      // Free-scrape and credit consumption are both atomic conditional updates,
+      // so concurrent requests can't double-spend either entitlement.
+      let paidWith: "subscription" | "free" | "credit";
+      if (await userHasActiveSubscription(user)) {
+        paidWith = "subscription";
+      } else {
+        const claimedFree = await db
+          .update(users)
+          .set({ freeScrapeUsed: true })
+          .where(sql`${users.id} = ${user.id} AND ${users.freeScrapeUsed} = false`)
+          .returning({ id: users.id });
+        if (claimedFree.length > 0) {
+          paidWith = "free";
+        } else {
+          const updated = await db
+            .update(users)
+            .set({ credits: sql`${users.credits} - 1` })
+            .where(sql`${users.id} = ${user.id} AND ${users.credits} > 0`)
+            .returning({ credits: users.credits });
+          if (updated.length === 0) {
+            return res.status(402).json({
+              message: "You're out of credits. Buy a credit pack or subscribe for unlimited scrapes.",
+              code: "NO_CREDITS",
+            });
+          }
+          paidWith = "credit";
+        }
+      }
+
       const job = await storage.createJob(validatedData.url);
+      // Scrape is paid for upfront, so the download is included.
+      storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+      jobOwners.set(job.id, user.id);
+
+      // Refund the free scrape or credit if the job fails outright.
+      const refundOnFailure = async () => {
+        try {
+          if (paidWith === "free") {
+            await db.update(users).set({ freeScrapeUsed: false }).where(eq(users.id, user.id));
+          } else if (paidWith === "credit") {
+            await db.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, user.id));
+          }
+        } catch (e) {
+          console.error("Refund failed:", e);
+        }
+      };
       
       (async () => {
         try {
@@ -230,6 +313,7 @@ export async function registerRoutes(
           storage.scheduleExpiry(job.id, async () => {
             await cleanupScrapeFiles(job.id);
             await storage.deleteJob(job.id);
+            jobOwners.delete(job.id);
           }, TTL_MS);
 
           // Re-fetch job so expiresAt is included in the broadcast
@@ -241,6 +325,9 @@ export async function registerRoutes(
           const errMsg = error instanceof Error ? error.message : "Scraping failed";
           await storage.updateJobStatus(job.id, "failed");
           await storage.updateJobProgress(job.id, { errorMessage: errMsg });
+
+          // Give the credit / free scrape back — the user got nothing.
+          await refundOnFailure();
 
           // Persist failure to DB
           db.insert(scrapeAnalytics).values({
@@ -274,10 +361,14 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scrape/:id", async (req, res) => {
+  app.get("/api/scrape/:id", requireAuth, async (req, res) => {
     try {
       const job = await storage.getJob(req.params.id);
       if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+      const owner = jobOwners.get(req.params.id);
+      if (owner !== undefined && owner !== req.session.userId) {
         return res.status(404).json({ message: "Job not found" });
       }
       res.json(job);
@@ -367,6 +458,113 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Checkout error:", error);
       res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  // Checkout for credit packs or the unlimited subscription — no job required,
+  // credits/subscription are attached to the signed-in account.
+  app.post("/api/stripe/checkout-plan", requireAuth, async (req, res) => {
+    try {
+      const { priceId } = req.body;
+      if (!priceId) {
+        return res.status(400).json({ message: "Missing priceId" });
+      }
+      const user = await getUserById(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Please sign in" });
+
+      const stripe = await getUncachableStripeClient();
+      const price = await stripe.prices.retrieve(priceId);
+      const mode = price.recurring ? "subscription" : "payment";
+      const creditAmount = price.metadata?.credits ? parseInt(price.metadata.credits, 10) : 0;
+
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{ price: priceId, quantity: 1 }],
+        mode,
+        customer_email: user.stripeCustomerId ? undefined : user.email,
+        customer: user.stripeCustomerId ?? undefined,
+        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=1`,
+        cancel_url: `${baseUrl}/checkout/cancel`,
+        metadata: {
+          app: "websucker",
+          userId: String(user.id),
+          ...(creditAmount > 0 ? { type: "credits", credits: String(creditAmount) } : { type: "subscription" }),
+        },
+      });
+
+      res.json({ url: session.url });
+    } catch (error) {
+      console.error("Plan checkout error:", error);
+      res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  // Verify a plan purchase (credits or subscription) and apply it to the account.
+  // Idempotent: the payments table records each session once.
+  app.get("/api/stripe/verify-plan", requireAuth, async (req, res) => {
+    try {
+      const { session_id } = req.query;
+      if (!session_id || typeof session_id !== "string") {
+        return res.status(400).json({ paid: false, message: "Missing session_id" });
+      }
+      const user = await getUserById(req.session.userId!);
+      if (!user) return res.status(401).json({ paid: false });
+
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      if (session.payment_status !== "paid") {
+        return res.json({ paid: false });
+      }
+
+      // The checkout session must belong to the signed-in user — otherwise
+      // anyone with a session_id could claim someone else's purchase.
+      if (
+        session.metadata?.app !== "websucker" ||
+        session.metadata?.userId !== String(user.id)
+      ) {
+        return res.status(403).json({ paid: false, message: "This purchase belongs to a different account" });
+      }
+
+      // Idempotency guard — only grant once per checkout session.
+      const inserted = await db
+        .insert(payments)
+        .values({
+          stripeSessionId: session_id,
+          stripePaymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
+          customerEmail: session.customer_details?.email ?? user.email,
+          amountCents: session.amount_total ?? 0,
+          currency: session.currency ?? "usd",
+          mode: session.mode ?? "payment",
+          jobId: null,
+        })
+        .onConflictDoNothing()
+        .returning({ id: payments.id });
+
+      const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
+      const updates: Record<string, any> = {};
+      if (customerId && customerId !== user.stripeCustomerId) {
+        updates.stripeCustomerId = customerId;
+      }
+
+      const creditAmount = session.metadata?.credits ? parseInt(session.metadata.credits, 10) : 0;
+      if (inserted.length > 0 && creditAmount > 0) {
+        updates.credits = sql`${users.credits} + ${creditAmount}`;
+      }
+      if (Object.keys(updates).length > 0) {
+        await db.update(users).set(updates).where(eq(users.id, user.id));
+      }
+
+      const freshUser = await getUserById(user.id);
+      res.json({
+        paid: true,
+        type: session.metadata?.type ?? (session.mode === "subscription" ? "subscription" : "credits"),
+        creditsAdded: inserted.length > 0 ? creditAmount : 0,
+        credits: freshUser?.credits ?? user.credits,
+      });
+    } catch (error) {
+      console.error("Plan verification error:", error);
+      res.status(500).json({ paid: false, message: "Verification failed" });
     }
   });
 
@@ -477,6 +675,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Download not ready" });
       }
 
+      const owner = jobOwners.get(req.params.id);
+      if (owner !== undefined && owner !== req.session.userId) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+
       if (!storage.isDownloadAuthorized(req.params.id)) {
         return res.status(402).json({ message: "Payment required" });
       }
@@ -505,6 +708,7 @@ export async function registerRoutes(
         setTimeout(async () => {
           await cleanupScrapeFiles(job.id);
           await storage.deleteJob(job.id);
+          jobOwners.delete(job.id);
         }, 5000);
       });
       

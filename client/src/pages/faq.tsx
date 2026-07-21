@@ -22,7 +22,7 @@ const faqs: QA[] = [
   {
     q: "Is it free?",
     a: [
-      "Analysing any website is completely free — you can see exactly what would be downloaded before paying anything. The actual ZIP download costs $1.99 one-time, or $5.99/month for unlimited downloads (cancel anytime).",
+      "Your first website backup is completely free when you create an account — no card required. After that, credit packs start at $4.99 for 3 scrapes (or $12.99 for 10, that's $1.30 each), or go unlimited for $5.99/month (cancel anytime).",
     ],
   },
   {
@@ -68,15 +68,15 @@ const faqs: QA[] = [
     ],
   },
   {
-    q: "Why do I need to pay to download but not to scrape?",
+    q: "Why do scrapes cost credits?",
     a: [
-      "Running a real headless browser, downloading hundreds of assets per site, and serving the results uses real bandwidth and compute. We let you analyse for free so you can verify the result is what you want before paying. The download fee covers the infrastructure and keeps the service sustainable.",
+      "Running a real headless browser, downloading hundreds of assets per site, and serving the results uses real bandwidth and compute. Your first scrape is free so you can verify the quality before paying. Credits cover the infrastructure and keep the service sustainable.",
     ],
   },
   {
-    q: "What's the difference between $1.99 and $5.99/month?",
+    q: "What's the difference between credit packs and the $5.99/month subscription?",
     a: [
-      "$1.99 is a one-time charge for a single download — perfect if you just need to back up one site. $5.99/month gives you unlimited downloads — better if you'll be backing up multiple sites or doing periodic backups of the same site. The subscription pays for itself after about three downloads.",
+      "Credit packs (3 for $4.99 or 10 for $12.99) are one-time purchases — each credit covers one full scrape and download, and credits never expire. $5.99/month gives you unlimited scrapes — better if you'll be backing up multiple sites or doing periodic backups of the same site. The subscription pays for itself after about three downloads.",
     ],
   },
   {
@@ -190,7 +190,7 @@ export default function Faq() {
         <div className="max-w-4xl mx-auto px-4 py-12 text-center">
           <h2 className="text-xl font-semibold mb-3">Ready to back up your site?</h2>
           <p className="text-muted-foreground mb-6">
-            Paste any URL — analysing is always free. Download the complete offline copy for $1.99.
+            Create a free account and your first complete backup is free — then credits from $1.30 per backup.
           </p>
           <a
             href="/"

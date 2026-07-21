@@ -12,6 +12,9 @@ export default function CheckoutSuccess() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [isSubscription, setIsSubscription] = useState(false);
+  const [isPlan, setIsPlan] = useState(false);
+  const [creditsAdded, setCreditsAdded] = useState(0);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const { toast } = useToast();
 
   useSeo({
@@ -25,15 +28,36 @@ export default function CheckoutSuccess() {
     const params = new URLSearchParams(window.location.search);
     const sid = params.get("session_id");
     const jid = params.get("job_id");
+    const plan = params.get("plan") === "1";
     setSessionId(sid);
     setJobId(jid);
+    setIsPlan(plan);
 
-    if (sid) {
+    if (sid && plan) {
+      verifyPlan(sid);
+    } else if (sid) {
       verifyPayment(sid);
     } else {
       setStatus("failed");
     }
   }, []);
+
+  const verifyPlan = async (sid: string) => {
+    try {
+      const response = await fetch(`/api/stripe/verify-plan?session_id=${sid}`, { credentials: "include" });
+      const data = await response.json();
+      if (data.paid) {
+        setStatus("success");
+        setIsSubscription(data.type === "subscription");
+        setCreditsAdded(data.creditsAdded || 0);
+        if (typeof data.credits === "number") setCreditBalance(data.credits);
+      } else {
+        setStatus("failed");
+      }
+    } catch {
+      setStatus("failed");
+    }
+  };
 
   const verifyPayment = async (sid: string) => {
     try {
@@ -127,7 +151,27 @@ export default function CheckoutSuccess() {
             </p>
           )}
 
-          {status === "success" && (
+          {status === "success" && isPlan && (
+            <>
+              <p className="text-muted-foreground" data-testid="text-plan-success">
+                {isSubscription
+                  ? "Your subscription is active — unlimited scrapes and downloads."
+                  : creditsAdded > 0
+                  ? `${creditsAdded} credit${creditsAdded === 1 ? "" : "s"} added to your account.${creditBalance !== null ? ` You now have ${creditBalance} credit${creditBalance === 1 ? "" : "s"}.` : ""}`
+                  : "Your purchase has been applied to your account."}
+              </p>
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={() => (window.location.href = "/")}
+                data-testid="button-start-scraping"
+              >
+                Start Scraping
+              </Button>
+            </>
+          )}
+
+          {status === "success" && !isPlan && (
             <>
               <p className="text-muted-foreground">
                 {isSubscription

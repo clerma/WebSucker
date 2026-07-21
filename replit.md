@@ -5,7 +5,7 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 ## Run & Operate
 
 - Run both frontend and backend: `npm run dev`
-- Required Environment Variables: `ADMIN_SECRET` (for admin dashboard password)
+- Required Environment Variables: `ADMIN_SECRET` (for admin dashboard password), `SESSION_SECRET` (session cookies)
 
 ## Stack
 
@@ -24,7 +24,8 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 - **Server Source**: `server/`
     - API Endpoints & WebSockets: `server/routes.ts`
     - Core Scraper Logic: `server/scraper.ts`
-    - Stripe Integration: `server/stripeClient.ts`, `server/webhookHandlers.ts`
+    - Auth (sessions, register/login): `server/auth.ts`
+    - Stripe Integration: `server/stripeClient.ts`, `server/webhookHandlers.ts`, `server/seed-credits.ts`
     - Admin-related: `server/seed-products.ts`
 - **Shared Types**: `shared/schema.ts`
 - **Blog Articles**: `client/src/data/articles.ts`
@@ -36,7 +37,7 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 - **Static Site Optimization**: Implements `probeNeedsPuppeteer()` to skip Puppeteer for static HTML sites, significantly reducing scrape time.
 - **Robust Error Handling**: HTTP 429 retry with exponential backoff. Cloudflare bypass tier-list (in order): (1) `puppeteer-extra-plugin-stealth` + rotating UA/viewport/lang/sec-ch-ua fingerprints + humanlike mouse jitter + Turnstile-checkbox click + 45s wait. (2) `CapSolver` AntiTurnstileTaskProxyLess (`CAPSOLVER_API_KEY`) — only works when sitekey is exposed; Cloudflare "Managed Challenge" interstitials don't expose one. (3) `ScrapingBee` `stealth_proxy=true` + `render_js=true` (`SCRAPINGBEE_API_KEY`) — defeats Cloudflare Managed Challenge, returns rendered HTML and short-circuits Puppeteer for that page. Costs ~75 ScrapingBee credits (~$0.015) per fallback. If all three fail, surfaces a single friendly error toast + persistent inline alert (no spam).
 - **Cloudflare Detector Discipline**: `isCloudflareChallenge()` only matches the interstitial (title `Just a moment...` or `window._cf_chl_opt`). It does NOT treat the bare `cdn-cgi/challenge-platform` script tag as a challenge, because Cloudflare injects that script on real post-challenge pages too — matching it produced false positives that discarded valid HTML.
-- **Payment Gating**: Integrates Stripe for secure one-time and subscription-based downloads, with customer lookup for restoring access.
+- **Accounts + Credits Gating**: Scraping requires an account (email+password, bcryptjs, express-session + connect-pg-simple). Entitlement order in POST /api/scrape: active subscription > unused free scrape > atomic credit decrement (402 code NO_CREDITS). Downloads are pre-authorized at job creation; failed scrapes refund the credit/free scrape. Credit packs: 3/$4.99 and 10/$12.99 (Stripe prices with metadata type=credits); subscription $5.99/mo = unlimited. Plan purchases verified idempotently via GET /api/stripe/verify-plan (payments table onConflictDoNothing) from /checkout/success?plan=1.
 
 ## Product
 
@@ -44,7 +45,7 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 - **Embed Preservation**: Maintains YouTube, Vimeo, Google Maps, Spotify, etc. embeds.
 - **Real-time Feedback**: WebSocket-powered progress updates and detailed results summary.
 - **Offline Backup**: Downloadable ZIP with organized directory structure for offline use.
-- **Monetization**: Gated downloads via Stripe for one-time purchases or monthly subscriptions.
+- **Monetization**: Account required to scrape; 1 free scrape on signup, then credit packs (3/$4.99, 10/$12.99) or $5.99/mo unlimited subscription via Stripe.
 - **Admin Dashboard**: Password-protected `/admin` for usage analytics and Stripe revenue.
 - **SEO/Content**: `/blog`, `/features`, `/faq` pages with rich content and SEO optimizations.
 
