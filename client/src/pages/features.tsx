@@ -159,7 +159,7 @@ const comparison: CompareRow[] = [
   },
   {
     feature: "Pricing",
-    websuck: "from $1.30 / $5.99 mo",
+    websuck: "from $1.99 ($1.30/credit in packs) / $5.99 mo",
     sitesucker: "Paid app",
     httrack: "Free",
     websitedl: "Paid past quota",
@@ -268,8 +268,8 @@ export default function Features() {
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span className="text-xs uppercase tracking-wide text-muted-foreground font-medium">Credit packs</span>
               </div>
-              <div className="text-3xl font-bold mb-1">$4.99</div>
-              <p className="text-sm text-muted-foreground mb-5">3 scrape credits — or 10 for $12.99 ($1.30 each).</p>
+              <div className="text-3xl font-bold mb-1">$1.99</div>
+              <p className="text-sm text-muted-foreground mb-5">1 credit — or 3 for $4.99, or 10 for $12.99 ($1.30 each).</p>
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />Each credit = one full scrape + ZIP download</li>
                 <li className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />Credits never expire — no subscription</li>
