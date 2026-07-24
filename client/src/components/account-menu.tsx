@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useLocation } from "wouter";
-import { User, Coins, LogOut, Loader2 } from "lucide-react";
+import { User, Coins, LogOut, Loader2, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,10 +11,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
+import { PricingDialog } from "@/components/pricing-dialog";
 
 export function AccountMenu() {
   const { user, isLoading, logout, isLoggingOut } = useAuth();
   const [, navigate] = useLocation();
+  const [showPricing, setShowPricing] = useState(false);
 
   if (isLoading) return null;
 
@@ -52,12 +55,17 @@ export function AccountMenu() {
           {user.credits} credit{user.credits === 1 ? "" : "s"}
           {!user.freeScrapeUsed ? " + 1 free scrape" : ""}
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setShowPricing(true)} data-testid="button-buy-credits">
+          <CreditCard className="h-4 w-4 mr-2" />
+          Buy credits
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => logout()} disabled={isLoggingOut} data-testid="button-sign-out">
           {isLoggingOut ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LogOut className="h-4 w-4 mr-2" />}
           Sign Out
         </DropdownMenuItem>
       </DropdownMenuContent>
+      <PricingDialog open={showPricing} onOpenChange={setShowPricing} />
     </DropdownMenu>
   );
 }
