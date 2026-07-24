@@ -86,7 +86,7 @@ export function PricingDialog({ open, onOpenChange }: PricingDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg" data-testid="pricing-dialog">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto" data-testid="pricing-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <CreditCard className="h-5 w-5" />
@@ -106,48 +106,47 @@ export function PricingDialog({ open, onOpenChange }: PricingDialogProps) {
             <p>Pricing is not available right now. Please try again later.</p>
           </div>
         ) : (
-          <div className="grid gap-4 py-2">
+          <div className="grid gap-3 py-2">
             {creditPacks.map((pack) => {
               const credits = parseInt(pack.metadata?.credits || "0", 10);
               const perCredit = credits > 0 ? (pack.unitAmount || 0) / credits / 100 : 0;
               return (
                 <div
                   key={pack.id}
-                  className="relative rounded-xl border-2 border-border p-5 hover:border-primary/50 transition-colors"
+                  className="relative rounded-xl border-2 border-border p-4 hover:border-primary/50 transition-colors"
                   data-testid={`pricing-credits-${credits}`}
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
                         {credits >= 10 ? (
-                          <Package className="h-4 w-4 text-amber-500" />
+                          <Package className="h-4 w-4 text-amber-500 flex-shrink-0" />
                         ) : (
-                          <Zap className="h-4 w-4 text-amber-500" />
+                          <Zap className="h-4 w-4 text-amber-500 flex-shrink-0" />
                         )}
-                        <h3 className="font-semibold">{credits} Credits</h3>
+                        <h3 className="font-semibold">
+                          {credits} Credit{credits === 1 ? "" : "s"} — ${((pack.unitAmount || 0) / 100).toFixed(2)}
+                        </h3>
                       </div>
-                      <p className="text-sm text-muted-foreground mb-3">
-                        {credits} full scrapes + downloads · ${perCredit.toFixed(2)} per scrape · never expire
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {credits === 1
+                          ? "1 full scrape + download · never expires"
+                          : `${credits} full scrapes + downloads · $${perCredit.toFixed(2)} each · never expire`}
                       </p>
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-bold">
-                          ${((pack.unitAmount || 0) / 100).toFixed(2)}
-                        </span>
-                        <span className="text-muted-foreground text-sm">one-time</span>
-                      </div>
                     </div>
+                    <Button
+                      size="sm"
+                      className="flex-shrink-0"
+                      onClick={() => handleCheckout(pack.id)}
+                      disabled={checkoutLoading !== null}
+                      data-testid={`button-checkout-credits-${credits}`}
+                    >
+                      {checkoutLoading === pack.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : null}
+                      Buy
+                    </Button>
                   </div>
-                  <Button
-                    className="w-full mt-4"
-                    onClick={() => handleCheckout(pack.id)}
-                    disabled={checkoutLoading !== null}
-                    data-testid={`button-checkout-credits-${credits}`}
-                  >
-                    {checkoutLoading === pack.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : null}
-                    Buy {credits} Credits — ${((pack.unitAmount || 0) / 100).toFixed(2)}
-                  </Button>
                 </div>
               );
             })}
