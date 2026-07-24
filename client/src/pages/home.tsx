@@ -45,7 +45,7 @@ export default function Home() {
   useSeo({
     title: "Website Sucker — Back Up, Archive & Transfer Any Website Online",
     description:
-      "Website Sucker is a free online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JS, images, and fonts — in minutes. First scrape free to preview; downloads from $1.30 or $5.99/mo unlimited.",
+      "Website Sucker is a free online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JS, images, and fonts — in minutes. First scrape free to preview; downloads from $1.99 (packs from $1.30/credit) or $5.99/mo unlimited.",
     canonicalPath: "/",
     jsonLd: [
       {
@@ -57,7 +57,7 @@ export default function Home() {
             name: "What is Website Sucker?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Website Sucker is a free online tool to back up, archive, and transfer any website. It downloads a site as a complete offline copy — every page, image, stylesheet, JavaScript file, and font — packaged into a single ZIP. There's nothing to install; your first scrape is free to preview and ZIP downloads start at $1.30 with a credit pack.",
+              text: "Website Sucker is a free online tool to back up, archive, and transfer any website. It downloads a site as a complete offline copy — every page, image, stylesheet, JavaScript file, and font — packaged into a single ZIP. There's nothing to install; your first scrape is free to preview and ZIP downloads start at $1.99 for a single credit (packs from $1.30/credit).",
             },
           },
           {
@@ -65,7 +65,7 @@ export default function Home() {
             name: "How do I back up a website?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "To back up a website with Website Sucker, paste the site's URL, let it analyse every page and asset for free, then download the complete offline copy as a ZIP with a credit (from $1.30) — your first scrape is free to preview. The backup includes all HTML, CSS, JavaScript, images, and fonts, and opens in any browser without an internet connection.",
+              text: "To back up a website with Website Sucker, paste the site's URL, let it analyse every page and asset for free, then download the complete offline copy as a ZIP with a credit (from $1.99, packs from $1.30/credit) — your first scrape is free to preview. The backup includes all HTML, CSS, JavaScript, images, and fonts, and opens in any browser without an internet connection.",
             },
           },
           {
@@ -89,7 +89,7 @@ export default function Home() {
             name: "What free tools can back up a website?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "Website Sucker is free to analyse any website and lets you preview your first scrape free, with ZIP downloads from $1.30 via credit packs. Unlike older desktop tools such as SiteSucker (Mac-only) or HTTrack, it runs in any browser on Windows, Linux, Mac, or Chromebook and renders JavaScript-heavy modern sites with a real headless browser.",
+              text: "Website Sucker is free to analyse any website and lets you preview your first scrape free, with ZIP downloads from $1.99 (packs from $1.30/credit). Unlike older desktop tools such as SiteSucker (Mac-only) or HTTrack, it runs in any browser on Windows, Linux, Mac, or Chromebook and renders JavaScript-heavy modern sites with a real headless browser.",
             },
           },
         ],
@@ -123,7 +123,7 @@ export default function Home() {
             "@type": "HowToStep",
             position: 3,
             name: "Download the offline copy",
-            text: "Download a single organised ZIP with a credit — from $1.30 (or unlimited at $5.99/month). Unzip it and the whole website opens offline in any browser.",
+            text: "Download a single organised ZIP with a credit — from $1.99, packs from $1.30/credit (or unlimited at $5.99/month). Unzip it and the whole website opens offline in any browser.",
           },
         ],
       },
@@ -516,7 +516,7 @@ export default function Home() {
                 <FeatureCard
                   icon={Lock}
                   title="3. Download Your Backup"
-                  description="Download the full ZIP with a credit — from $1.30 — or go unlimited for $5.99/month."
+                  description="Download the full ZIP with a credit — from $1.99 — or go unlimited for $5.99/month."
                 />
               </div>
             </div>

@@ -13,6 +13,7 @@ async function createCreditPacks() {
 
   const prices = await stripe.prices.list({ product: product.id, active: true, limit: 100 });
   const packs = [
+    { credits: 1, amount: 199 },
     { credits: 3, amount: 499 },
     { credits: 10, amount: 1299 },
   ];
