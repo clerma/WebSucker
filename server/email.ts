@@ -30,8 +30,9 @@ async function getFromAddress(): Promise<string> {
   } catch (err) {
     console.error("Resend domain lookup failed:", err);
   }
-  cachedFrom = "Website Sucker <onboarding@resend.dev>";
-  return cachedFrom;
+  // Don't cache the fallback — once the user verifies a domain in Resend,
+  // the next send should pick it up without needing a server restart.
+  return "Website Sucker <onboarding@resend.dev>";
 }
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
