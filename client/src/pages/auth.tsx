@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { Globe, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -101,6 +101,17 @@ export default function AuthPage() {
                 autoComplete={mode === "register" ? "new-password" : "current-password"}
                 data-testid="input-password"
               />
+              {mode === "login" && (
+                <p className="text-right">
+                  <Link
+                    href="/forgot-password"
+                    className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    data-testid="link-forgot-password"
+                  >
+                    Forgot password?
+                  </Link>
+                </p>
+              )}
             </div>
             <Button type="submit" className="w-full" disabled={loading} data-testid="button-auth-submit">
               {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

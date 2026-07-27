@@ -16,6 +16,8 @@ import BlogPost from "@/pages/blog-post";
 import Features from "@/pages/features";
 import Faq from "@/pages/faq";
 import AuthPage from "@/pages/auth";
+import ForgotPasswordPage from "@/pages/forgot-password";
+import ResetPasswordPage from "@/pages/reset-password";
 import { AccountMenu } from "@/components/account-menu";
 
 function Router() {
@@ -27,6 +29,8 @@ function Router() {
       <Route path="/features" component={Features} />
       <Route path="/faq" component={Faq} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
+      <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/terms" component={Terms} />
       <Route path="/admin" component={Admin} />
       <Route path="/checkout/success" component={CheckoutSuccess} />
