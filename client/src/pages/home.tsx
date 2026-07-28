@@ -649,7 +649,12 @@ export default function Home() {
         </div>
       )}
 
-      <PricingDialog open={showPricing} onOpenChange={setShowPricing} />
+      <PricingDialog
+        open={showPricing}
+        onOpenChange={setShowPricing}
+        jobId={currentJob?.id}
+        onAccessGranted={handleDownload}
+      />
     </div>
   );
 }

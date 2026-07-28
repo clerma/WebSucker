@@ -8,6 +8,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
 interface Price {
@@ -21,19 +22,56 @@ interface Price {
 interface PricingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, an access code can be redeemed to unlock this job's download. */
+  jobId?: string;
+  onAccessGranted?: () => void;
 }
 
-export function PricingDialog({ open, onOpenChange }: PricingDialogProps) {
+export function PricingDialog({ open, onOpenChange, jobId, onAccessGranted }: PricingDialogProps) {
   const [prices, setPrices] = useState<Price[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [showAccessCode, setShowAccessCode] = useState(false);
+  const [accessCode, setAccessCode] = useState("");
+  const [accessCodeLoading, setAccessCodeLoading] = useState(false);
+  const [accessCodeError, setAccessCodeError] = useState("");
   const { toast } = useToast();
 
   useEffect(() => {
     if (open) {
       fetchPrices();
+      setShowAccessCode(false);
+      setAccessCode("");
+      setAccessCodeError("");
     }
   }, [open]);
+
+  const handleRedeemAccessCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!jobId) return;
+    setAccessCodeLoading(true);
+    setAccessCodeError("");
+    try {
+      const res = await fetch("/api/access-code/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: accessCode.trim(), jobId }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: "Access code accepted", description: "Your download is unlocked." });
+        onOpenChange(false);
+        onAccessGranted?.();
+      } else {
+        setAccessCodeError(data.message || "Invalid or expired access code");
+      }
+    } catch {
+      setAccessCodeError("Something went wrong. Please try again.");
+    } finally {
+      setAccessCodeLoading(false);
+    }
+  };
 
   const fetchPrices = async () => {
     setLoading(true);
@@ -188,6 +226,39 @@ export function PricingDialog({ open, onOpenChange }: PricingDialogProps) {
                   ) : null}
                   Subscribe — ${((monthlyPrice.unitAmount || 0) / 100).toFixed(2)}/mo
                 </Button>
+              </div>
+            )}
+
+            {jobId && (
+              <div className="text-center pt-1">
+                {!showAccessCode ? (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    onClick={() => setShowAccessCode(true)}
+                    data-testid="button-show-access-code"
+                  >
+                    Have an access code?
+                  </button>
+                ) : (
+                  <form onSubmit={handleRedeemAccessCode} className="space-y-2">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Enter access code"
+                        value={accessCode}
+                        onChange={(e) => setAccessCode(e.target.value)}
+                        required
+                        data-testid="input-access-code"
+                      />
+                      <Button type="submit" size="sm" className="h-9" disabled={accessCodeLoading} data-testid="button-redeem-access-code">
+                        {accessCodeLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Redeem"}
+                      </Button>
+                    </div>
+                    {accessCodeError && (
+                      <p className="text-xs text-destructive" data-testid="text-access-code-error">{accessCodeError}</p>
+                    )}
+                  </form>
+                )}
               </div>
             )}
           </div>
