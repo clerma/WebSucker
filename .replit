@@ -10,6 +10,14 @@ packages = ["unzip", "glib", "nss", "nspr", "at-spi2-atk", "cups", "dbus", "expa
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
 [env]
 PORT = "5000"
 
