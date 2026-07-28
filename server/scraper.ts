@@ -1306,10 +1306,46 @@ async function collectRenderedAssetUrls(page: import("puppeteer").Page): Promise
   });
 }
 
-async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number; extraAssetUrls?: string[] }> {
+async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number; extraAssetUrls?: string[]; dynamicScripts?: Array<{ url: string; body: Buffer }> }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  
+
+  // Capture same-origin JS/CSS fetched at runtime (webpack lazy chunks, dynamic
+  // import()). These never appear as <script src> in the DOM, so the normal
+  // asset pipeline misses them — but the site's runtime requests them by their
+  // original path (e.g. /scripts/123.abc.js) and breaks offline without them.
+  const dynamicScripts: Array<{ url: string; body: Buffer }> = [];
+  const dynamicSeen = new Set<string>();
+  const dynamicPending: Promise<void>[] = [];
+  let dynamicTotalBytes = 0;
+  const DYNAMIC_MAX_FILE = 15 * 1024 * 1024;   // per-file cap
+  const DYNAMIC_MAX_TOTAL = 50 * 1024 * 1024;  // whole-page budget
+  const DYNAMIC_MAX_COUNT = 100;
+  page.on("response", (res) => {
+    const p = (async () => {
+      try {
+        const resUrl = res.url();
+        if (!/^https?:/.test(resUrl)) return;
+        if (shouldSkipUrl(resUrl).skip) return; // trackers/analytics
+        const req = res.request();
+        const type = req.resourceType();
+        if (type !== "script" && type !== "stylesheet") return;
+        if (!res.ok()) return;
+        if (dynamicSeen.has(resUrl)) return;
+        if (dynamicScripts.length >= DYNAMIC_MAX_COUNT || dynamicTotalBytes >= DYNAMIC_MAX_TOTAL) return;
+        dynamicSeen.add(resUrl);
+        const body = await res.buffer();
+        if (body.length > DYNAMIC_MAX_FILE) return;
+        if (dynamicTotalBytes + body.length > DYNAMIC_MAX_TOTAL) return;
+        dynamicTotalBytes += body.length;
+        dynamicScripts.push({ url: resUrl, body });
+      } catch {
+        // Best-effort — a missed chunk just falls back to old behavior.
+      }
+    })();
+    dynamicPending.push(p);
+  });
+
   try {
     // Rotate fingerprint per request: realistic UA, viewport, and language.
     const ua = pick(UA_POOL);
@@ -1564,6 +1600,30 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
     // Brief network idle check
     await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 }).catch(() => {});
 
+    // Reset UI state the interaction sweep left behind BEFORE serializing.
+    // Hovering/clicking nav triggers can leave menu overlays "open" in the DOM
+    // (e.g. Squarespace's header-menu-nav-folder--active); serialized that way,
+    // the invisible overlay sits above the page and swallows every click in the
+    // offline copy.
+    await page.evaluate(() => {
+      const openStateRe = /(^|\b|-)(is-)?(open|active|expanded|visible)(\b|$)/;
+      document.querySelectorAll<HTMLElement>('[class*="menu"], [class*="nav"], header, body').forEach((el) => {
+        for (const cls of Array.from(el.classList)) {
+          if (/menu|nav|header/.test(cls) && openStateRe.test(cls) && /--|__|is-/.test(cls)) {
+            el.classList.remove(cls);
+          }
+        }
+      });
+      // Common explicit patterns
+      document.body.classList.remove("menu--open", "menu-open", "nav-open", "header--menu-open");
+      document.querySelectorAll('[aria-expanded="true"]').forEach((el) => {
+        const cls = el.className || "";
+        if (typeof cls === "string" && /menu|nav|burger|toggle/i.test(cls + " " + (el.getAttribute("aria-label") || ""))) {
+          el.setAttribute("aria-expanded", "false");
+        }
+      });
+    }).catch(() => {});
+
     // Desktop DOM is the primary offline copy we save.
     html = await page.content();
 
@@ -1587,7 +1647,13 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
       // Mobile pass is best-effort; ignore failures.
     }
 
-    return { html, status, extraAssetUrls };
+    // Let any in-flight response-body captures finish before the page closes,
+    // otherwise late chunks are nondeterministically dropped.
+    await Promise.race([
+      Promise.allSettled(dynamicPending),
+      new Promise((r) => setTimeout(r, 5000)),
+    ]);
+    return { html, status, extraAssetUrls, dynamicScripts };
   } finally {
     await page.close();
   }
@@ -1831,6 +1897,55 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
                 if (normalized && !discoveredUrls.has(normalized)) {
                   discoveredUrls.add(normalized);
                   urlQueue.push({ url: normalized, referrer: currentUrl });
+                }
+              }
+            }
+
+            // Save runtime-loaded JS/CSS chunks at their ORIGINAL site paths.
+            // The site's runtime requests them by literal path (webpack
+            // publicPath like /scripts/...), so they must live at that exact
+            // location — the hashed assets/js/ naming used for <script src>
+            // tags would never be found.
+            if (rendered.dynamicScripts?.length) {
+              // Deterministic precedence: same-origin files first, so a
+              // same-origin chunk always wins the scripts/<basename> slot over
+              // a cross-origin file that happens to share the name.
+              const orderedDynamic = [...rendered.dynamicScripts].sort((a, b) => {
+                const aSame = a.url.includes(`//${baseUrl.hostname}`) ? 0 : 1;
+                const bSame = b.url.includes(`//${baseUrl.hostname}`) ? 0 : 1;
+                return aSame - bSame;
+              });
+              for (const ds of orderedDynamic) {
+                try {
+                  const dsUrl = new URL(ds.url);
+                  const pathname = dsUrl.pathname;
+                  if (!/\.(js|mjs|css)$/i.test(pathname)) continue;
+                  // Candidate local paths where the site's runtime may request
+                  // this file when running offline:
+                  const candidates: string[] = [];
+                  // 1. Same-origin: the literal site path (root-relative
+                  //    webpack publicPath, e.g. /scripts/123.abc.js).
+                  if (dsUrl.hostname === baseUrl.hostname) {
+                    candidates.push(pathname.replace(/^\/+/, ""));
+                  }
+                  // 2. Any origin: runtimes that derive publicPath from the
+                  //    bundle's own URL fall back to document-origin
+                  //    "/scripts/<file>" offline (Squarespace does this) —
+                  //    mirror the trailing /scripts/ segment locally.
+                  const scriptsIdx = pathname.lastIndexOf("/scripts/");
+                  if (scriptsIdx !== -1) {
+                    candidates.push("scripts/" + path.basename(pathname));
+                  }
+                  for (const dsPath of candidates) {
+                    if (!dsPath || dsPath.includes("..")) continue;
+                    const target = path.join(outputDir, dsPath);
+                    if (!target.startsWith(outputDir + path.sep)) continue;
+                    if (fs.existsSync(target)) continue;
+                    await fs.promises.mkdir(path.dirname(target), { recursive: true });
+                    await fs.promises.writeFile(target, ds.body);
+                  }
+                } catch {
+                  // Best-effort; a missed chunk degrades gracefully.
                 }
               }
             }
@@ -2829,6 +2944,19 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
           $(el).attr(attr, relativePath + suffix);
           modified = true;
         } else if (isImageAttr && !value.startsWith("#") && !value.startsWith("data:")) {
+          // Scripts are NOT images — swapping a <script src> for the SVG
+          // placeholder produces MIME-type console errors and silently kills
+          // legit embed loaders (Instagram embed.js, iframeSizer, etc.).
+          if (tagName === "script") {
+            if (isExternalValue && shouldSkipUrl(value).skip) {
+              // Intentionally skipped tracker — drop the tag entirely.
+              $(el).remove();
+              modified = true;
+            }
+            // Otherwise leave the original (absolute) URL so the embed still
+            // works when the copy is viewed with internet access.
+            return;
+          }
           // Use placeholder for all missing images (both external CDN images and internal images that failed to download)
           const relativePlaceholder = path.relative(fileDir || ".", placeholderPath);
           $(el).attr(attr, relativePlaceholder);
