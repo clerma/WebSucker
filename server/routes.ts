@@ -818,18 +818,35 @@ export async function registerRoutes(
     res.json({ deleted });
   });
 
-  // Redeem an access code to authorize a download
-  app.post("/api/access-code/redeem", async (req, res) => {
+  // Redeem an access code. With a jobId it authorizes that job's download;
+  // without one it grants the signed-in user 1 credit.
+  app.post("/api/access-code/redeem", requireAuth, async (req, res) => {
     const { code, jobId } = req.body;
-    if (!code || !jobId) {
-      return res.status(400).json({ success: false, message: "Code and jobId are required" });
+    if (!code || typeof code !== "string") {
+      return res.status(400).json({ success: false, message: "Code is required" });
+    }
+    // Validate the job BEFORE consuming the code so an invalid job never
+    // burns a redemption.
+    if (jobId) {
+      const job = await storage.getJob(jobId);
+      const owner = jobOwners.get(jobId);
+      if (!job || job.status !== "completed" || (owner !== undefined && owner !== req.session.userId)) {
+        return res.status(400).json({ success: false, message: "This code can't be applied to that download" });
+      }
     }
     const valid = await storage.redeemAccessCode(code);
     if (!valid) {
       return res.status(400).json({ success: false, message: "Invalid or expired access code" });
     }
-    storage.authorizeDownload(jobId, `code:${code}:${jobId}`);
-    res.json({ success: true });
+    if (jobId) {
+      storage.authorizeDownload(jobId, `code:${code}:${jobId}`);
+      return res.json({ success: true, granted: "download" });
+    }
+    await db
+      .update(users)
+      .set({ credits: sql`${users.credits} + 1` })
+      .where(eq(users.id, req.session.userId!));
+    res.json({ success: true, granted: "credit" });
   });
 
   app.get("/api/admin/stats", async (req, res) => {

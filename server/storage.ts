@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import type { Asset, ScrapeJob, ScrapeStatus, AssetStatus, AssetType } from "@shared/schema";
 import { db } from "./db";
 import { accessCodes as accessCodesTable } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, or, isNull, lt, sql } from "drizzle-orm";
 
 export interface AccessCode {
   code: string;
@@ -276,13 +276,16 @@ export class MemStorage implements IStorage {
 
   async redeemAccessCode(code: string): Promise<boolean> {
     const normalized = code.toUpperCase().trim();
-    const [row] = await db.select().from(accessCodesTable).where(eq(accessCodesTable.code, normalized));
-    if (!row) return false;
-    if (row.maxUses !== null && row.uses >= row.maxUses) return false;
-    await db.update(accessCodesTable)
-      .set({ uses: row.uses + 1 })
-      .where(eq(accessCodesTable.code, normalized));
-    return true;
+    // Atomic conditional increment — the WHERE clause enforces maxUses so
+    // concurrent redemptions can't over-consume a limited-use code.
+    const rows = await db.update(accessCodesTable)
+      .set({ uses: sql`${accessCodesTable.uses} + 1` })
+      .where(and(
+        eq(accessCodesTable.code, normalized),
+        or(isNull(accessCodesTable.maxUses), lt(accessCodesTable.uses, accessCodesTable.maxUses)),
+      ))
+      .returning({ code: accessCodesTable.code });
+    return rows.length > 0;
   }
 }
 

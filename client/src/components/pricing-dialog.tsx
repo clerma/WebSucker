@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { refreshAuth } from "@/hooks/use-auth";
 
 interface Price {
   id: string;
@@ -48,21 +49,25 @@ export function PricingDialog({ open, onOpenChange, jobId, onAccessGranted }: Pr
 
   const handleRedeemAccessCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!jobId) return;
     setAccessCodeLoading(true);
     setAccessCodeError("");
     try {
       const res = await fetch("/api/access-code/redeem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: accessCode.trim(), jobId }),
+        body: JSON.stringify({ code: accessCode.trim(), ...(jobId ? { jobId } : {}) }),
         credentials: "include",
       });
       const data = await res.json();
       if (data.success) {
-        toast({ title: "Access code accepted", description: "Your download is unlocked." });
+        if (data.granted === "credit") {
+          toast({ title: "Access code accepted", description: "1 credit was added to your account." });
+          refreshAuth();
+        } else {
+          toast({ title: "Access code accepted", description: "Your download is unlocked." });
+        }
         onOpenChange(false);
-        onAccessGranted?.();
+        if (data.granted !== "credit") onAccessGranted?.();
       } else {
         setAccessCodeError(data.message || "Invalid or expired access code");
       }
@@ -229,8 +234,7 @@ export function PricingDialog({ open, onOpenChange, jobId, onAccessGranted }: Pr
               </div>
             )}
 
-            {jobId && (
-              <div className="text-center pt-1">
+            <div className="text-center pt-1">
                 {!showAccessCode ? (
                   <button
                     type="button"
@@ -260,7 +264,6 @@ export function PricingDialog({ open, onOpenChange, jobId, onAccessGranted }: Pr
                   </form>
                 )}
               </div>
-            )}
           </div>
         )}
       </DialogContent>
