@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, serial, text, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, varchar, json, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 
 // User accounts — scraping is gated behind these.
@@ -71,8 +71,19 @@ export const payments = pgTable("payments", {
   currency: text("currency").notNull().default("usd"),
   mode: text("mode").notNull(), // 'payment' | 'subscription'
   jobId: text("job_id"),
+  websiteUrl: text("website_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Express session store (managed by connect-pg-simple at runtime).
+// Declared here so drizzle db:push doesn't try to drop it.
+export const userSessions = pgTable("user_sessions", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+}, (table) => [
+  index("IDX_session_expire").on(table.expire),
+]);
 
 // Persistent analytics table — survives server restarts
 export const scrapeAnalytics = pgTable("scrape_analytics", {

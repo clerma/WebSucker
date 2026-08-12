@@ -37,6 +37,7 @@ interface StripeStats {
     created: number;
     status: string;
     email: string | null;
+    website: string | null;
   }>;
   failedPayments: Array<{
     id: string;
@@ -385,6 +386,11 @@ export default function Admin() {
                       <div key={charge.id} className="px-4 sm:px-6 py-3 flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm truncate">{charge.email ?? "Unknown"}</p>
+                          {charge.website && (
+                            <p className="text-xs text-foreground/80 truncate mt-0.5" title={charge.website}>
+                              {charge.website.replace(/^https?:\/\//, "")}
+                            </p>
+                          )}
                           <p className="text-xs text-muted-foreground mt-0.5">
                             {new Date(charge.created * 1000).toLocaleString()}
                           </p>
