@@ -4,4 +4,5 @@
 - [SPA hydration content loss](hydration-content-loss.md) — Wix/React hydration can wipe SSR content mid-crawl; scraper's settle-wait + raw-HTML richness guard must stay; diff saved page vs plain fetch when content is missing.
 - [Dynamic runtime assets](dynamic-runtime-assets.md) — DOM-only crawls miss webpack lazy chunks; capture network script responses, mirror /scripts/ paths, never placeholder script src, strip open-menu classes pre-serialize.
 - [Stripe webhook verification](stripe-webhook-verification.md) — verify signatures locally from stripe._managed_webhooks secrets; sync engine's own verification needs API perms the restricted live key lacks.
+- [Stripe managed key override](stripe-managed-key-override.md) — STRIPE_SECRET_KEY is injected by the Replit Stripe integration and can't be overridden; app reads STRIPE_LIVE_SECRET_KEY (user's sk_live) first.
 - [Host firewall block breaker](host-block-breaker.md) — sites can firewall our IP mid-crawl; per-host circuit breaker must fail fast + entry-page failure must fail the job, never "complete" an empty ZIP.
