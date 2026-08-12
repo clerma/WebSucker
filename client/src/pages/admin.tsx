@@ -54,6 +54,12 @@ interface StripeStats {
 interface AdminStats {
   analytics: AnalyticsData;
   stripe: StripeStats;
+  recentDownloads?: Array<{
+    email: string | null;
+    website: string;
+    method: string;
+    createdAt: string;
+  }>;
 }
 
 interface AccessCode {
@@ -412,6 +418,41 @@ export default function Admin() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+              Recent Downloads (site unlocks)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="h-80 overflow-y-auto overflow-x-hidden">
+              {!stats?.recentDownloads?.length ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No downloads recorded yet</p>
+              ) : (
+                <div className="divide-y">
+                  {stats.recentDownloads.map((d, i) => (
+                    <div key={i} className="px-4 sm:px-6 py-3 flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm truncate">{d.email ?? "Unknown"}</p>
+                        <p className="text-xs text-foreground/80 truncate mt-0.5" title={d.website}>
+                          {d.website.replace(/^https?:\/\//, "")}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(d.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <Badge variant="secondary" className="text-xs shrink-0">
+                        {d.method === "access_code" ? "access code" : d.method}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         <Card className="border-destructive/30">
           <CardHeader className="pb-3">

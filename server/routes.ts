@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as fs from "fs";
 import { storage } from "./storage";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
-import { startScrapeSchema, scrapeAnalytics, payments, users } from "@shared/schema";
+import { startScrapeSchema, scrapeAnalytics, payments, users, downloadEvents } from "@shared/schema";
 import type { Asset, ScrapeProgress, ScrapeJob, User } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { sql, desc, count, sum, eq, isNotNull } from "drizzle-orm";
@@ -296,6 +296,29 @@ export async function registerRoutes(
     })();
   }
 
+  // Strip credentials/query tokens from a URL before persisting it anywhere.
+  const sanitizeUrlForLog = (raw: string): string => {
+    try {
+      const u = new URL(raw);
+      return `${u.protocol}//${u.host}${u.pathname}`.slice(0, 450);
+    } catch {
+      return raw.slice(0, 450);
+    }
+  };
+
+  // Best-effort persistent log of download unlocks (never blocks the request).
+  // The unique (job_id, method) index makes concurrent writers (e.g. webhook
+  // vs. browser verify) idempotent.
+  const recordDownloadEvent = (e: { userId?: number | null; userEmail?: string | null; jobId?: string | null; websiteUrl: string; method: string }) => {
+    db.insert(downloadEvents).values({
+      userId: e.userId ?? null,
+      userEmail: e.userEmail ?? null,
+      jobId: e.jobId ?? null,
+      websiteUrl: sanitizeUrlForLog(e.websiteUrl),
+      method: e.method,
+    }).onConflictDoNothing().catch((err) => console.error("Failed to record download event:", err));
+  };
+
   app.post("/api/scrape", requireAuth, async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
@@ -347,6 +370,9 @@ export async function registerRoutes(
       // or subscription (charged at download time).
       if (paidWith !== "free") {
         storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+        // Free scrapes don't include the download, so they aren't unlocks;
+        // they get logged at download time when a credit/subscription pays.
+        recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: paidWith });
       }
       jobOwners.set(job.id, user.id);
 
@@ -358,6 +384,8 @@ export async function registerRoutes(
           } else if (paidWith === "credit") {
             await db.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, user.id));
           }
+          // The unlock never yielded a download — drop its audit record.
+          await db.delete(downloadEvents).where(eq(downloadEvents.jobId, job.id));
         } catch (e) {
           console.error("Refund failed:", e);
         }
@@ -669,6 +697,13 @@ export async function registerRoutes(
             jobId,
             websiteUrl: session.metadata?.url ?? null,
           }).onConflictDoNothing();
+          const paidJob = await storage.getJob(jobId);
+          recordDownloadEvent({
+            userEmail: session.customer_details?.email ?? null,
+            jobId,
+            websiteUrl: paidJob?.url ?? session.metadata?.url ?? "unknown",
+            method: "payment",
+          });
         } catch (e) {
           console.error("Failed to persist payment record:", e);
         }
@@ -710,31 +745,6 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/stripe/authorize-subscriber-download", async (req, res) => {
-    try {
-      const { customerId, jobId } = req.body;
-      if (!customerId || !jobId) {
-        return res.status(400).json({ authorized: false });
-      }
-
-      const stripe = await getUncachableStripeClient();
-      const subscriptions = await stripe.subscriptions.list({
-        customer: customerId,
-        status: "active",
-        limit: 1,
-      });
-
-      if (subscriptions.data.length > 0) {
-        storage.authorizeDownload(jobId, `sub_${customerId}_${jobId}`);
-        return res.json({ authorized: true });
-      }
-
-      res.json({ authorized: false });
-    } catch (error) {
-      console.error("Subscription auth error:", error);
-      res.json({ authorized: false });
-    }
-  });
   
   app.get("/api/scrape/:id/download", requireAuth, async (req, res) => {
     try {
@@ -783,6 +793,7 @@ export async function registerRoutes(
           if (!storage.isDownloadAuthorized(job.id)) {
             if (await userHasActiveSubscription(user)) {
               storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+              recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "subscription" });
             } else {
               const updated = await db
                 .update(users)
@@ -796,6 +807,7 @@ export async function registerRoutes(
                 });
               }
               storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+              recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "credit" });
             }
           }
         } finally {
@@ -975,6 +987,11 @@ export async function registerRoutes(
     }
     if (jobId) {
       storage.authorizeDownload(jobId, `code:${code}:${jobId}`);
+      const job = await storage.getJob(jobId);
+      const user = await getUserById(req.session.userId!);
+      if (job) {
+        recordDownloadEvent({ userId: req.session.userId, userEmail: user?.email, jobId, websiteUrl: job.url, method: "access_code" });
+      }
       return res.json({ success: true, granted: "download" });
     }
     await db
@@ -1198,6 +1215,20 @@ export async function registerRoutes(
         console.warn("Could not fetch failed charges:", stripeErr);
       }
 
+      // Recent download unlocks: who unlocked which website and how.
+      let recentDownloads: Array<{ email: string | null; website: string; method: string; createdAt: string }> = [];
+      try {
+        const rows = await db.select().from(downloadEvents).orderBy(desc(downloadEvents.createdAt)).limit(50);
+        recentDownloads = rows.map(r => ({
+          email: r.userEmail,
+          website: r.websiteUrl,
+          method: r.method,
+          createdAt: r.createdAt.toISOString(),
+        }));
+      } catch (e) {
+        console.warn("Could not load download events:", e);
+      }
+
       res.json({
         analytics,
         stripe: {
@@ -1207,6 +1238,7 @@ export async function registerRoutes(
           recentCharges,
           failedPayments,
         },
+        recentDownloads,
       });
     } catch (error) {
       console.error("Admin stats error:", error);
