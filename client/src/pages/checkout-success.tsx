@@ -83,14 +83,49 @@ export default function CheckoutSuccess() {
     }
   };
 
+  // Kick off a free re-scrape of a paid job whose files were lost to a server
+  // restart. On success, hand the new job to the home page's progress view.
+  const tryRecover = async (jid: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`/api/scrape/${jid}/recover`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) return false;
+      const data = await response.json();
+      if (!data.job?.id) return false;
+      localStorage.setItem(
+        "websitesucker_active_job",
+        JSON.stringify({ jobId: data.job.id })
+      );
+      toast({
+        title: "Rebuilding your backup",
+        description:
+          "Your files expired after a server restart, so we're re-creating your backup for free. Hang tight…",
+      });
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 1500);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const handleDownload = async () => {
     if (!jobId) return;
 
     setIsDownloading(true);
     try {
-      const response = await fetch(`/api/scrape/${jobId}/download`);
+      const response = await fetch(`/api/scrape/${jobId}/download`, { credentials: "include" });
       if (!response.ok) {
-        const error = await response.json();
+        // The server may have restarted since payment — the job and its ZIP
+        // are gone but the payment record survives. Offer a free re-scrape.
+        if (response.status === 404) {
+          const recovered = await tryRecover(jobId);
+          if (recovered) return;
+        }
+        const error = await response.json().catch(() => ({}));
         throw new Error(error.message || "Download failed");
       }
 

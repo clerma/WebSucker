@@ -222,6 +222,80 @@ export async function registerRoutes(
     }
   }
 
+  // Runs the scrape pipeline for a job in the background: broadcasts progress,
+  // completes/fails the job, persists analytics, schedules cleanup.
+  function runScrapeJob(job: ScrapeJob, onFailure?: () => Promise<void>) {
+    (async () => {
+      try {
+        const zipPath = await scrapeWebsite({
+          jobId: job.id,
+          url: job.url,
+          onProgress: (progress: ScrapeProgress, asset?: Asset) => {
+            broadcast(job.id, { type: "progress", progress });
+            if (asset) {
+              broadcast(job.id, { type: "asset", asset });
+            }
+          },
+        });
+
+        const completedJob = await storage.completeJob(job.id, zipPath);
+
+        // Persist to DB (survives server restarts)
+        const finalJob = await storage.getJob(job.id);
+        db.insert(scrapeAnalytics).values({
+          url: job.url,
+          status: "completed",
+          totalAssets: finalJob?.totalAssets ?? 0,
+          successfulAssets: finalJob?.successfulAssets ?? 0,
+          failedAssets: finalJob?.failedAssets ?? 0,
+          completedAt: new Date(),
+        }).catch((e: any) => console.error("Analytics insert failed:", e));
+
+        // Schedule automatic cleanup after 10 minutes so temp files don't pile up.
+        // The timer is cancelled if the user downloads first.
+        const TTL_MS = 10 * 60 * 1000;
+        storage.scheduleExpiry(job.id, async () => {
+          await cleanupScrapeFiles(job.id);
+          await storage.deleteJob(job.id);
+          jobOwners.delete(job.id);
+        }, TTL_MS);
+
+        // Re-fetch job so expiresAt is included in the broadcast
+        const jobWithExpiry = await storage.getJob(job.id);
+        broadcast(job.id, { type: "complete", job: jobWithExpiry ?? completedJob });
+
+      } catch (error) {
+        console.error("Scrape error:", error);
+        const errMsg = error instanceof Error ? error.message : "Scraping failed";
+        await storage.updateJobStatus(job.id, "failed");
+        await storage.updateJobProgress(job.id, { errorMessage: errMsg });
+
+        if (onFailure) await onFailure();
+
+        // Persist failure to DB
+        db.insert(scrapeAnalytics).values({
+          url: job.url,
+          status: "failed",
+          totalAssets: 0,
+          successfulAssets: 0,
+          failedAssets: 0,
+          completedAt: new Date(),
+          errorMessage: errMsg,
+        }).catch((e: any) => console.error("Analytics insert failed:", e));
+
+        // Send failure notification
+        sendNotification({
+          title: "Scrape failed",
+          message: `URL: ${job.url}\nError: ${errMsg}`,
+          url: job.url,
+          status: "failed",
+        });
+
+        broadcast(job.id, { type: "error", message: errMsg });
+      }
+    })();
+  }
+
   app.post("/api/scrape", requireAuth, async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
@@ -288,78 +362,10 @@ export async function registerRoutes(
           console.error("Refund failed:", e);
         }
       };
-      
-      (async () => {
-        try {
-          const zipPath = await scrapeWebsite({
-            jobId: job.id,
-            url: validatedData.url,
-            onProgress: (progress: ScrapeProgress, asset?: Asset) => {
-              broadcast(job.id, { type: "progress", progress });
-              if (asset) {
-                broadcast(job.id, { type: "asset", asset });
-              }
-            },
-          });
-          
-          const completedJob = await storage.completeJob(job.id, zipPath);
 
-          // Persist to DB (survives server restarts)
-          const finalJob = await storage.getJob(job.id);
-          db.insert(scrapeAnalytics).values({
-            url: job.url,
-            status: "completed",
-            totalAssets: finalJob?.totalAssets ?? 0,
-            successfulAssets: finalJob?.successfulAssets ?? 0,
-            failedAssets: finalJob?.failedAssets ?? 0,
-            completedAt: new Date(),
-          }).catch((e: any) => console.error("Analytics insert failed:", e));
+      // Give the credit / free scrape back if the job fails — the user got nothing.
+      runScrapeJob(job, refundOnFailure);
 
-          // Schedule automatic cleanup after 10 minutes so temp files don't pile up.
-          // The timer is cancelled if the user downloads first.
-          const TTL_MS = 10 * 60 * 1000;
-          storage.scheduleExpiry(job.id, async () => {
-            await cleanupScrapeFiles(job.id);
-            await storage.deleteJob(job.id);
-            jobOwners.delete(job.id);
-          }, TTL_MS);
-
-          // Re-fetch job so expiresAt is included in the broadcast
-          const jobWithExpiry = await storage.getJob(job.id);
-          broadcast(job.id, { type: "complete", job: jobWithExpiry ?? completedJob });
-          
-        } catch (error) {
-          console.error("Scrape error:", error);
-          const errMsg = error instanceof Error ? error.message : "Scraping failed";
-          await storage.updateJobStatus(job.id, "failed");
-          await storage.updateJobProgress(job.id, { errorMessage: errMsg });
-
-          // Give the credit / free scrape back — the user got nothing.
-          await refundOnFailure();
-
-          // Persist failure to DB
-          db.insert(scrapeAnalytics).values({
-            url: job.url,
-            status: "failed",
-            totalAssets: 0,
-            successfulAssets: 0,
-            failedAssets: 0,
-            completedAt: new Date(),
-            errorMessage: errMsg,
-          }).catch((e: any) => console.error("Analytics insert failed:", e));
-
-          // Send failure notification
-          sendNotification({
-            title: "Scrape failed",
-            message: `URL: ${job.url}\nError: ${errMsg}`,
-            url: job.url,
-            status: "failed",
-          });
-
-          broadcast(job.id, { type: "error", message: errMsg });
-        }
-      })();
-      
       res.json(job);
     } catch (error) {
       console.error("Scrape start error:", error);
@@ -822,6 +828,72 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Download error:", error);
       res.status(500).json({ message: "Download failed" });
+    }
+  });
+
+  // Payments currently being recovered — prevents concurrent recover calls
+  // from kicking off duplicate re-scrapes of the same purchase.
+  const recoveringPayments = new Set<number>();
+
+  // After a server restart, in-memory jobs and their ZIP files are gone but
+  // the payment record survives. Recover a paid download by re-scraping the
+  // purchased URL for free, with the download pre-authorized.
+  app.post("/api/scrape/:id/recover", requireAuth, async (req, res) => {
+    try {
+      const requestedJobId = String(req.params.id);
+      // If the job still exists, no recovery needed — return it as-is.
+      const existing = await storage.getJob(requestedJobId);
+      if (existing) {
+        const owner = jobOwners.get(requestedJobId);
+        if (owner !== undefined && owner !== req.session.userId) {
+          return res.status(404).json({ message: "Job not found" });
+        }
+        return res.json({ job: existing, recovered: false });
+      }
+
+      const rows = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.jobId, requestedJobId))
+        .limit(1);
+      if (rows.length === 0 || !rows[0].websiteUrl) {
+        return res.status(404).json({ message: "No paid backup found for this download" });
+      }
+      const payment = rows[0];
+
+      const user = await getUserById(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Please sign in to continue" });
+
+      // Bind the recovery to the buyer when we know who they are. Payments
+      // without a recorded email fall back to possession of the job ID
+      // (a random UUID only the buyer's success link contains).
+      if (
+        payment.customerEmail &&
+        payment.customerEmail.toLowerCase() !== user.email.toLowerCase()
+      ) {
+        return res.status(403).json({ message: "This purchase belongs to a different account" });
+      }
+
+      if (recoveringPayments.has(payment.id)) {
+        return res.status(409).json({ message: "Recovery already in progress — try again in a moment." });
+      }
+      recoveringPayments.add(payment.id);
+      try {
+        const job = await storage.createJob(payment.websiteUrl!);
+        storage.authorizeDownload(job.id, `recovered_${payment.id}_${job.id}`);
+        jobOwners.set(job.id, user.id);
+
+        // Point the payment at the new job so future restarts stay recoverable.
+        await db.update(payments).set({ jobId: job.id }).where(eq(payments.id, payment.id));
+
+        runScrapeJob(job);
+        res.json({ job, recovered: true });
+      } finally {
+        recoveringPayments.delete(payment.id);
+      }
+    } catch (error) {
+      console.error("Download recovery error:", error);
+      res.status(500).json({ message: "Recovery failed" });
     }
   });
 
