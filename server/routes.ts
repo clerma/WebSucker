@@ -7,7 +7,7 @@ import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
 import { startScrapeSchema, scrapeAnalytics, payments, users } from "@shared/schema";
 import type { Asset, ScrapeProgress, ScrapeJob, User } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
-import { sql, desc, count, sum, eq } from "drizzle-orm";
+import { sql, desc, count, sum, eq, isNotNull } from "drizzle-orm";
 import { db } from "./db";
 import { requireAuth, registerAuthRoutes, getUserById } from "./auth";
 
@@ -450,6 +450,17 @@ export async function registerRoutes(
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
 
+      // Safe for Stripe metadata (500-char value limit) and for storage:
+      // strip any embedded credentials and query string, cap the length.
+      const websiteForMetadata = (() => {
+        try {
+          const u = new URL(job.url);
+          return `${u.protocol}//${u.host}${u.pathname}`.slice(0, 450);
+        } catch {
+          return job.url.slice(0, 450);
+        }
+      })();
+
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [{ price: priceId, quantity: 1 }],
@@ -459,7 +470,11 @@ export async function registerRoutes(
         metadata: {
           jobId,
           app: "websucker",
+          url: websiteForMetadata,
         },
+        payment_intent_data: mode === "payment" ? {
+          metadata: { jobId, app: "websucker", url: websiteForMetadata },
+        } : undefined,
       });
 
       res.json({ url: session.url });
@@ -605,6 +620,7 @@ export async function registerRoutes(
             currency: session.currency ?? "usd",
             mode: session.mode ?? "payment",
             jobId,
+            websiteUrl: session.metadata?.url ?? null,
           }).onConflictDoNothing();
         } catch (e) {
           console.error("Failed to persist payment record:", e);
@@ -901,6 +917,7 @@ export async function registerRoutes(
         status: string;
         email: string | null;
         mode: string;
+        website: string | null;
       }
 
       const netAmount = (c: any): number =>
@@ -924,6 +941,21 @@ export async function registerRoutes(
       // invoice (initial + renewals). charges.list returns newest-first, so the first
       // 50 succeeded charges are the most recent — we keep those for the activity list
       // while continuing to sum all charges for an accurate lifetime total.
+      // Map Stripe payment intents -> scraped website URL via our payments table,
+      // so each order in the admin list shows which site was purchased.
+      const urlByPaymentIntent = new Map<string, string>();
+      try {
+        const paymentRows = await db.select({
+          pi: payments.stripePaymentIntentId,
+          url: payments.websiteUrl,
+        }).from(payments).where(isNotNull(payments.websiteUrl));
+        for (const row of paymentRows) {
+          if (row.pi && row.url) urlByPaymentIntent.set(row.pi, row.url);
+        }
+      } catch (e) {
+        console.warn("Could not load payment->website map:", e);
+      }
+
       try {
         const stripe = await getUncachableStripeClient();
         let scanned = 0;
@@ -944,6 +976,9 @@ export async function registerRoutes(
                   status: "succeeded",
                   email: chargeEmail(c),
                   mode: isSub ? "subscription" : "payment",
+                  // Stripe doesn't copy PI metadata onto the charge, so the
+                  // payments-table join (by payment_intent) is the source of truth.
+                  website: (typeof c.payment_intent === "string" ? urlByPaymentIntent.get(c.payment_intent) : undefined) ?? null,
                 });
               }
             }
@@ -997,6 +1032,7 @@ export async function registerRoutes(
           status: "succeeded",
           email: p.customerEmail ?? null,
           mode: p.mode,
+          website: p.websiteUrl ?? null,
         }));
         if (!revenueLoaded) {
           recentCharges = dbCharges;
