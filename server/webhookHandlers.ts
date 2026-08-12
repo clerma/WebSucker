@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { getStripeSync, getUncachableStripeClient } from './stripeClient';
 import { db } from './db';
-import { payments, users } from '@shared/schema';
+import { payments, users, downloadEvents } from '@shared/schema';
 import { sql, eq } from 'drizzle-orm';
 
 export class WebhookHandlers {
@@ -123,6 +123,22 @@ export class WebhookHandlers {
 
     if (inserted.length > 0) {
       console.log(`Webhook recorded payment for session ${session.id} (job: ${session.metadata?.jobId ?? 'none'})`);
+      // Job-bound one-time purchases are download unlocks — log them so the
+      // admin Recent Downloads list is complete even if the buyer never
+      // returns to the success page. Unique (job_id, method) dedupes against
+      // the browser verify-payment path.
+      if (session.mode === 'payment' && session.metadata?.jobId && session.metadata?.url) {
+        await db
+          .insert(downloadEvents)
+          .values({
+            userEmail: session.customer_details?.email ?? null,
+            jobId: session.metadata.jobId,
+            websiteUrl: session.metadata.url,
+            method: 'payment',
+          })
+          .onConflictDoNothing()
+          .catch((e: unknown) => console.error('Failed to record webhook download event:', e));
+      }
     }
   }
 }

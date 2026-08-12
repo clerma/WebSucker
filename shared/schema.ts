@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, serial, text, integer, timestamp, boolean, varchar, json, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, varchar, json, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 
 // User accounts — scraping is gated behind these.
@@ -74,6 +74,23 @@ export const payments = pgTable("payments", {
   websiteUrl: text("website_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Persistent record of every download unlock: which user unlocked which
+// website and how it was paid for. This is what ties revenue to sites for
+// credit-pack and subscription users (their charge isn't job-bound).
+export const downloadEvents = pgTable("download_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"),
+  userEmail: text("user_email"),
+  jobId: text("job_id"),
+  websiteUrl: text("website_url").notNull(),
+  method: text("method").notNull(), // 'credit' | 'subscription' | 'payment' | 'access_code'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  // Concurrent writers (webhook vs. browser verify) dedupe per job+method;
+  // NULL job_ids are distinct so unbound events are unaffected.
+  uniqueIndex("download_events_job_method_idx").on(table.jobId, table.method),
+]);
 
 // Express session store (managed by connect-pg-simple at runtime).
 // Declared here so drizzle db:push doesn't try to drop it.
