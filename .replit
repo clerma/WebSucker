@@ -54,3 +54,7 @@ integrations = ["stripe:1.0.0"]
 
 [userenv.shared]
 ADMIN_SECRET = "5WrzMjn7pOUUssKX"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000
