@@ -591,11 +591,52 @@ export async function registerRoutes(
     }
   });
 
+  // A webhook-recorded payment in the payments table is authoritative even
+  // when the in-memory authorization was never set (buyer paid but never
+  // returned to the success page) or the Stripe session lookup fails.
+  // Note: jobs themselves are in-memory, so this covers the lifetime of the
+  // job process — durable job/artifact persistence is tracked separately.
+  async function authorizeFromPersistedPayment(jobId: string): Promise<boolean> {
+    try {
+      const rows = await db
+        .select({ id: payments.id, sessionId: payments.stripeSessionId })
+        .from(payments)
+        .where(eq(payments.jobId, jobId))
+        .limit(1);
+      if (rows.length === 0) return false;
+      storage.authorizeDownload(jobId, rows[0].sessionId ?? `payment_${rows[0].id}_${jobId}`);
+      return true;
+    } catch (e) {
+      console.error("Persisted payment lookup failed:", e);
+      return false;
+    }
+  }
+
   app.get("/api/stripe/verify-payment", async (req, res) => {
     try {
       const { session_id } = req.query;
       if (!session_id || typeof session_id !== "string") {
         return res.status(400).json({ paid: false, message: "Missing session_id" });
+      }
+
+      // Fallback first: if the webhook already persisted this payment, honor
+      // it without needing Stripe or the in-memory session state. Re-visits
+      // of the success page re-authorize the same paid job.
+      const persisted = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.stripeSessionId, session_id))
+        .limit(1);
+      if (persisted.length > 0 && persisted[0].jobId) {
+        const p = persisted[0];
+        storage.authorizeDownload(p.jobId!, session_id);
+        return res.json({
+          paid: true,
+          jobId: p.jobId,
+          customerEmail: p.customerEmail,
+          isSubscription: p.mode === "subscription",
+          customerId: null,
+        });
       }
 
       if (storage.isSessionConsumed(session_id)) {
@@ -712,7 +753,13 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Download file not found" });
       }
 
-      if (!storage.isDownloadAuthorized(req.params.id)) {
+      // Webhook-recorded payments authorize the download even if the buyer
+      // never returned to the success page (paid, closed the tab).
+      if (!storage.isDownloadAuthorized(job.id)) {
+        await authorizeFromPersistedPayment(job.id);
+      }
+
+      if (!storage.isDownloadAuthorized(job.id)) {
         // Free scrapes don't include the download — try to pay for it now
         // with a subscription or a credit. A per-job in-flight lock makes the
         // charge single-consumer so concurrent requests can't double-charge.
