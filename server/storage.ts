@@ -1,8 +1,19 @@
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import type { Asset, ScrapeJob, ScrapeStatus, AssetStatus, AssetType } from "@shared/schema";
 import { db } from "./db";
 import { accessCodes as accessCodesTable } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+
+// Crockford base32 (no ambiguous 0/O, 1/I/L, U). 256 % 32 === 0, so indexing
+// random bytes mod 32 is unbiased.
+const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+function generateAccessCode(): string {
+  const bytes = randomBytes(10);
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) out += CODE_ALPHABET[bytes[i] % 32];
+  return `WS-${out.slice(0, 5)}-${out.slice(5, 10)}`; // ~50 bits of entropy
+}
 
 export interface AccessCode {
   code: string;
@@ -195,6 +206,7 @@ export class MemStorage implements IStorage {
       status: job.status,
       totalAssets: job.totalAssets,
       successfulAssets: job.successfulAssets,
+      failedAssets: job.failedAssets,
       createdAt: job.createdAt,
       completedAt: job.completedAt,
     });
@@ -239,10 +251,7 @@ export class MemStorage implements IStorage {
   }
 
   async createAccessCode(note: string, maxUses: number | null): Promise<AccessCode> {
-    const words = ["SUNSET", "RIVER", "FALCON", "EMBER", "WAVE", "CEDAR", "DUSK", "PINE", "FROST", "BLOOM"];
-    const word = words[Math.floor(Math.random() * words.length)];
-    const num = Math.floor(1000 + Math.random() * 9000);
-    const code = `${word}-${num}`;
+    const code = generateAccessCode();
     const [row] = await db.insert(accessCodesTable).values({
       code,
       note: note || "",
@@ -276,13 +285,22 @@ export class MemStorage implements IStorage {
 
   async redeemAccessCode(code: string): Promise<boolean> {
     const normalized = code.toUpperCase().trim();
-    const [row] = await db.select().from(accessCodesTable).where(eq(accessCodesTable.code, normalized));
-    if (!row) return false;
-    if (row.maxUses !== null && row.uses >= row.maxUses) return false;
-    await db.update(accessCodesTable)
-      .set({ uses: row.uses + 1 })
-      .where(eq(accessCodesTable.code, normalized));
-    return true;
+    // Atomic: increment uses only if the code exists AND is under its cap, in a
+    // single conditional UPDATE. This closes the read-then-write race where two
+    // concurrent redemptions could both pass a separate `uses < maxUses` check.
+    const updated = await db.update(accessCodesTable)
+      .set({ uses: sql`${accessCodesTable.uses} + 1` })
+      .where(
+        and(
+          eq(accessCodesTable.code, normalized),
+          or(
+            isNull(accessCodesTable.maxUses),
+            lt(accessCodesTable.uses, accessCodesTable.maxUses),
+          ),
+        ),
+      )
+      .returning();
+    return updated.length > 0;
   }
 }
 
