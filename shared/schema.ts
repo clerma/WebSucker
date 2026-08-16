@@ -1,5 +1,56 @@
 import { z } from "zod";
-import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, varchar, json, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+
+// User accounts — scraping is gated behind these.
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  credits: integer("credits").notNull().default(0),
+  freeScrapeUsed: boolean("free_scrape_used").notNull().default(false),
+  stripeCustomerId: text("stripe_customer_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type User = typeof users.$inferSelect;
+
+export const registerSchema = z.object({
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+export type RegisterInput = z.infer<typeof registerSchema>;
+
+export const loginSchema = z.object({
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(1, "Password is required"),
+});
+export type LoginInput = z.infer<typeof loginSchema>;
+
+// Password reset tokens — single-use, short-lived. Only the SHA-256 hash of
+// the token is stored; the raw token exists only in the emailed link.
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email("Please enter a valid email"),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, "Missing reset token"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
 
 // Persistent access codes table — survives server restarts
 export const accessCodes = pgTable("access_codes", {
@@ -20,8 +71,36 @@ export const payments = pgTable("payments", {
   currency: text("currency").notNull().default("usd"),
   mode: text("mode").notNull(), // 'payment' | 'subscription'
   jobId: text("job_id"),
+  websiteUrl: text("website_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Persistent record of every download unlock: which user unlocked which
+// website and how it was paid for. This is what ties revenue to sites for
+// credit-pack and subscription users (their charge isn't job-bound).
+export const downloadEvents = pgTable("download_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"),
+  userEmail: text("user_email"),
+  jobId: text("job_id"),
+  websiteUrl: text("website_url").notNull(),
+  method: text("method").notNull(), // 'credit' | 'subscription' | 'payment' | 'access_code'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  // Concurrent writers (webhook vs. browser verify) dedupe per job+method;
+  // NULL job_ids are distinct so unbound events are unaffected.
+  uniqueIndex("download_events_job_method_idx").on(table.jobId, table.method),
+]);
+
+// Express session store (managed by connect-pg-simple at runtime).
+// Declared here so drizzle db:push doesn't try to drop it.
+export const userSessions = pgTable("user_sessions", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+}, (table) => [
+  index("IDX_session_expire").on(table.expire),
+]);
 
 // Persistent analytics table — survives server restarts
 export const scrapeAnalytics = pgTable("scrape_analytics", {

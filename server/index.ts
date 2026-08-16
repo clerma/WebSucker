@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { setupSession } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
@@ -99,6 +100,8 @@ async function main() {
   );
 
   app.use(express.urlencoded({ extended: false }));
+
+  setupSession(app);
 
   app.use((req, res, next) => {
     const start = Date.now();

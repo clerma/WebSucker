@@ -3,13 +3,18 @@ import Stripe from 'stripe';
 let connectionSettings: any;
 
 async function getCredentials() {
-  // Use explicit environment variables if both are valid (secret key must start with sk_)
-  const envSecret = process.env.STRIPE_SECRET_KEY;
+  // Use explicit environment variables when valid (secret key must start with sk_ or rk_).
+  // NOTE: STRIPE_SECRET_KEY is managed/injected by the Replit Stripe integration and
+  // cannot be overridden by the user. STRIPE_LIVE_SECRET_KEY takes precedence so the
+  // user can supply their own live key. The publishable key may come from the env or
+  // fall back to the Replit connector.
+  const envSecret = process.env.STRIPE_LIVE_SECRET_KEY || process.env.STRIPE_SECRET_KEY;
   const envPublishable = process.env.STRIPE_PUBLISHABLE_KEY;
-  if (envSecret && (envSecret.startsWith('sk_') || envSecret.startsWith('rk_')) && envPublishable) {
+  const envSecretValid = !!envSecret && (envSecret.startsWith('sk_') || envSecret.startsWith('rk_'));
+  if (envSecretValid && envPublishable) {
     return {
       publishableKey: envPublishable,
-      secretKey: envSecret,
+      secretKey: envSecret!,
     };
   }
 
@@ -49,8 +54,9 @@ async function getCredentials() {
   }
 
   return {
-    publishableKey: connectionSettings.settings.publishable,
-    secretKey: connectionSettings.settings.secret,
+    publishableKey: envPublishable || connectionSettings.settings.publishable,
+    // Prefer the explicit env secret when valid; connector only fills gaps.
+    secretKey: envSecretValid ? envSecret! : connectionSettings.settings.secret,
   };
 }
 

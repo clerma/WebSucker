@@ -94,7 +94,7 @@ export default function Blog() {
         <div className="max-w-4xl mx-auto px-4 py-12 text-center">
           <h2 className="text-xl font-semibold mb-3">Ready to back up your site?</h2>
           <p className="text-muted-foreground mb-6">
-            Paste any URL — analysing is always free. Download the complete offline copy for $1.99.
+            Create a free account and preview your first scrape free — ZIP downloads from $1.99 for a single credit (packs from $1.30/credit).
           </p>
           <a
             href="/"

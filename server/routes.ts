@@ -6,11 +6,12 @@ import * as fs from "fs";
 import { storage } from "./storage";
 import { rateLimit } from "./security";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
-import { startScrapeSchema, scrapeAnalytics, payments } from "@shared/schema";
-import type { Asset, ScrapeProgress, ScrapeJob } from "@shared/schema";
+import { startScrapeSchema, scrapeAnalytics, payments, users, downloadEvents } from "@shared/schema";
+import type { Asset, ScrapeProgress, ScrapeJob, User } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
-import { sql, desc, count, sum } from "drizzle-orm";
+import { sql, desc, count, sum, eq, isNotNull } from "drizzle-orm";
 import { db } from "./db";
+import { requireAuth, registerAuthRoutes, getUserById } from "./auth";
 
 // Send a notification to a configurable webhook URL (Discord, Slack, Make, etc.)
 async function sendNotification(payload: { title: string; message: string; url: string; status: "completed" | "failed" }) {
@@ -73,6 +74,14 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+
+  // Job ownership: jobId -> userId. Jobs live in memory, so this map matches
+  // their lifetime. Enforced on job status reads and downloads.
+  const jobOwners = new Map<string, number>();
+
+  // Jobs currently having a download charge applied — prevents concurrent
+  // requests from double-charging the same job.
+  const chargingJobs = new Set<string>();
 
   // Send a ping to every connected client every 25 seconds to keep the
   // connection alive through proxies that close idle connections.
@@ -221,7 +230,140 @@ export async function registerRoutes(
     return false;
   }
 
-  app.post("/api/scrape", scrapeLimiter, async (req, res) => {
+  registerAuthRoutes(app);
+
+  // Check whether a user has an active subscription. Links the Stripe customer
+  // to the user record on first successful lookup by email.
+  async function userHasActiveSubscription(user: User): Promise<boolean> {
+    try {
+      const stripe = await getUncachableStripeClient();
+      if (user.stripeCustomerId) {
+        const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, status: "active", limit: 1 });
+        if (subs.data.length > 0) return true;
+      }
+      const customers = await stripe.customers.list({ email: user.email, limit: 5 });
+      for (const customer of customers.data) {
+        if (customer.id === user.stripeCustomerId) continue;
+        const subs = await stripe.subscriptions.list({ customer: customer.id, status: "active", limit: 1 });
+        if (subs.data.length > 0) {
+          await db.update(users).set({ stripeCustomerId: customer.id }).where(eq(users.id, user.id));
+          return true;
+        }
+      }
+      return false;
+    } catch (err) {
+      console.error("Subscription check failed:", err);
+      return false;
+    }
+  }
+
+  // Runs the scrape pipeline for a job in the background: broadcasts progress,
+  // completes/fails the job, persists analytics, schedules cleanup.
+  function runScrapeJob(job: ScrapeJob, onFailure?: () => Promise<void>) {
+    (async () => {
+      try {
+        const zipPath = await scrapeWebsite({
+          jobId: job.id,
+          url: job.url,
+          onProgress: (progress: ScrapeProgress, asset?: Asset) => {
+            broadcast(job.id, { type: "progress", progress });
+            if (asset) {
+              broadcast(job.id, { type: "asset", asset });
+            }
+          },
+        });
+
+        const completedJob = await storage.completeJob(job.id, zipPath);
+
+        // Persist to DB (survives server restarts)
+        const finalJob = await storage.getJob(job.id);
+        db.insert(scrapeAnalytics).values({
+          url: job.url,
+          status: "completed",
+          totalAssets: finalJob?.totalAssets ?? 0,
+          successfulAssets: finalJob?.successfulAssets ?? 0,
+          failedAssets: finalJob?.failedAssets ?? 0,
+          completedAt: new Date(),
+        }).catch((e: any) => console.error("Analytics insert failed:", e));
+
+        // Schedule automatic cleanup after 10 minutes so temp files don't pile up.
+        // The timer is cancelled if the user downloads first.
+        const TTL_MS = 10 * 60 * 1000;
+        storage.scheduleExpiry(job.id, async () => {
+          await cleanupScrapeFiles(job.id);
+          await storage.deleteJob(job.id);
+          jobOwners.delete(job.id);
+        }, TTL_MS);
+
+        // Re-fetch job so expiresAt is included in the broadcast
+        const jobWithExpiry = await storage.getJob(job.id);
+        broadcast(job.id, { type: "complete", job: jobWithExpiry ?? completedJob });
+
+      } catch (error) {
+        console.error("Scrape error:", error);
+        const errMsg = error instanceof Error ? error.message : "Scraping failed";
+        await storage.updateJobStatus(job.id, "failed");
+        await storage.updateJobProgress(job.id, { errorMessage: errMsg });
+
+        if (onFailure) await onFailure();
+
+        // Free the partial /tmp output immediately so failed jobs don't leak
+        // disk. Keep the job record briefly so the client's reconnect poll can
+        // still read the failure, then GC it.
+        await cleanupScrapeFiles(job.id);
+        storage.scheduleExpiry(job.id, async () => {
+          await storage.deleteJob(job.id);
+          jobOwners.delete(job.id);
+        }, 2 * 60 * 1000);
+
+        // Persist failure to DB
+        db.insert(scrapeAnalytics).values({
+          url: job.url,
+          status: "failed",
+          totalAssets: 0,
+          successfulAssets: 0,
+          failedAssets: 0,
+          completedAt: new Date(),
+          errorMessage: errMsg,
+        }).catch((e: any) => console.error("Analytics insert failed:", e));
+
+        // Send failure notification
+        sendNotification({
+          title: "Scrape failed",
+          message: `URL: ${job.url}\nError: ${errMsg}`,
+          url: job.url,
+          status: "failed",
+        });
+
+        broadcast(job.id, { type: "error", message: errMsg });
+      }
+    })();
+  }
+
+  // Strip credentials/query tokens from a URL before persisting it anywhere.
+  const sanitizeUrlForLog = (raw: string): string => {
+    try {
+      const u = new URL(raw);
+      return `${u.protocol}//${u.host}${u.pathname}`.slice(0, 450);
+    } catch {
+      return raw.slice(0, 450);
+    }
+  };
+
+  // Best-effort persistent log of download unlocks (never blocks the request).
+  // The unique (job_id, method) index makes concurrent writers (e.g. webhook
+  // vs. browser verify) idempotent.
+  const recordDownloadEvent = (e: { userId?: number | null; userEmail?: string | null; jobId?: string | null; websiteUrl: string; method: string }) => {
+    db.insert(downloadEvents).values({
+      userId: e.userId ?? null,
+      userEmail: e.userEmail ?? null,
+      jobId: e.jobId ?? null,
+      websiteUrl: sanitizeUrlForLog(e.websiteUrl),
+      method: e.method,
+    }).onConflictDoNothing().catch((err) => console.error("Failed to record download event:", err));
+  };
+
+  app.post("/api/scrape", scrapeLimiter, requireAuth, async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
 
@@ -231,83 +373,71 @@ export async function registerRoutes(
         });
       }
 
-      const job = await storage.createJob(validatedData.url);
-      
-      (async () => {
-        try {
-          const zipPath = await scrapeWebsite({
-            jobId: job.id,
-            url: validatedData.url,
-            onProgress: (progress: ScrapeProgress, asset?: Asset) => {
-              broadcast(job.id, { type: "progress", progress });
-              if (asset) {
-                broadcast(job.id, { type: "asset", asset });
-              }
-            },
-          });
-          
-          const completedJob = await storage.completeJob(job.id, zipPath);
+      const user = await getUserById(req.session.userId!);
+      if (!user) {
+        return res.status(401).json({ message: "Please sign in to continue" });
+      }
 
-          // Persist to DB (survives server restarts)
-          const finalJob = await storage.getJob(job.id);
-          db.insert(scrapeAnalytics).values({
-            url: job.url,
-            status: "completed",
-            totalAssets: finalJob?.totalAssets ?? 0,
-            successfulAssets: finalJob?.successfulAssets ?? 0,
-            failedAssets: finalJob?.failedAssets ?? 0,
-            completedAt: new Date(),
-          }).catch((e: any) => console.error("Analytics insert failed:", e));
-
-          // Schedule automatic cleanup after 10 minutes so temp files don't pile up.
-          // The timer is cancelled if the user downloads first.
-          const TTL_MS = 10 * 60 * 1000;
-          storage.scheduleExpiry(job.id, async () => {
-            await cleanupScrapeFiles(job.id);
-            await storage.deleteJob(job.id);
-          }, TTL_MS);
-
-          // Re-fetch job so expiresAt is included in the broadcast
-          const jobWithExpiry = await storage.getJob(job.id);
-          broadcast(job.id, { type: "complete", job: jobWithExpiry ?? completedJob });
-          
-        } catch (error) {
-          console.error("Scrape error:", error);
-          const errMsg = error instanceof Error ? error.message : "Scraping failed";
-          await storage.updateJobStatus(job.id, "failed");
-          await storage.updateJobProgress(job.id, { errorMessage: errMsg });
-
-          // Free the partial /tmp output immediately so failed jobs don't leak
-          // disk. Keep the job record briefly so the client's reconnect poll can
-          // still read the failure, then GC it.
-          await cleanupScrapeFiles(job.id);
-          storage.scheduleExpiry(job.id, async () => {
-            await storage.deleteJob(job.id);
-          }, 2 * 60 * 1000);
-
-          // Persist failure to DB
-          db.insert(scrapeAnalytics).values({
-            url: job.url,
-            status: "failed",
-            totalAssets: 0,
-            successfulAssets: 0,
-            failedAssets: 0,
-            completedAt: new Date(),
-            errorMessage: errMsg,
-          }).catch((e: any) => console.error("Analytics insert failed:", e));
-
-          // Send failure notification
-          sendNotification({
-            title: "Scrape failed",
-            message: `URL: ${job.url}\nError: ${errMsg}`,
-            url: job.url,
-            status: "failed",
-          });
-
-          broadcast(job.id, { type: "error", message: errMsg });
+      // Determine how this scrape is paid for: subscription > free scrape > credit.
+      // Free-scrape and credit consumption are both atomic conditional updates,
+      // so concurrent requests can't double-spend either entitlement.
+      let paidWith: "subscription" | "free" | "credit";
+      if (await userHasActiveSubscription(user)) {
+        paidWith = "subscription";
+      } else {
+        const claimedFree = await db
+          .update(users)
+          .set({ freeScrapeUsed: true })
+          .where(sql`${users.id} = ${user.id} AND ${users.freeScrapeUsed} = false`)
+          .returning({ id: users.id });
+        if (claimedFree.length > 0) {
+          paidWith = "free";
+        } else {
+          const updated = await db
+            .update(users)
+            .set({ credits: sql`${users.credits} - 1` })
+            .where(sql`${users.id} = ${user.id} AND ${users.credits} > 0`)
+            .returning({ credits: users.credits });
+          if (updated.length === 0) {
+            return res.status(402).json({
+              message: "You're out of credits. Buy a credit pack or subscribe for unlimited scrapes.",
+              code: "NO_CREDITS",
+            });
+          }
+          paidWith = "credit";
         }
-      })();
-      
+      }
+
+      const job = await storage.createJob(validatedData.url);
+      // Subscription and credit scrapes include the download. The free scrape
+      // covers scraping/analysis only — downloading the ZIP requires a credit
+      // or subscription (charged at download time).
+      if (paidWith !== "free") {
+        storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+        // Free scrapes don't include the download, so they aren't unlocks;
+        // they get logged at download time when a credit/subscription pays.
+        recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: paidWith });
+      }
+      jobOwners.set(job.id, user.id);
+
+      // Refund the free scrape or credit if the job fails outright.
+      const refundOnFailure = async () => {
+        try {
+          if (paidWith === "free") {
+            await db.update(users).set({ freeScrapeUsed: false }).where(eq(users.id, user.id));
+          } else if (paidWith === "credit") {
+            await db.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, user.id));
+          }
+          // The unlock never yielded a download — drop its audit record.
+          await db.delete(downloadEvents).where(eq(downloadEvents.jobId, job.id));
+        } catch (e) {
+          console.error("Refund failed:", e);
+        }
+      };
+
+      // Give the credit / free scrape back if the job fails — the user got nothing.
+      runScrapeJob(job, refundOnFailure);
+
       res.json(job);
     } catch (error) {
       console.error("Scrape start error:", error);
@@ -317,10 +447,15 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scrape/:id", async (req, res) => {
+  app.get("/api/scrape/:id", requireAuth, async (req, res) => {
     try {
-      const job = await storage.getJob(req.params.id);
+      const jobId = String(req.params.id);
+      const job = await storage.getJob(jobId);
       if (!job) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+      const owner = jobOwners.get(jobId);
+      if (owner !== undefined && owner !== req.session.userId) {
         return res.status(404).json({ message: "Job not found" });
       }
       res.json(job);
@@ -409,6 +544,17 @@ export async function registerRoutes(
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
 
+      // Safe for Stripe metadata (500-char value limit) and for storage:
+      // strip any embedded credentials and query string, cap the length.
+      const websiteForMetadata = (() => {
+        try {
+          const u = new URL(job.url);
+          return `${u.protocol}//${u.host}${u.pathname}`.slice(0, 450);
+        } catch {
+          return job.url.slice(0, 450);
+        }
+      })();
+
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [{ price: priceId, quantity: 1 }],
@@ -418,7 +564,11 @@ export async function registerRoutes(
         metadata: {
           jobId,
           app: "websucker",
+          url: websiteForMetadata,
         },
+        payment_intent_data: mode === "payment" ? {
+          metadata: { jobId, app: "websucker", url: websiteForMetadata },
+        } : undefined,
       });
 
       res.json({ url: session.url });
@@ -428,11 +578,159 @@ export async function registerRoutes(
     }
   });
 
+  // Checkout for credit packs or the unlimited subscription — no job required,
+  // credits/subscription are attached to the signed-in account.
+  app.post("/api/stripe/checkout-plan", paymentLimiter, requireAuth, async (req, res) => {
+    try {
+      const { priceId } = req.body;
+      if (!priceId) {
+        return res.status(400).json({ message: "Missing priceId" });
+      }
+      const user = await getUserById(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Please sign in" });
+
+      const stripe = await getUncachableStripeClient();
+      const price = await stripe.prices.retrieve(priceId);
+      const mode = price.recurring ? "subscription" : "payment";
+      const creditAmount = price.metadata?.credits ? parseInt(price.metadata.credits, 10) : 0;
+
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [{ price: priceId, quantity: 1 }],
+        mode,
+        customer_email: user.stripeCustomerId ? undefined : user.email,
+        customer: user.stripeCustomerId ?? undefined,
+        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=1`,
+        cancel_url: `${baseUrl}/checkout/cancel`,
+        metadata: {
+          app: "websucker",
+          userId: String(user.id),
+          ...(creditAmount > 0 ? { type: "credits", credits: String(creditAmount) } : { type: "subscription" }),
+        },
+      });
+
+      res.json({ url: session.url });
+    } catch (error) {
+      console.error("Plan checkout error:", error);
+      res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  // Verify a plan purchase (credits or subscription) and apply it to the account.
+  // Idempotent: the payments table records each session once.
+  app.get("/api/stripe/verify-plan", paymentLimiter, requireAuth, async (req, res) => {
+    try {
+      const { session_id } = req.query;
+      if (!session_id || typeof session_id !== "string") {
+        return res.status(400).json({ paid: false, message: "Missing session_id" });
+      }
+      const user = await getUserById(req.session.userId!);
+      if (!user) return res.status(401).json({ paid: false });
+
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      if (session.payment_status !== "paid") {
+        return res.json({ paid: false });
+      }
+
+      // The checkout session must belong to the signed-in user — otherwise
+      // anyone with a session_id could claim someone else's purchase.
+      if (
+        session.metadata?.app !== "websucker" ||
+        session.metadata?.userId !== String(user.id)
+      ) {
+        return res.status(403).json({ paid: false, message: "This purchase belongs to a different account" });
+      }
+
+      // Idempotency guard — only grant once per checkout session.
+      const inserted = await db
+        .insert(payments)
+        .values({
+          stripeSessionId: session_id,
+          stripePaymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : null,
+          customerEmail: session.customer_details?.email ?? user.email,
+          amountCents: session.amount_total ?? 0,
+          currency: session.currency ?? "usd",
+          mode: session.mode ?? "payment",
+          jobId: null,
+        })
+        .onConflictDoNothing()
+        .returning({ id: payments.id });
+
+      const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
+      const updates: Record<string, any> = {};
+      if (customerId && customerId !== user.stripeCustomerId) {
+        updates.stripeCustomerId = customerId;
+      }
+
+      const creditAmount = session.metadata?.credits ? parseInt(session.metadata.credits, 10) : 0;
+      if (inserted.length > 0 && creditAmount > 0) {
+        updates.credits = sql`${users.credits} + ${creditAmount}`;
+      }
+      if (Object.keys(updates).length > 0) {
+        await db.update(users).set(updates).where(eq(users.id, user.id));
+      }
+
+      const freshUser = await getUserById(user.id);
+      res.json({
+        paid: true,
+        type: session.metadata?.type ?? (session.mode === "subscription" ? "subscription" : "credits"),
+        creditsAdded: inserted.length > 0 ? creditAmount : 0,
+        credits: freshUser?.credits ?? user.credits,
+      });
+    } catch (error) {
+      console.error("Plan verification error:", error);
+      res.status(500).json({ paid: false, message: "Verification failed" });
+    }
+  });
+
+  // A webhook-recorded payment in the payments table is authoritative even
+  // when the in-memory authorization was never set (buyer paid but never
+  // returned to the success page) or the Stripe session lookup fails.
+  // Note: jobs themselves are in-memory, so this covers the lifetime of the
+  // job process — durable job/artifact persistence is tracked separately.
+  async function authorizeFromPersistedPayment(jobId: string): Promise<boolean> {
+    try {
+      const rows = await db
+        .select({ id: payments.id, sessionId: payments.stripeSessionId })
+        .from(payments)
+        .where(eq(payments.jobId, jobId))
+        .limit(1);
+      if (rows.length === 0) return false;
+      storage.authorizeDownload(jobId, rows[0].sessionId ?? `payment_${rows[0].id}_${jobId}`);
+      return true;
+    } catch (e) {
+      console.error("Persisted payment lookup failed:", e);
+      return false;
+    }
+  }
+
   app.get("/api/stripe/verify-payment", paymentLimiter, async (req, res) => {
     try {
       const { session_id } = req.query;
       if (!session_id || typeof session_id !== "string") {
         return res.status(400).json({ paid: false, message: "Missing session_id" });
+      }
+
+      // Fallback first: if the webhook already persisted this payment, honor
+      // it without needing Stripe or the in-memory session state. Re-visits
+      // of the success page re-authorize the same paid job.
+      const persisted = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.stripeSessionId, session_id))
+        .limit(1);
+      if (persisted.length > 0 && persisted[0].jobId) {
+        const p = persisted[0];
+        storage.authorizeDownload(p.jobId!, session_id);
+        return res.json({
+          paid: true,
+          jobId: p.jobId,
+          customerEmail: p.customerEmail,
+          isSubscription: p.mode === "subscription",
+          customerId: null,
+        });
       }
 
       if (storage.isSessionConsumed(session_id)) {
@@ -457,7 +755,15 @@ export async function registerRoutes(
             currency: session.currency ?? "usd",
             mode: session.mode ?? "payment",
             jobId,
+            websiteUrl: session.metadata?.url ?? null,
           }).onConflictDoNothing();
+          const paidJob = await storage.getJob(jobId);
+          recordDownloadEvent({
+            userEmail: session.customer_details?.email ?? null,
+            jobId,
+            websiteUrl: paidJob?.url ?? session.metadata?.url ?? "unknown",
+            method: "payment",
+          });
         } catch (e) {
           console.error("Failed to persist payment record:", e);
         }
@@ -499,35 +805,10 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/stripe/authorize-subscriber-download", paymentLimiter, async (req, res) => {
+  app.get("/api/scrape/:id/download", requireAuth, async (req, res) => {
     try {
-      const { customerId, jobId } = req.body;
-      if (!customerId || !jobId) {
-        return res.status(400).json({ authorized: false });
-      }
-
-      const stripe = await getUncachableStripeClient();
-      const subscriptions = await stripe.subscriptions.list({
-        customer: customerId,
-        status: "active",
-        limit: 1,
-      });
-
-      if (subscriptions.data.length > 0) {
-        storage.authorizeDownload(jobId, `sub_${customerId}_${jobId}`);
-        return res.json({ authorized: true });
-      }
-
-      res.json({ authorized: false });
-    } catch (error) {
-      console.error("Subscription auth error:", error);
-      res.json({ authorized: false });
-    }
-  });
-  
-  app.get("/api/scrape/:id/download", async (req, res) => {
-    try {
-      const job = await storage.getJob(req.params.id);
+      const jobId = String(req.params.id);
+      const job = await storage.getJob(jobId);
       if (!job) {
         return res.status(404).json({ message: "Job not found" });
       }
@@ -535,14 +816,63 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Download not ready" });
       }
 
-      if (!storage.isDownloadAuthorized(req.params.id)) {
-        return res.status(402).json({ message: "Payment required" });
+      const owner = jobOwners.get(jobId);
+      if (owner !== undefined && owner !== req.session.userId) {
+        return res.status(404).json({ message: "Job not found" });
       }
 
+      // Verify the artifact exists BEFORE any charging, so a user is never
+      // charged for a file that can't be served.
       try {
         await fs.promises.access(job.downloadPath);
       } catch {
         return res.status(404).json({ message: "Download file not found" });
+      }
+
+      // Webhook-recorded payments authorize the download even if the buyer
+      // never returned to the success page (paid, closed the tab).
+      if (!storage.isDownloadAuthorized(job.id)) {
+        await authorizeFromPersistedPayment(job.id);
+      }
+
+      if (!storage.isDownloadAuthorized(job.id)) {
+        // Free scrapes don't include the download — try to pay for it now
+        // with a subscription or a credit. A per-job in-flight lock makes the
+        // charge single-consumer so concurrent requests can't double-charge.
+        if (chargingJobs.has(job.id)) {
+          return res.status(409).json({ message: "Download is already being prepared — try again in a moment." });
+        }
+        chargingJobs.add(job.id);
+        try {
+          const user = await getUserById(req.session.userId!);
+          if (!user || owner !== user.id) {
+            return res.status(402).json({ message: "Payment required" });
+          }
+          // Re-check after acquiring the lock — another request may have
+          // authorized the job while we were waiting.
+          if (!storage.isDownloadAuthorized(job.id)) {
+            if (await userHasActiveSubscription(user)) {
+              storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+              recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "subscription" });
+            } else {
+              const updated = await db
+                .update(users)
+                .set({ credits: sql`${users.credits} - 1` })
+                .where(sql`${users.id} = ${user.id} AND ${users.credits} > 0`)
+                .returning({ credits: users.credits });
+              if (updated.length === 0) {
+                return res.status(402).json({
+                  message: "Downloading requires a credit. Buy a credit pack or subscribe for unlimited scrapes.",
+                  code: "NO_CREDITS",
+                });
+              }
+              storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+              recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "credit" });
+            }
+          }
+        } finally {
+          chargingJobs.delete(job.id);
+        }
       }
 
       // Cancel the 10-minute expiry timer so it doesn't delete files mid-download
@@ -569,6 +899,7 @@ export async function registerRoutes(
         setTimeout(async () => {
           await cleanupScrapeFiles(job.id);
           await storage.deleteJob(job.id);
+          jobOwners.delete(job.id);
         }, 5000);
       };
 
@@ -592,6 +923,72 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Download error:", error);
       res.status(500).json({ message: "Download failed" });
+    }
+  });
+
+  // Payments currently being recovered — prevents concurrent recover calls
+  // from kicking off duplicate re-scrapes of the same purchase.
+  const recoveringPayments = new Set<number>();
+
+  // After a server restart, in-memory jobs and their ZIP files are gone but
+  // the payment record survives. Recover a paid download by re-scraping the
+  // purchased URL for free, with the download pre-authorized.
+  app.post("/api/scrape/:id/recover", requireAuth, async (req, res) => {
+    try {
+      const requestedJobId = String(req.params.id);
+      // If the job still exists, no recovery needed — return it as-is.
+      const existing = await storage.getJob(requestedJobId);
+      if (existing) {
+        const owner = jobOwners.get(requestedJobId);
+        if (owner !== undefined && owner !== req.session.userId) {
+          return res.status(404).json({ message: "Job not found" });
+        }
+        return res.json({ job: existing, recovered: false });
+      }
+
+      const rows = await db
+        .select()
+        .from(payments)
+        .where(eq(payments.jobId, requestedJobId))
+        .limit(1);
+      if (rows.length === 0 || !rows[0].websiteUrl) {
+        return res.status(404).json({ message: "No paid backup found for this download" });
+      }
+      const payment = rows[0];
+
+      const user = await getUserById(req.session.userId!);
+      if (!user) return res.status(401).json({ message: "Please sign in to continue" });
+
+      // Bind the recovery to the buyer when we know who they are. Payments
+      // without a recorded email fall back to possession of the job ID
+      // (a random UUID only the buyer's success link contains).
+      if (
+        payment.customerEmail &&
+        payment.customerEmail.toLowerCase() !== user.email.toLowerCase()
+      ) {
+        return res.status(403).json({ message: "This purchase belongs to a different account" });
+      }
+
+      if (recoveringPayments.has(payment.id)) {
+        return res.status(409).json({ message: "Recovery already in progress — try again in a moment." });
+      }
+      recoveringPayments.add(payment.id);
+      try {
+        const job = await storage.createJob(payment.websiteUrl!);
+        storage.authorizeDownload(job.id, `recovered_${payment.id}_${job.id}`);
+        jobOwners.set(job.id, user.id);
+
+        // Point the payment at the new job so future restarts stay recoverable.
+        await db.update(payments).set({ jobId: job.id }).where(eq(payments.id, payment.id));
+
+        runScrapeJob(job);
+        res.json({ job, recovered: true });
+      } finally {
+        recoveringPayments.delete(payment.id);
+      }
+    } catch (error) {
+      console.error("Download recovery error:", error);
+      res.status(500).json({ message: "Recovery failed" });
     }
   });
 
@@ -642,18 +1039,40 @@ export async function registerRoutes(
     res.json({ deleted });
   });
 
-  // Redeem an access code to authorize a download
-  app.post("/api/access-code/redeem", redeemLimiter, async (req, res) => {
+  // Redeem an access code. With a jobId it authorizes that job's download;
+  // without one it grants the signed-in user 1 credit.
+  app.post("/api/access-code/redeem", redeemLimiter, requireAuth, async (req, res) => {
     const { code, jobId } = req.body;
-    if (!code || !jobId) {
-      return res.status(400).json({ success: false, message: "Code and jobId are required" });
+    if (!code || typeof code !== "string") {
+      return res.status(400).json({ success: false, message: "Code is required" });
+    }
+    // Validate the job BEFORE consuming the code so an invalid job never
+    // burns a redemption.
+    if (jobId) {
+      const job = await storage.getJob(jobId);
+      const owner = jobOwners.get(jobId);
+      if (!job || job.status !== "completed" || (owner !== undefined && owner !== req.session.userId)) {
+        return res.status(400).json({ success: false, message: "This code can't be applied to that download" });
+      }
     }
     const valid = await storage.redeemAccessCode(code);
     if (!valid) {
       return res.status(400).json({ success: false, message: "Invalid or expired access code" });
     }
-    storage.authorizeDownload(jobId, `code:${code}:${jobId}`);
-    res.json({ success: true });
+    if (jobId) {
+      storage.authorizeDownload(jobId, `code:${code}:${jobId}`);
+      const job = await storage.getJob(jobId);
+      const user = await getUserById(req.session.userId!);
+      if (job) {
+        recordDownloadEvent({ userId: req.session.userId, userEmail: user?.email, jobId, websiteUrl: job.url, method: "access_code" });
+      }
+      return res.json({ success: true, granted: "download" });
+    }
+    await db
+      .update(users)
+      .set({ credits: sql`${users.credits} + 1` })
+      .where(eq(users.id, req.session.userId!));
+    res.json({ success: true, granted: "credit" });
   });
 
   app.get("/api/admin/stats", adminLimiter, async (req, res) => {
@@ -703,6 +1122,7 @@ export async function registerRoutes(
         status: string;
         email: string | null;
         mode: string;
+        website: string | null;
       }
 
       const netAmount = (c: any): number =>
@@ -726,6 +1146,21 @@ export async function registerRoutes(
       // invoice (initial + renewals). charges.list returns newest-first, so the first
       // 50 succeeded charges are the most recent — we keep those for the activity list
       // while continuing to sum all charges for an accurate lifetime total.
+      // Map Stripe payment intents -> scraped website URL via our payments table,
+      // so each order in the admin list shows which site was purchased.
+      const urlByPaymentIntent = new Map<string, string>();
+      try {
+        const paymentRows = await db.select({
+          pi: payments.stripePaymentIntentId,
+          url: payments.websiteUrl,
+        }).from(payments).where(isNotNull(payments.websiteUrl));
+        for (const row of paymentRows) {
+          if (row.pi && row.url) urlByPaymentIntent.set(row.pi, row.url);
+        }
+      } catch (e) {
+        console.warn("Could not load payment->website map:", e);
+      }
+
       try {
         const stripe = await getUncachableStripeClient();
         let scanned = 0;
@@ -746,6 +1181,9 @@ export async function registerRoutes(
                   status: "succeeded",
                   email: chargeEmail(c),
                   mode: isSub ? "subscription" : "payment",
+                  // Stripe doesn't copy PI metadata onto the charge, so the
+                  // payments-table join (by payment_intent) is the source of truth.
+                  website: (typeof c.payment_intent === "string" ? urlByPaymentIntent.get(c.payment_intent) : undefined) ?? null,
                 });
               }
             }
@@ -799,6 +1237,7 @@ export async function registerRoutes(
           status: "succeeded",
           email: p.customerEmail ?? null,
           mode: p.mode,
+          website: p.websiteUrl ?? null,
         }));
         if (!revenueLoaded) {
           recentCharges = dbCharges;
@@ -845,6 +1284,20 @@ export async function registerRoutes(
         console.warn("Could not fetch failed charges:", stripeErr);
       }
 
+      // Recent download unlocks: who unlocked which website and how.
+      let recentDownloads: Array<{ email: string | null; website: string; method: string; createdAt: string }> = [];
+      try {
+        const rows = await db.select().from(downloadEvents).orderBy(desc(downloadEvents.createdAt)).limit(50);
+        recentDownloads = rows.map(r => ({
+          email: r.userEmail,
+          website: r.websiteUrl,
+          method: r.method,
+          createdAt: r.createdAt.toISOString(),
+        }));
+      } catch (e) {
+        console.warn("Could not load download events:", e);
+      }
+
       res.json({
         analytics,
         stripe: {
@@ -854,6 +1307,7 @@ export async function registerRoutes(
           recentCharges,
           failedPayments,
         },
+        recentDownloads,
       });
     } catch (error) {
       console.error("Admin stats error:", error);

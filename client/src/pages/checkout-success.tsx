@@ -12,6 +12,9 @@ export default function CheckoutSuccess() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [isSubscription, setIsSubscription] = useState(false);
+  const [isPlan, setIsPlan] = useState(false);
+  const [creditsAdded, setCreditsAdded] = useState(0);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const { toast } = useToast();
 
   useSeo({
@@ -25,15 +28,36 @@ export default function CheckoutSuccess() {
     const params = new URLSearchParams(window.location.search);
     const sid = params.get("session_id");
     const jid = params.get("job_id");
+    const plan = params.get("plan") === "1";
     setSessionId(sid);
     setJobId(jid);
+    setIsPlan(plan);
 
-    if (sid) {
+    if (sid && plan) {
+      verifyPlan(sid);
+    } else if (sid) {
       verifyPayment(sid);
     } else {
       setStatus("failed");
     }
   }, []);
+
+  const verifyPlan = async (sid: string) => {
+    try {
+      const response = await fetch(`/api/stripe/verify-plan?session_id=${sid}`, { credentials: "include" });
+      const data = await response.json();
+      if (data.paid) {
+        setStatus("success");
+        setIsSubscription(data.type === "subscription");
+        setCreditsAdded(data.creditsAdded || 0);
+        if (typeof data.credits === "number") setCreditBalance(data.credits);
+      } else {
+        setStatus("failed");
+      }
+    } catch {
+      setStatus("failed");
+    }
+  };
 
   const verifyPayment = async (sid: string) => {
     try {
@@ -59,14 +83,49 @@ export default function CheckoutSuccess() {
     }
   };
 
+  // Kick off a free re-scrape of a paid job whose files were lost to a server
+  // restart. On success, hand the new job to the home page's progress view.
+  const tryRecover = async (jid: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`/api/scrape/${jid}/recover`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) return false;
+      const data = await response.json();
+      if (!data.job?.id) return false;
+      localStorage.setItem(
+        "websitesucker_active_job",
+        JSON.stringify({ jobId: data.job.id })
+      );
+      toast({
+        title: "Rebuilding your backup",
+        description:
+          "Your files expired after a server restart, so we're re-creating your backup for free. Hang tight…",
+      });
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 1500);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const handleDownload = async () => {
     if (!jobId) return;
 
     setIsDownloading(true);
     try {
-      const response = await fetch(`/api/scrape/${jobId}/download`);
+      const response = await fetch(`/api/scrape/${jobId}/download`, { credentials: "include" });
       if (!response.ok) {
-        const error = await response.json();
+        // The server may have restarted since payment — the job and its ZIP
+        // are gone but the payment record survives. Offer a free re-scrape.
+        if (response.status === 404) {
+          const recovered = await tryRecover(jobId);
+          if (recovered) return;
+        }
+        const error = await response.json().catch(() => ({}));
         throw new Error(error.message || "Download failed");
       }
 
@@ -127,7 +186,27 @@ export default function CheckoutSuccess() {
             </p>
           )}
 
-          {status === "success" && (
+          {status === "success" && isPlan && (
+            <>
+              <p className="text-muted-foreground" data-testid="text-plan-success">
+                {isSubscription
+                  ? "Your subscription is active — unlimited scrapes and downloads."
+                  : creditsAdded > 0
+                  ? `${creditsAdded} credit${creditsAdded === 1 ? "" : "s"} added to your account.${creditBalance !== null ? ` You now have ${creditBalance} credit${creditBalance === 1 ? "" : "s"}.` : ""}`
+                  : "Your purchase has been applied to your account."}
+              </p>
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={() => (window.location.href = "/")}
+                data-testid="button-start-scraping"
+              >
+                Start Scraping
+              </Button>
+            </>
+          )}
+
+          {status === "success" && !isPlan && (
             <>
               <p className="text-muted-foreground">
                 {isSubscription
