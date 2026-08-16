@@ -70,6 +70,7 @@ export const scrapeJobSchema = z.object({
   successfulAssets: z.number(),
   failedAssets: z.number(),
   downloadPath: z.string().optional(),
+  errorMessage: z.string().optional(),
 });
 export type ScrapeJob = z.infer<typeof scrapeJobSchema>;
 

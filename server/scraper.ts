@@ -14,6 +14,7 @@ import type { Browser } from "puppeteer";
 puppeteerExtra.use(StealthPlugin());
 const puppeteer: typeof puppeteerVanilla = puppeteerExtra as any;
 import { storage } from "./storage";
+import { assertPublicUrl, isHostPublic, SsrfError } from "./security";
 import type { Asset, AssetType, AssetStatus, ScrapeProgress } from "@shared/schema";
 
 type ProgressCallback = (progress: ScrapeProgress, asset?: Asset) => void;
@@ -78,23 +79,10 @@ const EMBED_DOMAINS = new Set([
   "giphy.com", "media.giphy.com",
 ]);
 
-// Block private/internal IP ranges for SSRF protection
-const BLOCKED_IP_PATTERNS = [
-  /^127\./,
-  /^10\./,
-  /^172\.(1[6-9]|2[0-9]|3[0-1])\./,
-  /^192\.168\./,
-  /^169\.254\./,
-  /^0\./,
-  /^localhost$/i,
-  /^::1$/,
-  /^fc00:/i,
-  /^fe80:/i,
-];
-
-function isBlockedHost(hostname: string): boolean {
-  return BLOCKED_IP_PATTERNS.some(pattern => pattern.test(hostname));
-}
+// SSRF protection now lives in ./security (assertPublicUrl / isHostPublic),
+// which resolves hostnames to their real IPs and rejects private, loopback,
+// link-local, and reserved ranges — closing the redirect / DNS-rebind /
+// alternate-encoding bypasses a lexical hostname blocklist cannot catch.
 
 // Wix helpers ---------------------------------------------------------------
 
@@ -437,6 +425,31 @@ const HOST_BLOCKED_MESSAGE =
   "The site stopped accepting connections from our server (its firewall likely rate-limited the crawl). " +
   "Wait a few minutes and try again — the backup will resume from scratch.";
 
+// SSRF-safe fetch: follows redirects manually, re-validating every hop's host
+// against the private/reserved-IP blocklist. In Node's undici, `redirect:
+// "manual"` exposes the 3xx response and its Location header (unlike browsers),
+// so we can resolve and re-check each target before following it.
+async function safeFetch(
+  url: string,
+  init: RequestInit,
+  maxRedirects = 5
+): Promise<Response> {
+  let currentUrl = url;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    await assertPublicUrl(currentUrl); // throws SsrfError on private/invalid host
+    const response = await fetch(currentUrl, { ...init, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return response;
+      try { await response.body?.cancel(); } catch {}
+      currentUrl = new URL(location, currentUrl).href;
+      continue;
+    }
+    return response;
+  }
+  throw new Error("Too many redirects");
+}
+
 // Fetch the full response body under a single unified timeout.
 // The AbortController is kept alive until the body is fully read,
 // so a slow/stalled body transfer is caught just like a slow connection.
@@ -461,7 +474,7 @@ async function fetchBytesWithTimeout(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       signal: controller.signal,
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; WebSucker/1.0; +https://webscraper.app)",
@@ -504,6 +517,7 @@ async function fetchBytesWithTimeout(
     return { content: Buffer.concat(chunks), contentType };
   } catch (err) {
     clearTimeout(timeoutId);
+    if (err instanceof SsrfError) throw err; // never retry a blocked address
     if (isConnectError(err, breaker) && breaker) {
       breaker.sawConnectFailure = true;
       breaker.consecutiveConnectFailures++;
@@ -672,7 +686,7 @@ async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
   try {
     // Request only the first 32KB — enough to detect all framework/CMS markers
     // without downloading the full page. Much faster on slow production networks.
-    const res = await fetch(entryUrl, {
+    const res = await safeFetch(entryUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; WebsiteSucker/1.0)",
         "Range": "bytes=0-32767",
@@ -1461,19 +1475,11 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
 
 export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   const { jobId, url, onProgress } = options;
-  const baseUrl = new URL(url);
+  // SSRF protection — resolve the entry host and reject private/reserved IPs,
+  // non-HTTP(S) schemes, and hosts that fail to resolve.
+  const baseUrl = await assertPublicUrl(url);
   const baseHost = baseUrl.hostname;
-  
-  // SSRF protection - block internal/private hosts
-  if (isBlockedHost(baseHost)) {
-    throw new Error("Cannot scrape internal or private network addresses");
-  }
-  
-  // Only allow HTTP/HTTPS
-  if (!["http:", "https:"].includes(baseUrl.protocol)) {
-    throw new Error("Only HTTP and HTTPS URLs are supported");
-  }
-  
+
   // Fresh circuit-breaker state for this job — a host block observed during a
   // previous scrape shouldn't poison a fresh attempt (blocks are usually
   // temporary rate limits that lift after a few minutes).
@@ -1535,12 +1541,12 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
     if (processedUrls.has(currentUrl)) continue;
     processedUrls.add(currentUrl);
     
-    // Check for blocked hosts in discovered URLs
+    // SSRF: resolve each discovered URL's host and skip anything that isn't a
+    // public http(s) address (blocks redirect / DNS-rebind pivots to internal IPs).
     try {
       const parsedUrl = new URL(currentUrl);
-      if (isBlockedHost(parsedUrl.hostname)) {
-        continue;
-      }
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") continue;
+      if (!(await isHostPublic(parsedUrl.hostname))) continue;
     } catch {
       continue;
     }
@@ -2874,6 +2880,7 @@ async function createZipArchive(sourceDir: string, outputPath: string): Promise<
     const archive = archiver("zip", { zlib: { level: 9 } });
     
     output.on("close", () => resolve());
+    output.on("error", (err) => reject(err)); // e.g. ENOSPC — otherwise an unhandled 'error' crashes the process
     archive.on("error", (err) => reject(err));
     
     archive.pipe(output);

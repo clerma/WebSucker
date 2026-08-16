@@ -1,8 +1,10 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import { timingSafeEqual } from "crypto";
 import * as fs from "fs";
 import { storage } from "./storage";
+import { rateLimit } from "./security";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
 import { startScrapeSchema, scrapeAnalytics, payments } from "@shared/schema";
 import type { Asset, ScrapeProgress, ScrapeJob } from "@shared/schema";
@@ -31,6 +33,39 @@ async function sendNotification(payload: { title: string; message: string; url: 
 }
 
 const jobConnections = new Map<string, Set<WebSocket>>();
+
+/**
+ * Constant-time admin authentication. Returns true only when ADMIN_SECRET is
+ * configured and the supplied header matches it. Fails closed when unset.
+ */
+function isAdmin(req: Request): boolean {
+  const adminSecret = process.env.ADMIN_SECRET;
+  if (!adminSecret) return false;
+  const header = req.headers["x-admin-secret"];
+  const provided = Array.isArray(header) ? header[0] : header;
+  if (typeof provided !== "string" || provided.length === 0) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(adminSecret);
+  // timingSafeEqual requires equal lengths; the length check itself is not
+  // secret (ADMIN_SECRET length is fixed), so compare lengths first.
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function requireAdmin(req: Request, res: Response): boolean {
+  if (!isAdmin(req)) {
+    res.status(401).json({ message: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+// Rate limiters (in-memory, per-IP) for abuse-prone endpoints.
+const scrapeLimiter = rateLimit({ windowMs: 60_000, max: 12, keyPrefix: "scrape", message: "Too many scrape requests. Please wait a minute and try again." });
+const redeemLimiter = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "redeem", message: "Too many attempts. Please wait a minute and try again." });
+const lookupLimiter = rateLimit({ windowMs: 60_000, max: 6, keyPrefix: "lookup", message: "Too many lookups. Please wait a minute and try again." });
+const adminLimiter = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: "admin", message: "Too many requests." });
+const paymentLimiter = rateLimit({ windowMs: 60_000, max: 30, keyPrefix: "payment", message: "Too many requests. Please wait a moment." });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -186,7 +221,7 @@ export async function registerRoutes(
     return false;
   }
 
-  app.post("/api/scrape", async (req, res) => {
+  app.post("/api/scrape", scrapeLimiter, async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
 
@@ -241,6 +276,14 @@ export async function registerRoutes(
           const errMsg = error instanceof Error ? error.message : "Scraping failed";
           await storage.updateJobStatus(job.id, "failed");
           await storage.updateJobProgress(job.id, { errorMessage: errMsg });
+
+          // Free the partial /tmp output immediately so failed jobs don't leak
+          // disk. Keep the job record briefly so the client's reconnect poll can
+          // still read the failure, then GC it.
+          await cleanupScrapeFiles(job.id);
+          storage.scheduleExpiry(job.id, async () => {
+            await storage.deleteJob(job.id);
+          }, 2 * 60 * 1000);
 
           // Persist failure to DB
           db.insert(scrapeAnalytics).values({
@@ -333,10 +376,10 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/stripe/checkout", async (req, res) => {
+  app.post("/api/stripe/checkout", paymentLimiter, async (req, res) => {
     try {
       const { priceId, jobId } = req.body;
-      if (!priceId || !jobId) {
+      if (!priceId || typeof priceId !== "string" || !jobId) {
         return res.status(400).json({ message: "Missing priceId or jobId" });
       }
 
@@ -346,7 +389,22 @@ export async function registerRoutes(
       }
 
       const stripe = await getUncachableStripeClient();
-      const price = await stripe.prices.retrieve(priceId);
+      const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
+
+      // Only allow prices that belong to the WebSucker product. Without this a
+      // user could pass any active priceId in the account (e.g. a cheaper or
+      // $0 price) and still have the download authorized on payment.
+      const product = price.product;
+      const isWebSuckerPrice =
+        price.active &&
+        typeof product === "object" &&
+        product !== null &&
+        !("deleted" in product && product.deleted) &&
+        ((product as any).metadata?.app === "websucker" || (product as any).name === "WebSucker");
+      if (!isWebSuckerPrice) {
+        return res.status(400).json({ message: "Invalid price" });
+      }
+
       const mode = price.recurring ? "subscription" : "payment";
 
       const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -370,7 +428,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stripe/verify-payment", async (req, res) => {
+  app.get("/api/stripe/verify-payment", paymentLimiter, async (req, res) => {
     try {
       const { session_id } = req.query;
       if (!session_id || typeof session_id !== "string") {
@@ -441,7 +499,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/stripe/authorize-subscriber-download", async (req, res) => {
+  app.post("/api/stripe/authorize-subscriber-download", paymentLimiter, async (req, res) => {
     try {
       const { customerId, jobId } = req.body;
       if (!customerId || !jobId) {
@@ -499,22 +557,45 @@ export async function registerRoutes(
       );
       
       const fileStream = fs.createReadStream(job.downloadPath);
-      fileStream.pipe(res);
-      
-      fileStream.on("end", () => {
+
+      // Clean up exactly once, whether the download finishes, errors, or the
+      // client aborts mid-stream. Previously only "end" was handled, so an
+      // aborted download (with the expiry timer already cancelled above) leaked
+      // the temp files and job until process restart.
+      let cleanedUp = false;
+      const finalizeDownload = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
         setTimeout(async () => {
           await cleanupScrapeFiles(job.id);
           await storage.deleteJob(job.id);
         }, 5000);
+      };
+
+      fileStream.on("error", (err) => {
+        console.error("Download stream error:", err);
+        finalizeDownload();
+        if (!res.headersSent) res.status(500).end();
+        else res.destroy();
       });
-      
+      fileStream.on("end", finalizeDownload);
+      res.on("close", () => {
+        // Fired if the client disconnects before the stream finishes.
+        if (!res.writableFinished) {
+          fileStream.destroy();
+          finalizeDownload();
+        }
+      });
+
+      fileStream.pipe(res);
+
     } catch (error) {
       console.error("Download error:", error);
       res.status(500).json({ message: "Download failed" });
     }
   });
 
-  app.post("/api/stripe/customer-lookup", async (req, res) => {
+  app.post("/api/stripe/customer-lookup", lookupLimiter, async (req, res) => {
     try {
       const { email } = req.body;
       if (!email || typeof email !== "string") {
@@ -543,35 +624,26 @@ export async function registerRoutes(
   });
 
   // Access code management (admin-protected)
-  app.get("/api/admin/access-codes", async (req, res) => {
-    const secret = req.headers["x-admin-secret"];
-    if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+  app.get("/api/admin/access-codes", adminLimiter, async (req, res) => {
+    if (!requireAdmin(req, res)) return;
     res.json({ codes: await storage.listAccessCodes() });
   });
 
-  app.post("/api/admin/access-codes", async (req, res) => {
-    const secret = req.headers["x-admin-secret"];
-    if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+  app.post("/api/admin/access-codes", adminLimiter, async (req, res) => {
+    if (!requireAdmin(req, res)) return;
     const { note, maxUses } = req.body;
     const code = await storage.createAccessCode(note || "", maxUses ?? null);
     res.json({ code });
   });
 
-  app.delete("/api/admin/access-codes/:code", async (req, res) => {
-    const secret = req.headers["x-admin-secret"];
-    if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-    const deleted = await storage.deleteAccessCode(req.params.code);
+  app.delete("/api/admin/access-codes/:code", adminLimiter, async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const deleted = await storage.deleteAccessCode(String(req.params.code));
     res.json({ deleted });
   });
 
   // Redeem an access code to authorize a download
-  app.post("/api/access-code/redeem", async (req, res) => {
+  app.post("/api/access-code/redeem", redeemLimiter, async (req, res) => {
     const { code, jobId } = req.body;
     if (!code || !jobId) {
       return res.status(400).json({ success: false, message: "Code and jobId are required" });
@@ -584,13 +656,8 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
-  app.get("/api/admin/stats", async (req, res) => {
-    const secret = req.headers["x-admin-secret"];
-    const adminSecret = process.env.ADMIN_SECRET;
-
-    if (!adminSecret || secret !== adminSecret) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+  app.get("/api/admin/stats", adminLimiter, async (req, res) => {
+    if (!requireAdmin(req, res)) return;
 
     try {
       // Query persistent analytics from DB

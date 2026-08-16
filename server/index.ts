@@ -7,6 +7,9 @@ import { getStripeSync } from './stripeClient';
 import { WebhookHandlers } from './webhookHandlers';
 
 const app = express();
+// Behind the hosting proxy (Replit/Cloud), trust the first proxy hop so req.ip
+// reflects the real client address for per-IP rate limiting.
+app.set("trust proxy", 1);
 const httpServer = createServer(app);
 
 declare module "http" {
