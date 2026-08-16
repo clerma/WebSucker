@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, Clock, Tag } from "lucide-react";
 import { useParams } from "wouter";
 import { articles } from "@/data/articles";
+import { Reveal } from "@/components/reveal";
 import { useSeo, SITE_URL } from "@/lib/seo";
 
 const MONTHS: Record<string, string> = {
@@ -92,7 +93,7 @@ export default function BlogPost() {
       <article className="max-w-3xl mx-auto px-4 py-12">
         {/* Meta */}
         <div className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-4 animate-fade-up">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
               <Tag className="h-3 w-3" />
               {article.category}
@@ -106,11 +107,17 @@ export default function BlogPost() {
             </span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-bold leading-tight mb-4">
+          <h1
+            className="text-3xl sm:text-4xl font-bold leading-tight mb-4 animate-fade-up"
+            style={{ animationDelay: "80ms" }}
+          >
             {article.title}
           </h1>
 
-          <p className="text-lg text-muted-foreground leading-relaxed border-l-4 border-primary/30 pl-4">
+          <p
+            className="text-lg text-muted-foreground leading-relaxed border-l-4 border-primary/30 pl-4 animate-fade-up"
+            style={{ animationDelay: "160ms" }}
+          >
             {article.intro}
           </p>
         </div>
@@ -118,7 +125,7 @@ export default function BlogPost() {
         {/* Sections */}
         <div className="space-y-10">
           {article.sections.map((section, i) => (
-            <section key={i}>
+            <Reveal key={i}>
               <h2 className="text-xl font-semibold mb-3">{section.heading}</h2>
               {section.body.map((para, j) => (
                 <p key={j} className="text-muted-foreground leading-relaxed mb-3">
@@ -134,7 +141,7 @@ export default function BlogPost() {
                   ))}
                 </ul>
               )}
-            </section>
+            </Reveal>
           ))}
         </div>
 
@@ -158,7 +165,7 @@ export default function BlogPost() {
             {prevArticle ? (
               <a
                 href={`/blog/${prevArticle.slug}`}
-                className="group flex flex-col gap-1 p-4 rounded-lg border hover:border-primary/50 transition-colors"
+                className="group flex flex-col gap-1 p-4 rounded-lg border hover:border-primary/50 hover:-translate-y-0.5 transition-all duration-200"
                 data-testid="link-prev-article"
               >
                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -174,7 +181,7 @@ export default function BlogPost() {
             {nextArticle ? (
               <a
                 href={`/blog/${nextArticle.slug}`}
-                className="group flex flex-col gap-1 p-4 rounded-lg border hover:border-primary/50 transition-colors sm:text-right"
+                className="group flex flex-col gap-1 p-4 rounded-lg border hover:border-primary/50 hover:-translate-y-0.5 transition-all duration-200 sm:text-right"
                 data-testid="link-next-article"
               >
                 <span className="flex items-center gap-1 text-xs text-muted-foreground sm:justify-end">
