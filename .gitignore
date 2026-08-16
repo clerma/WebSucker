@@ -4,3 +4,12 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Scraped-site archives — large binaries, never commit these
+*.zip
+attached_assets/*.zip
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
