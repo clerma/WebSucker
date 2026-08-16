@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight, BookOpen, Clock } from "lucide-react";
 import { articles } from "@/data/articles";
+import { Reveal } from "@/components/reveal";
 import { useSeo, SITE_URL } from "@/lib/seo";
 
 export default function Blog() {
@@ -37,13 +38,16 @@ export default function Blog() {
             <ArrowLeft className="h-4 w-4" />
             Back to Website Sucker
           </a>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10">
+          <div className="flex items-center gap-3 mb-4 animate-fade-up">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 ring-1 ring-primary/20 animate-float">
               <BookOpen className="h-5 w-5 text-primary" />
             </div>
             <h1 className="text-3xl font-bold">Website Help &amp; Guides</h1>
           </div>
-          <p className="text-muted-foreground text-lg max-w-2xl">
+          <p
+            className="text-muted-foreground text-lg max-w-2xl animate-fade-up"
+            style={{ animationDelay: "100ms" }}
+          >
             Practical guides on backing up, exporting, migrating, and converting websites — whatever platform you're on.
           </p>
         </div>
@@ -52,11 +56,11 @@ export default function Blog() {
       {/* Article grid */}
       <div className="max-w-4xl mx-auto px-4 py-12">
         <div className="grid gap-6">
-          {articles.map((article) => (
+          {articles.map((article, i) => (
+            <Reveal key={article.slug} delay={Math.min(i * 60, 300)}>
             <a
-              key={article.slug}
               href={`/blog/${article.slug}`}
-              className="group block border rounded-xl p-6 bg-card hover:border-primary/50 hover:shadow-md transition-all duration-200"
+              className="group block border rounded-xl p-6 bg-card hover:border-primary/50 hover:shadow-md hover:-translate-y-1 transition-all duration-200"
               data-testid={`article-card-${article.slug}`}
             >
               <div className="flex items-start justify-between gap-4">
@@ -80,6 +84,7 @@ export default function Blog() {
                 <ArrowRight className="h-5 w-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all shrink-0 mt-1" />
               </div>
             </a>
+            </Reveal>
           ))}
         </div>
       </div>

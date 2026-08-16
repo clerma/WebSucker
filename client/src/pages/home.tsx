@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Globe, ArrowDown, Zap, Shield, FolderOpen, Lock, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
+import { Reveal } from "@/components/reveal";
 import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
 import { PricingDialog } from "@/components/pricing-dialog";
@@ -450,73 +451,117 @@ export default function Home() {
     <div className="min-h-screen">
       {viewState === "input" && (
         <div className="min-h-screen flex flex-col">
-          <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
-            <div className="text-center mb-10 max-w-2xl">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-6">
-                <Globe className="h-8 w-8 text-primary" />
-              </div>
-
-              <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-                Website Sucker
-              </h1>
-              <p className="text-lg text-muted-foreground max-w-lg mx-auto">
-                The free online tool to back up, archive, and transfer any website.
-                No app to install, no OS restrictions — just paste a URL and download
-                a complete offline copy.
-              </p>
+          <div className="relative flex-1 flex flex-col items-center justify-center px-4 py-12 overflow-hidden">
+            {/* Animated aurora backdrop */}
+            <div aria-hidden className="absolute inset-0 overflow-hidden">
+              <div className="hero-aurora animate-aurora bg-primary/25 dark:bg-primary/20 w-[38rem] h-[38rem] -top-40 -left-24" />
+              <div
+                className="hero-aurora animate-aurora bg-chart-4/20 w-[30rem] h-[30rem] top-10 -right-24"
+                style={{ animationDelay: "-7s" }}
+              />
+              <div
+                className="hero-aurora animate-aurora bg-chart-2/10 w-[26rem] h-[26rem] bottom-0 left-1/3"
+                style={{ animationDelay: "-13s" }}
+              />
             </div>
 
-            {lastError && (
-              <Alert variant="destructive" className="mb-6 max-w-xl w-full" data-testid="alert-scrape-error">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Couldn't scrape that site</AlertTitle>
-                <AlertDescription data-testid="text-scrape-error">{lastError}</AlertDescription>
-              </Alert>
-            )}
+            <div className="relative z-10 w-full flex flex-col items-center">
+              <div className="text-center mb-10 max-w-2xl">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 ring-1 ring-primary/20 mb-6 animate-fade-up animate-float shadow-lg shadow-primary/5">
+                  <Globe className="h-8 w-8 text-primary" />
+                </div>
 
-            <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} />
+                <h1
+                  className="text-4xl md:text-5xl font-bold tracking-tight mb-4 animate-fade-up"
+                  style={{ animationDelay: "80ms" }}
+                >
+                  <span className="text-gradient-animate">Website Sucker</span>
+                </h1>
+                <p
+                  className="text-lg text-muted-foreground max-w-lg mx-auto animate-fade-up"
+                  style={{ animationDelay: "160ms" }}
+                >
+                  The free online tool to back up, archive, and transfer any website.
+                  No app to install, no OS restrictions — just paste a URL and download
+                  a complete offline copy.
+                </p>
+              </div>
 
-            <div className="mt-16 flex items-center gap-2 text-muted-foreground">
-              <ArrowDown className="h-4 w-4 animate-bounce" />
-              <span className="text-sm">See how it works</span>
+              {lastError && (
+                <Alert variant="destructive" className="mb-6 max-w-xl w-full" data-testid="alert-scrape-error">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Couldn't scrape that site</AlertTitle>
+                  <AlertDescription data-testid="text-scrape-error">{lastError}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="w-full animate-fade-up" style={{ animationDelay: "240ms" }}>
+                <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} />
+              </div>
+
+              <div
+                className="mt-16 flex items-center gap-2 text-muted-foreground animate-fade-up"
+                style={{ animationDelay: "360ms" }}
+              >
+                <ArrowDown className="h-4 w-4 animate-bounce" />
+                <span className="text-sm">See how it works</span>
+              </div>
             </div>
           </div>
 
           <div className="bg-muted/50 border-t py-16 px-4">
             <div className="max-w-4xl mx-auto">
-              <h2 className="text-2xl font-semibold text-center mb-10">
-                How It Works
-              </h2>
+              <Reveal>
+                <h2 className="text-2xl font-semibold text-center mb-10">
+                  How It Works
+                </h2>
+              </Reveal>
               <div className="grid md:grid-cols-3 gap-8">
-                <FeatureCard
-                  icon={Globe}
-                  title="1. Enter URL — Free"
-                  description="Paste any website URL. Analysing is completely free with no account needed."
-                />
-                <FeatureCard
-                  icon={Zap}
-                  title="2. See Everything — Free"
-                  description="We scan and list every asset — HTML, CSS, JS, images, fonts, and more."
-                />
-                <FeatureCard
-                  icon={Lock}
-                  title="3. Download — From $1.99"
-                  description="Happy with the results? Pay once for $1.99 or get unlimited downloads for $5.99/month."
-                />
+                <Reveal delay={0}>
+                  <FeatureCard
+                    icon={Globe}
+                    title="1. Enter URL — Free"
+                    description="Paste any website URL. Analysing is completely free with no account needed."
+                  />
+                </Reveal>
+                <Reveal delay={120}>
+                  <FeatureCard
+                    icon={Zap}
+                    title="2. See Everything — Free"
+                    description="We scan and list every asset — HTML, CSS, JS, images, fonts, and more."
+                  />
+                </Reveal>
+                <Reveal delay={240}>
+                  <FeatureCard
+                    icon={Lock}
+                    title="3. Download — From $1.99"
+                    description="Happy with the results? Pay once for $1.99 or get unlimited downloads for $5.99/month."
+                  />
+                </Reveal>
               </div>
             </div>
           </div>
 
           <div className="py-12 px-4">
             <div className="max-w-4xl mx-auto">
-              <h2 className="text-2xl font-semibold text-center mb-10">
-                What Gets Downloaded
-              </h2>
+              <Reveal>
+                <h2 className="text-2xl font-semibold text-center mb-10">
+                  What Gets Downloaded
+                </h2>
+              </Reveal>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <AssetTypeCard label="HTML Pages" icon="html" />
-                <AssetTypeCard label="CSS Styles" icon="css" />
-                <AssetTypeCard label="JavaScript" icon="js" />
-                <AssetTypeCard label="Images" icon="image" />
+                <Reveal delay={0}>
+                  <AssetTypeCard label="HTML Pages" icon="html" />
+                </Reveal>
+                <Reveal delay={80}>
+                  <AssetTypeCard label="CSS Styles" icon="css" />
+                </Reveal>
+                <Reveal delay={160}>
+                  <AssetTypeCard label="JavaScript" icon="js" />
+                </Reveal>
+                <Reveal delay={240}>
+                  <AssetTypeCard label="Images" icon="image" />
+                </Reveal>
               </div>
               <p className="text-center text-sm text-muted-foreground mt-6">
                 Including CDN assets, background images, fonts, and embedded
@@ -527,35 +572,43 @@ export default function Home() {
 
           <div className="border-t py-16 px-4">
             <div className="max-w-3xl mx-auto">
-              <h2 className="text-2xl font-semibold text-center mb-4">
-                What is Website Sucker?
-              </h2>
-              <p className="text-muted-foreground leading-relaxed text-center max-w-2xl mx-auto">
-                Website Sucker is a free online tool to <strong className="text-foreground font-medium">back up, archive, and transfer any website</strong>.
-                Paste a URL and it downloads a complete offline copy — every page, image, stylesheet,
-                JavaScript file, and font — packaged into a single ZIP that opens in any browser.
-                There's nothing to install, and analysing is always free.
-              </p>
+              <Reveal>
+                <h2 className="text-2xl font-semibold text-center mb-4">
+                  What is Website Sucker?
+                </h2>
+                <p className="text-muted-foreground leading-relaxed text-center max-w-2xl mx-auto">
+                  Website Sucker is a free online tool to <strong className="text-foreground font-medium">back up, archive, and transfer any website</strong>.
+                  Paste a URL and it downloads a complete offline copy — every page, image, stylesheet,
+                  JavaScript file, and font — packaged into a single ZIP that opens in any browser.
+                  There's nothing to install, and analysing is always free.
+                </p>
+              </Reveal>
 
               <div className="grid sm:grid-cols-3 gap-4 mt-10">
-                <div className="rounded-xl border bg-card p-5">
-                  <h3 className="font-semibold mb-1.5">Back up a website</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Keep a complete, offline copy of any site — pages, images, styles, and scripts included.
-                  </p>
-                </div>
-                <div className="rounded-xl border bg-card p-5">
-                  <h3 className="font-semibold mb-1.5">Archive a website</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Preserve a snapshot that stays usable even if the live site changes or goes offline.
-                  </p>
-                </div>
-                <div className="rounded-xl border bg-card p-5">
-                  <h3 className="font-semibold mb-1.5">Transfer a website</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Move the HTML, CSS, JS, images, and fonts to a new host or platform with no lock-in.
-                  </p>
-                </div>
+                <Reveal delay={0}>
+                  <div className="rounded-xl border bg-card p-5 h-full transition-transform duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
+                    <h3 className="font-semibold mb-1.5">Back up a website</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Keep a complete, offline copy of any site — pages, images, styles, and scripts included.
+                    </p>
+                  </div>
+                </Reveal>
+                <Reveal delay={120}>
+                  <div className="rounded-xl border bg-card p-5 h-full transition-transform duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
+                    <h3 className="font-semibold mb-1.5">Archive a website</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Preserve a snapshot that stays usable even if the live site changes or goes offline.
+                    </p>
+                  </div>
+                </Reveal>
+                <Reveal delay={240}>
+                  <div className="rounded-xl border bg-card p-5 h-full transition-transform duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
+                    <h3 className="font-semibold mb-1.5">Transfer a website</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Move the HTML, CSS, JS, images, and fonts to a new host or platform with no lock-in.
+                    </p>
+                  </div>
+                </Reveal>
               </div>
 
               <p className="text-center text-sm text-muted-foreground mt-8">
@@ -679,8 +732,8 @@ function FeatureCard({
   description: string;
 }) {
   return (
-    <div className="text-center">
-      <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 mb-4">
+    <div className="group text-center">
+      <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 mb-4 transition-transform duration-300 group-hover:scale-110 group-hover:bg-primary/15">
         <Icon className="h-6 w-6 text-primary" />
       </div>
       <h3 className="font-semibold mb-2">{title}</h3>
@@ -698,9 +751,9 @@ function AssetTypeCard({ label, icon }: { label: string; icon: string }) {
   };
 
   return (
-    <div className="p-4 rounded-lg bg-card border text-center">
+    <div className="group p-4 rounded-lg bg-card border text-center h-full transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
       <div
-        className={`inline-flex items-center justify-center w-10 h-10 rounded-lg mb-3 ${iconColors[icon]}`}
+        className={`inline-flex items-center justify-center w-10 h-10 rounded-lg mb-3 transition-transform duration-300 group-hover:scale-110 ${iconColors[icon]}`}
       >
         <span className="font-mono text-xs font-bold uppercase">{icon}</span>
       </div>

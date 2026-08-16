@@ -31,8 +31,13 @@ export function UrlInputForm({ onSubmit, isLoading }: UrlInputFormProps) {
         onSubmit={form.handleSubmit(onSubmit)}
         className="w-full max-w-2xl mx-auto"
       >
-        <div className="relative flex items-center">
-          <div className="absolute left-4 text-muted-foreground">
+        <div className="group relative flex items-center">
+          {/* Soft glow that intensifies on focus */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -inset-1 rounded-full bg-gradient-to-r from-primary/30 via-chart-4/25 to-primary/30 opacity-0 blur-lg transition-opacity duration-500 group-focus-within:opacity-100"
+          />
+          <div className="absolute left-4 text-muted-foreground z-10 transition-colors duration-300 group-focus-within:text-primary">
             <Globe className="h-5 w-5" />
           </div>
           <FormField
@@ -44,7 +49,7 @@ export function UrlInputForm({ onSubmit, isLoading }: UrlInputFormProps) {
                   <Input
                     {...field}
                     placeholder="https://example.com"
-                    className="pl-12 pr-32 h-14 text-base rounded-full border-2 focus:border-primary transition-colors"
+                    className="relative pl-12 pr-32 h-14 text-base rounded-full border-2 focus:border-primary transition-colors"
                     disabled={isLoading}
                     data-testid="input-url"
                   />
@@ -56,7 +61,7 @@ export function UrlInputForm({ onSubmit, isLoading }: UrlInputFormProps) {
           <Button
             type="submit"
             disabled={isLoading}
-            className="absolute right-2 h-10 px-6 rounded-full gap-2"
+            className="absolute right-2 z-10 h-10 px-6 rounded-full gap-2 transition-transform duration-200 hover:scale-[1.03] active:scale-95"
             data-testid="button-start-scrape"
           >
             {isLoading ? (
@@ -67,7 +72,7 @@ export function UrlInputForm({ onSubmit, isLoading }: UrlInputFormProps) {
             ) : (
               <>
                 <span>Start</span>
-                <ArrowRight className="h-4 w-4" />
+                <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
               </>
             )}
           </Button>
