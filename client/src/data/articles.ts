@@ -1071,4 +1071,260 @@ export const articles: Article[] = [
       body: "Website Sucker is designed for legitimate, polite, personal-use backups. Paste your URL, scan free, download for $1.99.",
     },
   },
+  {
+    slug: "how-to-clone-a-website",
+    title: "How to Clone a Website: The Complete Guide (2026)",
+    metaDescription:
+      "Learn how to clone a website the easy way. This guide shows you how to clone any website's pages, images, CSS, and JavaScript into a complete offline copy in minutes.",
+    publishedDate: "August 2026",
+    readingTime: "6 min read",
+    category: "Cloning & Copying",
+    intro:
+      "\"Clone a website\" can mean a few different things — make a working offline copy, grab a site's design as a starting point, or move a site you own to a new host. Whatever you mean by it, the reliable way to clone any website is the same: crawl the live pages and download every asset exactly as the browser sees them. Here's how to do it without installing anything.",
+    sections: [
+      {
+        heading: "What \"Cloning a Website\" Actually Means",
+        body: [
+          "A website cloner visits a page, downloads the fully rendered HTML, and then pulls down everything that page depends on — CSS stylesheets, JavaScript files, images, fonts, and embedded media. It repeats this for every internal page it can find, then rewrites the links so the whole thing works as a self-contained bundle on your own machine.",
+          "The result is a clone: a folder you can open in any browser, offline, that looks and navigates like the original. That's different from a screenshot (an image), a bookmark (a link to the live site), or a platform's \"export\" (usually just a text dump with no design).",
+        ],
+      },
+      {
+        heading: "Legitimate Reasons to Clone a Website",
+        body: [
+          "Cloning is a normal, everyday task for developers, designers, and site owners. Common uses:",
+        ],
+        list: [
+          "Cloning your own site to migrate it to a new host or platform",
+          "Making an offline archive before a redesign or before a site goes offline",
+          "Grabbing a local copy to study how a page is built and learn from it",
+          "Handing a static clone to a developer as a reference for a rebuild",
+          "Keeping a snapshot of a site for legal, compliance, or record-keeping reasons",
+        ],
+      },
+      {
+        heading: "The Old Way vs. The Easy Way",
+        body: [
+          "The traditional way to clone a website is a command-line tool like wget or HTTrack. These still work, but they choke on modern sites: anything built with React, Vue, Wix, Squarespace, or heavy JavaScript renders a blank or broken clone, because the content only appears after scripts run in a real browser.",
+          "The easy way is a browser-based cloner that runs a real headless browser behind the scenes. It waits for JavaScript to render, scrolls to trigger lazy-loaded images, captures embeds like YouTube and Google Maps, and only then saves the page. You paste a URL and get a clean clone — no install, no terminal, no broken layouts.",
+        ],
+      },
+      {
+        heading: "How to Clone Any Website in 4 Steps",
+        body: [
+          "Using Website Sucker, cloning a site takes a couple of minutes:",
+        ],
+        list: [
+          "Go to websitesucker.com and paste the URL of the site you want to clone",
+          "Click Analyse — it crawls the pages and lists every asset it finds, for free",
+          "Review the clone: pages, images, CSS, JavaScript, and fonts are all listed",
+          "Click Download ZIP for $1.99 to get the complete offline clone as one file",
+        ],
+      },
+      {
+        heading: "What You Get in the Clone",
+        body: [
+          "The download is a ZIP organised into folders — HTML pages, an images folder, and folders for CSS and JavaScript. Internal links are rewritten to point at the local files, so clicking around works without an internet connection. Open index.html and the clone behaves like the original site.",
+          "Modern platforms are handled properly. Wix and Squarespace serve images from CDNs with complex resizing parameters; the cloner normalises those URLs and removes duplicate srcset variants so you get one clean copy of each image instead of dozens.",
+        ],
+      },
+      {
+        heading: "Clone Responsibly",
+        body: [
+          "Cloning a website for backup, migration, learning, or archival is standard practice. Republishing someone else's content as your own, passing off their branded design as yours, or hammering a small server with aggressive crawling is not — and can cross into copyright or trademark territory.",
+          "The rule of thumb: clone your own sites freely, clone others' sites for private reference or study, and never re-publish a clone as if it were your original work.",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Clone Any Website in Minutes",
+      body: "Paste a URL and get a complete, working offline clone — pages, images, CSS, and JavaScript included. Analysing is free; you only pay to download.",
+    },
+  },
+  {
+    slug: "how-to-copy-a-website-legally",
+    title: "How to Copy a Website (Legally): 2 Simple Ways",
+    metaDescription:
+      "Want to copy a website the right way? Here are two legal ways to copy any website — pages, design, and assets — plus what's fair game and what crosses the line.",
+    publishedDate: "August 2026",
+    readingTime: "6 min read",
+    category: "Cloning & Copying",
+    intro:
+      "People search \"copy a website\" for all kinds of reasons — saving a page for reference, backing up a site they own, or getting a design starting point for a rebuild. Copying a website is legal in most of these cases, as long as you're not republishing someone else's content or brand as your own. Here are two straightforward, legal ways to copy any website.",
+    sections: [
+      {
+        heading: "Is It Legal to Copy a Website?",
+        body: [
+          "In most countries, downloading a public web page for personal use — reading offline, keeping a record, studying how it's built, or backing up your own site — is legal. The page is already being sent to your browser; saving it is a routine extension of that.",
+          "What's not legal is taking someone else's copyrighted content, images, or distinctive branding and publishing it as your own, or copying a site to deceive people (a phishing lookalike, for example). The line is simple: copy for private use, backup, or reference — fine. Copy to re-publish or impersonate — not fine.",
+        ],
+      },
+      {
+        heading: "Way 1: Copy a Single Page or Section",
+        body: [
+          "If you only need one page — a landing page, an article, a design you admire — the fastest legal copy is a complete local save of that page. You want the rendered HTML plus its images, CSS, and fonts, so it opens and looks right offline, not just a copy-pasted block of text.",
+          "This is ideal for keeping a reference, saving something before it changes or disappears, or handing a designer an example to work from. Paste the page URL into a website copier, and you get that one page as a self-contained folder.",
+        ],
+      },
+      {
+        heading: "Way 2: Copy an Entire Website",
+        body: [
+          "If you need the whole site — every page, all the assets, working navigation — you want a full crawl. A website copier visits each internal page, downloads everything each page needs, and rewrites the links so the copied site works as one offline bundle.",
+          "This is the right approach for migrating a site you own to a new platform, archiving a business site before it shuts down, or capturing a complete snapshot for records. You get a folder you can host anywhere, hand to a developer, or keep on a drive.",
+        ],
+      },
+      {
+        heading: "The Simplest Way to Copy a Website",
+        body: [
+          "Both approaches work the same way in a browser-based tool — no software to install:",
+        ],
+        list: [
+          "Go to websitesucker.com and paste the page or site URL you want to copy",
+          "Click Analyse to crawl it and list every page, image, and asset — free",
+          "Check the results to confirm you got everything you need",
+          "Download the ZIP for $1.99 and open it offline in any browser",
+        ],
+      },
+      {
+        heading: "What Counts as Fair, and What Doesn't",
+        body: [
+          "To keep your copy on the right side of the line, a quick checklist:",
+        ],
+        list: [
+          "Fair: copying a site you own or manage, for any purpose",
+          "Fair: saving public pages for personal reference, study, or archiving",
+          "Fair: using a copied design as a private starting point you then make your own",
+          "Not fair: republishing copied content or images as your own work",
+          "Not fair: copying a brand's look to impersonate or mislead people",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Copy Any Website the Easy Way",
+      body: "Paste a URL and get a clean, complete copy you can open offline. Free to analyse, $1.99 to download — no software, no account.",
+    },
+  },
+  {
+    slug: "how-to-get-a-local-copy-of-a-web-page",
+    title: "How to Get a Perfect Local Copy of a Web Page",
+    metaDescription:
+      "Need a perfect local copy of a web page — not just the text? Here's how to save a full web page with images, CSS, and layout intact so it works offline.",
+    publishedDate: "August 2026",
+    readingTime: "5 min read",
+    category: "Cloning & Copying",
+    intro:
+      "\"Save As\" in your browser almost gets you there, but the copy is usually broken — missing images, stripped styles, or a jumble of files that won't open right. If you want a perfect local copy of a web page, one that looks and behaves exactly like the original when you open it offline, you need to capture the page the way the browser actually renders it. Here's how.",
+    sections: [
+      {
+        heading: "Why \"Save As\" Usually Fails",
+        body: [
+          "Your browser's Save As → \"Web Page, Complete\" tries to grab the page and its assets, but it saves the raw HTML the server first sent — before JavaScript runs. On modern sites, that raw HTML is often nearly empty; the real content is built by scripts after the page loads. So you end up with a blank shell, broken images, or missing sections.",
+          "It also saves files in a way that frequently breaks: images with the wrong paths, fonts that don't load, and CSS that only half-applies. The result looks nothing like the page you were looking at.",
+        ],
+      },
+      {
+        heading: "What a \"Perfect\" Local Copy Needs",
+        body: [
+          "To open exactly like the original, a local copy has to include everything the page depends on, captured after the browser has fully rendered it:",
+        ],
+        list: [
+          "The rendered HTML — the final page, after JavaScript has run",
+          "Every CSS file, so the layout, colours, and spacing are intact",
+          "All images and fonts, downloaded and re-linked to local paths",
+          "Lazy-loaded images that only appear once you scroll",
+          "Embedded content like maps, videos, and social widgets",
+        ],
+      },
+      {
+        heading: "The Reliable Way to Capture a Page",
+        body: [
+          "The trick is to render the page in a real browser first, then save it. A tool that runs a headless browser will load the page, wait for scripts to finish, scroll to pull in lazy content, and only then download the finished HTML plus every asset. It rewrites all the links to point at the local files, so nothing reaches back to the internet.",
+          "That's the difference between a copy that half-loads and one that opens pixel-for-pixel like the original — offline, with no connection at all.",
+        ],
+      },
+      {
+        heading: "Get a Local Copy in 3 Steps",
+        body: [
+          "You don't need to install anything or touch the command line:",
+        ],
+        list: [
+          "Paste the page's URL at websitesucker.com and click Analyse",
+          "Review the captured assets — HTML, images, CSS, fonts, and embeds",
+          "Download the ZIP for $1.99 and open index.html offline in any browser",
+        ],
+      },
+      {
+        heading: "One Page or the Whole Site",
+        body: [
+          "The same approach scales. Point it at a single URL to get one perfect page, or let it crawl the whole site to get a complete local copy with working internal navigation. Either way you end up with a tidy folder you can archive, reference, or reopen any time — no internet required.",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Get a Perfect Offline Copy",
+      body: "Paste any page URL and download a complete local copy that opens exactly like the original. Free to analyse, $1.99 to download.",
+    },
+  },
+  {
+    slug: "website-cloner-for-developers",
+    title: "Website Cloner for Developers: Grab Any Site's HTML, CSS & JS",
+    metaDescription:
+      "A developer's guide to cloning websites: pull down any site's rendered HTML, CSS, JavaScript, and assets as a local reference for rebuilds, learning, and prototyping.",
+    publishedDate: "August 2026",
+    readingTime: "6 min read",
+    category: "Cloning & Copying",
+    intro:
+      "Developers clone sites constantly — to study a layout, to grab a reference for a rebuild, to prototype against a real design, or to archive a project. But cloning a modern JavaScript-heavy site with wget usually returns a broken skeleton. Here's how to get a clean, browser-rendered clone with the HTML, CSS, and JS intact, and what to realistically expect from the output.",
+    sections: [
+      {
+        heading: "Why Command-Line Cloners Break on Modern Sites",
+        body: [
+          "wget and HTTrack fetch the server's initial response and follow links in that raw HTML. That worked when pages were static. Today, sites built with React, Vue, Svelte, Next.js, Wix, or Squarespace ship a nearly empty HTML document and build the page in the browser with JavaScript. A raw fetch captures the empty shell, not the rendered page.",
+          "You end up with missing markup, unresolved asset paths, and none of the content that only exists after hydration. For anything beyond a plain static site, you need a cloner that renders first.",
+        ],
+      },
+      {
+        heading: "What a Browser-Based Cloner Captures",
+        body: [
+          "A cloner that drives a real headless browser gives you the DOM as it actually renders, plus every dependency:",
+        ],
+        list: [
+          "Fully rendered HTML — the post-JavaScript DOM, not the empty shell",
+          "All stylesheets, so you can inspect the real cascade and computed layout",
+          "JavaScript bundles and the images, icons, and fonts the page loads",
+          "Lazy-loaded and scroll-triggered assets that a raw fetch never sees",
+          "Rewritten local paths, so the clone opens and runs offline",
+        ],
+      },
+      {
+        heading: "A Note on Tailwind CSS and Utility Frameworks",
+        body: [
+          "A common question: can you clone a site and get clean Tailwind CSS classes back? Be realistic here. If a site ships Tailwind's utility classes in its markup, you'll see those classes in the cloned HTML. But many production sites compile and purge their CSS, so what you get is the final compiled stylesheet, not a tidy Tailwind config.",
+          "Either way, the clone is an excellent starting reference: you get the exact class names on each element, the computed styles, the spacing scale, and the color values. From there you rebuild in your own stack — Tailwind, plain CSS, or whatever you prefer — using the clone as a faithful spec instead of guessing from a screenshot.",
+        ],
+      },
+      {
+        heading: "Clone a Site in Seconds",
+        body: [
+          "No install, no wget flags to tune:",
+        ],
+        list: [
+          "Paste the target URL at websitesucker.com and click Analyse",
+          "Inspect the crawled asset list — HTML, CSS, JS, images, and fonts",
+          "Download the ZIP for $1.99 and open the folder in your editor",
+          "Use the rendered markup and styles as a reference for your build",
+        ],
+      },
+      {
+        heading: "Use Clones as a Reference, Not a Shortcut Past the License",
+        body: [
+          "Cloning for study, prototyping, and rebuilding your own projects is everyday developer work. Just remember that a site's content, images, and distinctive design may be copyrighted, and its code may be licensed. Use a clone to learn and to inform your own original build — not to lift a competitor's site wholesale and ship it as your own.",
+        ],
+      },
+    ],
+    cta: {
+      heading: "Clone a Site for Your Next Build",
+      body: "Paste a URL and pull down the rendered HTML, CSS, and assets as a clean local reference. Free to analyse, $1.99 to download the full ZIP.",
+    },
+  },
 ];
