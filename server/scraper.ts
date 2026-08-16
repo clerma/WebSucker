@@ -1324,6 +1324,36 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
   const browser = await getBrowser();
   const page = await browser.newPage();
 
+  // SSRF egress policy for the browser itself: a rendered page's JS can make
+  // Chromium request internal addresses (cloud metadata, loopback, RFC1918)
+  // via subresources, XHR, iframes, or redirects — request interception
+  // screens every request (including each redirect hop) before it leaves.
+  const hostVerdicts = new Map<string, Promise<boolean>>();
+  const isRequestAllowed = (rawUrl: string): Promise<boolean> => {
+    try {
+      const u = new URL(rawUrl);
+      if (u.protocol !== "http:" && u.protocol !== "https:") {
+        return u.protocol === "data:" || u.protocol === "blob:" || u.protocol === "about:"
+          ? Promise.resolve(true)
+          : Promise.resolve(false);
+      }
+      let verdict = hostVerdicts.get(u.hostname);
+      if (!verdict) {
+        verdict = isHostPublic(u.hostname).catch(() => false);
+        hostVerdicts.set(u.hostname, verdict);
+      }
+      return verdict;
+    } catch {
+      return Promise.resolve(false);
+    }
+  };
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    isRequestAllowed(req.url()).then((ok) => {
+      return ok ? req.continue() : req.abort("blockedbyclient");
+    }).catch(() => { /* request already handled */ });
+  });
+
   // Capture same-origin JS/CSS fetched at runtime (webpack lazy chunks, dynamic
   // import()). These never appear as <script src> in the DOM, so the normal
   // asset pipeline misses them — but the site's runtime requests them by their
