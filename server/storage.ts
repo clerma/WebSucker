@@ -285,22 +285,16 @@ export class MemStorage implements IStorage {
 
   async redeemAccessCode(code: string): Promise<boolean> {
     const normalized = code.toUpperCase().trim();
-    // Atomic: increment uses only if the code exists AND is under its cap, in a
-    // single conditional UPDATE. This closes the read-then-write race where two
-    // concurrent redemptions could both pass a separate `uses < maxUses` check.
-    const updated = await db.update(accessCodesTable)
+    // Atomic conditional increment — the WHERE clause enforces maxUses so
+    // concurrent redemptions can't over-consume a limited-use code.
+    const rows = await db.update(accessCodesTable)
       .set({ uses: sql`${accessCodesTable.uses} + 1` })
-      .where(
-        and(
-          eq(accessCodesTable.code, normalized),
-          or(
-            isNull(accessCodesTable.maxUses),
-            lt(accessCodesTable.uses, accessCodesTable.maxUses),
-          ),
-        ),
-      )
-      .returning();
-    return updated.length > 0;
+      .where(and(
+        eq(accessCodesTable.code, normalized),
+        or(isNull(accessCodesTable.maxUses), lt(accessCodesTable.uses, accessCodesTable.maxUses)),
+      ))
+      .returning({ code: accessCodesTable.code });
+    return rows.length > 0;
   }
 }
 

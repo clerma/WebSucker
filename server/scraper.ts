@@ -386,6 +386,12 @@ const BREAKER_BLOCK_AFTER = 8;      // consecutive connect failures before givin
 const BREAKER_COOLDOWN_MS = 45000;  // one-time pause hoping the block lifts
 const BREAKER_POLITENESS_MS = 1000; // per-request delay once a host has shown trouble
 
+// Page-load delay (Puppeteer real-browser path): after the `load` event, wait
+// up to this long for the network to go quiet so slow / JS-heavy sites finish
+// loading deferred assets and client-rendered content before we capture...
+const PAGE_LOAD_DELAY_MS = 8000;  // max wait for network to settle after load
+const PAGE_SETTLE_MS = 2500;      // fixed extra settle on top of network idle
+
 function getHostBreaker(url: string): HostBreakerState | null {
   try {
     const host = new URL(url).hostname;
@@ -450,6 +456,79 @@ async function safeFetch(
   throw new Error("Too many redirects");
 }
 
+// --- ScrapingBee plain-proxy relay for IP-blocked hosts ----------------------
+// When a host firewalls OUR IP, the same request from a different IP usually
+// works fine. ScrapingBee's classic (non-stealth) mode relays the request
+// through their proxy pool at ~1 credit (~$0.0002) per call, so it's cheap
+// enough to use for every remaining asset on a blocked host. Budget-capped
+// per host to bound cost (~$0.10 worst case).
+const MAX_PROXY_RELAYS_PER_HOST = 500;
+const proxyRelayUsage = new Map<string, number>();
+// Once ScrapingBee reports its monthly quota exhausted there is no point in
+// retrying it for every remaining asset — flip this and fail fast instead.
+let proxyRelayQuotaExhausted = false;
+
+export function isProxyRelayQuotaExhausted(): boolean {
+  return proxyRelayQuotaExhausted;
+}
+
+const HOST_BLOCKED_NO_PROXY_MESSAGE =
+  "The site blocked our server's IP address, and the backup proxy service has used up its monthly request quota, " +
+  "so we couldn't route around the block. Try again later once the site lifts the block, or contact support about proxy capacity.";
+
+function proxyRelayBudgetLeft(host: string): boolean {
+  return (proxyRelayUsage.get(host) ?? 0) < MAX_PROXY_RELAYS_PER_HOST;
+}
+
+async function fetchViaProxyRelay(
+  url: string
+): Promise<{ content: Buffer; contentType: string } | null> {
+  const apiKey = process.env.SCRAPINGBEE_API_KEY;
+  if (!apiKey) return null;
+  if (proxyRelayQuotaExhausted) return null;
+  let host: string;
+  try { host = new URL(url).hostname; } catch { return null; }
+  if (!proxyRelayBudgetLeft(host)) {
+    console.warn(`[proxy-relay] Per-host budget of ${MAX_PROXY_RELAYS_PER_HOST} reached — skipping ${url}`);
+    return null;
+  }
+  // Count the attempt (not just successes) so cost stays bounded even if
+  // some failed calls are billed or the API keeps erroring.
+  const used = (proxyRelayUsage.get(host) ?? 0) + 1;
+  proxyRelayUsage.set(host, used);
+  if (used === 1 || used % 50 === 0) {
+    console.log(`[proxy-relay] Relaying ${host} through proxy IPs (${used} requests so far)`);
+  }
+  try {
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      url,
+      render_js: "false", // plain relay — no browser, ~1 credit
+    });
+    const res = await fetch(`https://app.scrapingbee.com/api/v1/?${params}`, {
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(`[proxy-relay] HTTP ${res.status} for ${url}: ${body.slice(0, 200)}`);
+      if (res.status === 401 && /limit reached/i.test(body)) {
+        proxyRelayQuotaExhausted = true;
+        console.warn(`[proxy-relay] Monthly quota exhausted — disabling relay for the rest of this process`);
+      }
+      return null;
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_ASSET_SIZE) {
+      throw new Error(`Asset exceeds ${MAX_ASSET_SIZE / 1024 / 1024}MB limit`);
+    }
+    return { content: buf, contentType: res.headers.get("content-type") || "" };
+  } catch (e: any) {
+    if (/exceeds/.test(e?.message ?? "")) throw e;
+    console.warn(`[proxy-relay] Request failed for ${url}: ${e?.message}`);
+    return null;
+  }
+}
+
 // Fetch the full response body under a single unified timeout.
 // The AbortController is kept alive until the body is fully read,
 // so a slow/stalled body transfer is caught just like a slow connection.
@@ -462,7 +541,10 @@ async function fetchBytesWithTimeout(
   const breaker = getHostBreaker(url);
 
   if (breaker?.blocked) {
-    throw new Error(HOST_BLOCKED_MESSAGE);
+    // Host firewalled our IP — relay through proxy IPs instead of giving up.
+    const relayed = await fetchViaProxyRelay(url);
+    if (relayed) return relayed;
+    throw new Error(proxyRelayQuotaExhausted ? HOST_BLOCKED_NO_PROXY_MESSAGE : HOST_BLOCKED_MESSAGE);
   }
   // Politeness: once a host has shown connection trouble, slow down so we
   // don't keep tripping its rate limiter.
@@ -525,7 +607,9 @@ async function fetchBytesWithTimeout(
       if (fails >= BREAKER_BLOCK_AFTER) {
         breaker.blocked = true;
         console.warn(`[breaker] Host blocked after ${fails} consecutive connection failures: ${url}`);
-        throw new Error(HOST_BLOCKED_MESSAGE);
+        const relayed = await fetchViaProxyRelay(url);
+        if (relayed) return relayed;
+        throw new Error(proxyRelayQuotaExhausted ? HOST_BLOCKED_NO_PROXY_MESSAGE : HOST_BLOCKED_MESSAGE);
       }
       if (fails >= BREAKER_COOLDOWN_AFTER && !breaker.cooldownUsed) {
         breaker.cooldownUsed = true;
@@ -541,6 +625,10 @@ async function fetchBytesWithTimeout(
         lastError = err as Error;
         continue;
       }
+      // Direct retries exhausted on a connection-level failure — try relaying
+      // through a proxy IP before giving up on this asset.
+      const relayed = await fetchViaProxyRelay(url);
+      if (relayed) return relayed;
     }
     throw err;
   } finally {
@@ -726,8 +814,17 @@ async function probeNeedsPuppeteer(entryUrl: string): Promise<boolean> {
 
     // Static HTML — Puppeteer won't add anything useful
     return false;
-  } catch {
-    return true; // fetch failed → fall back to Puppeteer to be safe
+  } catch (err: any) {
+    // Connection-level failure (host firewalled our IP, DNS dead, refused):
+    // Puppeteer runs from the SAME IP and can't connect either — running it
+    // would just burn minutes of protocol timeouts per page. Treat as static
+    // so the fetch path (which can relay through proxy IPs) handles it.
+    const code = err?.cause?.code ?? err?.code ?? "";
+    if (/UND_ERR_CONNECT|ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT/.test(String(code))) {
+      console.warn(`[probe] Connection-level failure (${code}) — skipping Puppeteer (same IP would fail too)`);
+      return false;
+    }
+    return true; // other fetch failure → fall back to Puppeteer to be safe
   }
 }
 
@@ -1031,24 +1128,40 @@ async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
     );
 
     // Find inner scroll containers (overflow auto/scroll with real overflow).
-    const scrollContainers: HTMLElement[] = [];
-    try {
-      const all = Array.from(document.querySelectorAll<HTMLElement>("*")).slice(0, 3000);
-      for (const el of all) {
-        const style = getComputedStyle(el);
-        const oy = style.overflowY;
-        if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 200) {
-          scrollContainers.push(el);
-          if (scrollContainers.length >= 8) break;
+    const findScrollContainers = (): HTMLElement[] => {
+      const found: HTMLElement[] = [];
+      try {
+        const all = Array.from(document.querySelectorAll<HTMLElement>("*")).slice(0, 3000);
+        for (const el of all) {
+          const style = getComputedStyle(el);
+          const oy = style.overflowY;
+          if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 200) {
+            found.push(el);
+            if (found.length >= 8) break;
+          }
         }
+      } catch {}
+      return found;
+    };
+    let scrollContainers = findScrollContainers();
+
+    const containerExhausted = (c: HTMLElement) => {
+      try { return c.scrollTop + c.clientHeight >= c.scrollHeight - 2; } catch { return true; }
+    };
+    const containersHeight = () => {
+      let sum = 0;
+      for (const c of scrollContainers) {
+        try { sum += c.scrollHeight; } catch {}
       }
-    } catch {}
+      return sum;
+    };
 
     const start = Date.now();
     const MAX_MS = 20000;
     const MAX_ITERS = 60;
     const distance = 800;
     let lastHeight = 0;
+    let lastInnerHeight = 0;
     let stableCount = 0;
 
     for (let i = 0; i < MAX_ITERS; i++) {
@@ -1060,16 +1173,28 @@ async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
       }
       await sleep(120);
 
+      // Periodically re-scan: lazy content can introduce new inner scrollers.
+      if (i % 5 === 4) {
+        const fresh = findScrollContainers();
+        for (const c of fresh) {
+          if (!scrollContainers.includes(c)) scrollContainers.push(c);
+        }
+        if (scrollContainers.length > 12) scrollContainers = scrollContainers.slice(0, 12);
+      }
+
       const atBottom = window.innerHeight + window.scrollY >= docHeight() - 2;
+      const innersDone = scrollContainers.every(containerExhausted);
       const h = docHeight();
-      if (h === lastHeight) {
+      const ih = containersHeight();
+      if (h === lastHeight && ih === lastInnerHeight) {
         stableCount++;
-        // Height stopped growing AND we're at the bottom → done.
-        if (atBottom && stableCount >= 2) break;
+        // Nothing growing AND window + every inner scroller at bottom → done.
+        if (atBottom && innersDone && stableCount >= 2) break;
         if (stableCount >= 5) break;
       } else {
         stableCount = 0;
         lastHeight = h;
+        lastInnerHeight = ih;
       }
     }
   });
@@ -1195,10 +1320,46 @@ async function collectRenderedAssetUrls(page: import("puppeteer").Page): Promise
   });
 }
 
-async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number; extraAssetUrls?: string[] }> {
+async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number; extraAssetUrls?: string[]; dynamicScripts?: Array<{ url: string; body: Buffer }> }> {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  
+
+  // Capture same-origin JS/CSS fetched at runtime (webpack lazy chunks, dynamic
+  // import()). These never appear as <script src> in the DOM, so the normal
+  // asset pipeline misses them — but the site's runtime requests them by their
+  // original path (e.g. /scripts/123.abc.js) and breaks offline without them.
+  const dynamicScripts: Array<{ url: string; body: Buffer }> = [];
+  const dynamicSeen = new Set<string>();
+  const dynamicPending: Promise<void>[] = [];
+  let dynamicTotalBytes = 0;
+  const DYNAMIC_MAX_FILE = 15 * 1024 * 1024;   // per-file cap
+  const DYNAMIC_MAX_TOTAL = 50 * 1024 * 1024;  // whole-page budget
+  const DYNAMIC_MAX_COUNT = 100;
+  page.on("response", (res) => {
+    const p = (async () => {
+      try {
+        const resUrl = res.url();
+        if (!/^https?:/.test(resUrl)) return;
+        if (shouldSkipUrl(resUrl).skip) return; // trackers/analytics
+        const req = res.request();
+        const type = req.resourceType();
+        if (type !== "script" && type !== "stylesheet") return;
+        if (!res.ok()) return;
+        if (dynamicSeen.has(resUrl)) return;
+        if (dynamicScripts.length >= DYNAMIC_MAX_COUNT || dynamicTotalBytes >= DYNAMIC_MAX_TOTAL) return;
+        dynamicSeen.add(resUrl);
+        const body = await res.buffer();
+        if (body.length > DYNAMIC_MAX_FILE) return;
+        if (dynamicTotalBytes + body.length > DYNAMIC_MAX_TOTAL) return;
+        dynamicTotalBytes += body.length;
+        dynamicScripts.push({ url: resUrl, body });
+      } catch {
+        // Best-effort — a missed chunk just falls back to old behavior.
+      }
+    })();
+    dynamicPending.push(p);
+  });
+
   try {
     // Rotate fingerprint per request: realistic UA, viewport, and language.
     const ua = pick(UA_POOL);
@@ -1329,9 +1490,18 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
     if (status >= 400) {
       return { html: "", status };
     }
-    
-    // Short settle wait after load event
-    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Page-load delay: let the real browser keep loading after the `load`
+    // event so slow / JS-heavy sites finish fetching deferred assets and
+    // rendering client-side content before we capture. First wait (bounded)
+    // for the network to go quiet, then a fixed settle on top.
+    try {
+      await page.waitForNetworkIdle({ idleTime: 800, timeout: PAGE_LOAD_DELAY_MS });
+    } catch {
+      // Network never fully quieted (long-polling, analytics beacons, etc.) —
+      // fall through to the fixed settle rather than failing the capture.
+    }
+    await new Promise(resolve => setTimeout(resolve, PAGE_SETTLE_MS));
 
     // Hydration settle: SPA frameworks (Wix/React) can WIPE the server-rendered
     // content during hydration and re-render it client-side. Capturing mid-wipe
@@ -1444,6 +1614,30 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
     // Brief network idle check
     await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 }).catch(() => {});
 
+    // Reset UI state the interaction sweep left behind BEFORE serializing.
+    // Hovering/clicking nav triggers can leave menu overlays "open" in the DOM
+    // (e.g. Squarespace's header-menu-nav-folder--active); serialized that way,
+    // the invisible overlay sits above the page and swallows every click in the
+    // offline copy.
+    await page.evaluate(() => {
+      const openStateRe = /(^|\b|-)(is-)?(open|active|expanded|visible)(\b|$)/;
+      document.querySelectorAll<HTMLElement>('[class*="menu"], [class*="nav"], header, body').forEach((el) => {
+        for (const cls of Array.from(el.classList)) {
+          if (/menu|nav|header/.test(cls) && openStateRe.test(cls) && /--|__|is-/.test(cls)) {
+            el.classList.remove(cls);
+          }
+        }
+      });
+      // Common explicit patterns
+      document.body.classList.remove("menu--open", "menu-open", "nav-open", "header--menu-open");
+      document.querySelectorAll('[aria-expanded="true"]').forEach((el) => {
+        const cls = el.className || "";
+        if (typeof cls === "string" && /menu|nav|burger|toggle/i.test(cls + " " + (el.getAttribute("aria-label") || ""))) {
+          el.setAttribute("aria-expanded", "false");
+        }
+      });
+    }).catch(() => {});
+
     // Desktop DOM is the primary offline copy we save.
     html = await page.content();
 
@@ -1467,7 +1661,13 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
       // Mobile pass is best-effort; ignore failures.
     }
 
-    return { html, status, extraAssetUrls };
+    // Let any in-flight response-body captures finish before the page closes,
+    // otherwise late chunks are nondeterministically dropped.
+    await Promise.race([
+      Promise.allSettled(dynamicPending),
+      new Promise((r) => setTimeout(r, 5000)),
+    ]);
+    return { html, status, extraAssetUrls, dynamicScripts };
   } finally {
     await page.close();
   }
@@ -1631,15 +1831,15 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       let content: Buffer;
       let contentType = "";
       
-      // Fail fast if the host's circuit breaker has tripped — every further
-      // Puppeteer render or fetch would just burn its full timeout.
+      // If the host's circuit breaker has tripped, skip Puppeteer entirely —
+      // the browser can't use the proxy relay, so go straight to
+      // fetchBytesWithTimeout which relays blocked hosts through proxy IPs
+      // (or fails fast with a friendly message when no relay is available).
       const hostBreaker = getHostBreaker(downloadUrl);
-      if (hostBreaker?.blocked) {
-        throw new Error(HOST_BLOCKED_MESSAGE);
-      }
+      const hostIsBlocked = hostBreaker?.blocked === true;
 
       if (assetType === "html" && !isExternal) {
-        if (usePuppeteer) {
+        if (usePuppeteer && !hostIsBlocked) {
           try {
             const rendered = await fetchRenderedHtml(currentUrl, 45000, jobId);
             
@@ -1703,6 +1903,55 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
                 if (normalized && !discoveredUrls.has(normalized)) {
                   discoveredUrls.add(normalized);
                   urlQueue.push({ url: normalized, referrer: currentUrl });
+                }
+              }
+            }
+
+            // Save runtime-loaded JS/CSS chunks at their ORIGINAL site paths.
+            // The site's runtime requests them by literal path (webpack
+            // publicPath like /scripts/...), so they must live at that exact
+            // location — the hashed assets/js/ naming used for <script src>
+            // tags would never be found.
+            if (rendered.dynamicScripts?.length) {
+              // Deterministic precedence: same-origin files first, so a
+              // same-origin chunk always wins the scripts/<basename> slot over
+              // a cross-origin file that happens to share the name.
+              const orderedDynamic = [...rendered.dynamicScripts].sort((a, b) => {
+                const aSame = a.url.includes(`//${baseUrl.hostname}`) ? 0 : 1;
+                const bSame = b.url.includes(`//${baseUrl.hostname}`) ? 0 : 1;
+                return aSame - bSame;
+              });
+              for (const ds of orderedDynamic) {
+                try {
+                  const dsUrl = new URL(ds.url);
+                  const pathname = dsUrl.pathname;
+                  if (!/\.(js|mjs|css)$/i.test(pathname)) continue;
+                  // Candidate local paths where the site's runtime may request
+                  // this file when running offline:
+                  const candidates: string[] = [];
+                  // 1. Same-origin: the literal site path (root-relative
+                  //    webpack publicPath, e.g. /scripts/123.abc.js).
+                  if (dsUrl.hostname === baseUrl.hostname) {
+                    candidates.push(pathname.replace(/^\/+/, ""));
+                  }
+                  // 2. Any origin: runtimes that derive publicPath from the
+                  //    bundle's own URL fall back to document-origin
+                  //    "/scripts/<file>" offline (Squarespace does this) —
+                  //    mirror the trailing /scripts/ segment locally.
+                  const scriptsIdx = pathname.lastIndexOf("/scripts/");
+                  if (scriptsIdx !== -1) {
+                    candidates.push("scripts/" + path.basename(pathname));
+                  }
+                  for (const dsPath of candidates) {
+                    if (!dsPath || dsPath.includes("..")) continue;
+                    const target = path.join(outputDir, dsPath);
+                    if (!target.startsWith(outputDir + path.sep)) continue;
+                    if (fs.existsSync(target)) continue;
+                    await fs.promises.mkdir(path.dirname(target), { recursive: true });
+                    await fs.promises.writeFile(target, ds.body);
+                  }
+                } catch {
+                  // Best-effort; a missed chunk degrades gracefully.
                 }
               }
             }
@@ -1983,7 +2232,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
       if (currentUrl === url) {
         throw new Error(
           getHostBreaker(url)?.sawConnectFailure
-            ? HOST_BLOCKED_MESSAGE
+            ? (proxyRelayQuotaExhausted ? HOST_BLOCKED_NO_PROXY_MESSAGE : HOST_BLOCKED_MESSAGE)
             : `Could not load the site's first page: ${errorMessage}`
         );
       }
@@ -2701,6 +2950,19 @@ async function rewriteUrls(outputDir: string, baseUrl: string, assetMap: Map<str
           $(el).attr(attr, relativePath + suffix);
           modified = true;
         } else if (isImageAttr && !value.startsWith("#") && !value.startsWith("data:")) {
+          // Scripts are NOT images — swapping a <script src> for the SVG
+          // placeholder produces MIME-type console errors and silently kills
+          // legit embed loaders (Instagram embed.js, iframeSizer, etc.).
+          if (tagName === "script") {
+            if (isExternalValue && shouldSkipUrl(value).skip) {
+              // Intentionally skipped tracker — drop the tag entirely.
+              $(el).remove();
+              modified = true;
+            }
+            // Otherwise leave the original (absolute) URL so the embed still
+            // works when the copy is viewed with internet access.
+            return;
+          }
           // Use placeholder for all missing images (both external CDN images and internal images that failed to download)
           const relativePlaceholder = path.relative(fileDir || ".", placeholderPath);
           $(el).attr(attr, relativePlaceholder);

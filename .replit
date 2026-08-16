@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "python-3.11", "postgresql-16"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
@@ -9,6 +9,14 @@ packages = ["unzip", "glib", "nss", "nspr", "at-spi2-atk", "cups", "dbus", "expa
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
 
 [env]
 PORT = "5000"
@@ -46,3 +54,7 @@ integrations = ["stripe:1.0.0"]
 
 [userenv.shared]
 ADMIN_SECRET = "5WrzMjn7pOUUssKX"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000

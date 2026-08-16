@@ -22,7 +22,7 @@ const faqs: QA[] = [
   {
     q: "Is it free?",
     a: [
-      "Analysing any website is completely free — you can see exactly what would be downloaded before paying anything. The actual ZIP download costs $1.99 one-time, or $5.99/month for unlimited downloads (cancel anytime).",
+      "Your first scrape is free when you create an account — no card required — so you can preview exactly what you'd get. Downloading the ZIP takes a credit: buy a single credit for $1.99, 3 for $4.99, or 10 for $12.99 (that's $1.30 each) — or go unlimited for $5.99/month (cancel anytime).",
     ],
   },
   {
@@ -68,21 +68,21 @@ const faqs: QA[] = [
     ],
   },
   {
-    q: "Why do I need to pay to download but not to scrape?",
+    q: "Why do scrapes cost credits?",
     a: [
-      "Running a real headless browser, downloading hundreds of assets per site, and serving the results uses real bandwidth and compute. We let you analyse for free so you can verify the result is what you want before paying. The download fee covers the infrastructure and keeps the service sustainable.",
+      "Running a real headless browser, downloading hundreds of assets per site, and serving the results uses real bandwidth and compute. Your first scrape is free so you can verify the quality before paying. Credits cover the infrastructure and keep the service sustainable.",
     ],
   },
   {
-    q: "What's the difference between $1.99 and $5.99/month?",
+    q: "What's the difference between credit packs and the $5.99/month subscription?",
     a: [
-      "$1.99 is a one-time charge for a single download — perfect if you just need to back up one site. $5.99/month gives you unlimited downloads — better if you'll be backing up multiple sites or doing periodic backups of the same site. The subscription pays for itself after about three downloads.",
+      "Credit packs (1 for $1.99, 3 for $4.99, or 10 for $12.99) are one-time purchases — each credit covers one full scrape and download, and credits never expire. $5.99/month gives you unlimited scrapes — better if you'll be backing up multiple sites or doing periodic backups of the same site. The subscription pays for itself after about three downloads.",
     ],
   },
   {
     q: "I subscribed — how do I get my access back on a different device?",
     a: [
-      "On the pricing dialog, click 'Already subscribed? Restore access' and enter the email you used at checkout. We'll look up your subscription and restore access on the new device.",
+      "Just sign in with the email and password you used when you created your account — your subscription and any remaining credits are tied to your account, so they follow you to any device.",
     ],
   },
   {
@@ -190,7 +190,7 @@ export default function Faq() {
         <div className="max-w-4xl mx-auto px-4 py-12 text-center">
           <h2 className="text-xl font-semibold mb-3">Ready to back up your site?</h2>
           <p className="text-muted-foreground mb-6">
-            Paste any URL — analysing is always free. Download the complete offline copy for $1.99.
+            Create a free account and preview your first scrape free — ZIP downloads from $1.99 for a single credit (packs from $1.30/credit).
           </p>
           <a
             href="/"

@@ -168,7 +168,7 @@ export function ResultsSummary({
                 </Button>
                 {!isDownloading && successAssets.length > 0 && (
                   <span className="text-xs text-muted-foreground">
-                    from $1.99 · $5.99/mo unlimited
+                    first free · 1 credit $1.99 · packs from $1.30/credit · $5.99/mo unlimited
                   </span>
                 )}
               </div>

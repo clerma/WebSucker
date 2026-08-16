@@ -159,7 +159,7 @@ const comparison: CompareRow[] = [
   },
   {
     feature: "Pricing",
-    websuck: "$1.99 / $5.99 mo",
+    websuck: "from $1.99 ($1.30/credit in packs) / $5.99 mo",
     sitesucker: "Paid app",
     httrack: "Free",
     websitedl: "Paid past quota",
@@ -260,19 +260,19 @@ export default function Features() {
         <div className="max-w-5xl mx-auto px-4 py-16">
           <div className="text-center mb-10">
             <h2 className="text-2xl font-bold mb-3">Simple, fair pricing</h2>
-            <p className="text-muted-foreground">Analysing any site is free. Pay only when you actually want the ZIP.</p>
+            <p className="text-muted-foreground">Your first scrape is free to preview. Downloads take a credit.</p>
           </div>
           <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             <div className="border rounded-xl p-8 bg-card">
               <div className="flex items-center gap-2 mb-1">
                 <Clock className="h-4 w-4 text-muted-foreground" />
-                <span className="text-xs uppercase tracking-wide text-muted-foreground font-medium">One-time</span>
+                <span className="text-xs uppercase tracking-wide text-muted-foreground font-medium">Credit packs</span>
               </div>
               <div className="text-3xl font-bold mb-1">$1.99</div>
-              <p className="text-sm text-muted-foreground mb-5">For a single download.</p>
+              <p className="text-sm text-muted-foreground mb-5">1 credit — or 3 for $4.99, or 10 for $12.99 ($1.30 each).</p>
               <ul className="space-y-2 text-sm">
-                <li className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />Complete ZIP of one website</li>
-                <li className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />No subscription, no surprises</li>
+                <li className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />Each credit = one full scrape + ZIP download</li>
+                <li className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />Credits never expire — no subscription</li>
                 <li className="flex items-start gap-2"><CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />Files held for 10 minutes, then deleted</li>
               </ul>
             </div>
@@ -301,7 +301,7 @@ export default function Features() {
         <div className="max-w-4xl mx-auto px-4 py-14 text-center">
           <h2 className="text-2xl font-bold mb-3">Try it on your own site</h2>
           <p className="text-muted-foreground mb-6">
-            Analysing is always free. You'll see exactly what we'd download before paying anything.
+            Preview your first scrape free — no card required.
           </p>
           <a
             href="/"

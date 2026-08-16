@@ -5,7 +5,7 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 ## Run & Operate
 
 - Run both frontend and backend: `npm run dev`
-- Required Environment Variables: `ADMIN_SECRET` (for admin dashboard password)
+- Required Environment Variables: `ADMIN_SECRET` (for admin dashboard password), `SESSION_SECRET` (session cookies)
 
 ## Stack
 
@@ -24,7 +24,8 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 - **Server Source**: `server/`
     - API Endpoints & WebSockets: `server/routes.ts`
     - Core Scraper Logic: `server/scraper.ts`
-    - Stripe Integration: `server/stripeClient.ts`, `server/webhookHandlers.ts`
+    - Auth (sessions, register/login): `server/auth.ts`
+    - Stripe Integration: `server/stripeClient.ts`, `server/webhookHandlers.ts`, `server/seed-credits.ts`
     - Admin-related: `server/seed-products.ts`
 - **Shared Types**: `shared/schema.ts`
 - **Blog Articles**: `client/src/data/articles.ts`
@@ -34,9 +35,11 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 - **Dynamic Content Handling**: Uses Puppeteer for scraping to capture JavaScript-rendered content, embeds, and lazy-loaded assets.
 - **Wix CDN Normalization**: Rewrites Wix CDN image URLs to their base form to prevent duplicate downloads and handle various image transformations.
 - **Static Site Optimization**: Implements `probeNeedsPuppeteer()` to skip Puppeteer for static HTML sites, significantly reducing scrape time.
+- **Page-Load Delay**: In the Puppeteer (real-browser) path, after the `load` event the scraper waits for network idle (`page.waitForNetworkIdle`, up to `PAGE_LOAD_DELAY_MS`) plus a fixed `PAGE_SETTLE_MS` before capture, so slow/JS-heavy sites finish loading deferred assets and client-rendered content. Falls through gracefully if the network never quiets.
 - **Robust Error Handling**: HTTP 429 retry with exponential backoff. Cloudflare bypass tier-list (in order): (1) `puppeteer-extra-plugin-stealth` + rotating UA/viewport/lang/sec-ch-ua fingerprints + humanlike mouse jitter + Turnstile-checkbox click + 45s wait. (2) `CapSolver` AntiTurnstileTaskProxyLess (`CAPSOLVER_API_KEY`) — only works when sitekey is exposed; Cloudflare "Managed Challenge" interstitials don't expose one. (3) `ScrapingBee` `stealth_proxy=true` + `render_js=true` (`SCRAPINGBEE_API_KEY`) — defeats Cloudflare Managed Challenge, returns rendered HTML and short-circuits Puppeteer for that page. Costs ~75 ScrapingBee credits (~$0.015) per fallback. If all three fail, surfaces a single friendly error toast + persistent inline alert (no spam).
 - **Cloudflare Detector Discipline**: `isCloudflareChallenge()` only matches the interstitial (title `Just a moment...` or `window._cf_chl_opt`). It does NOT treat the bare `cdn-cgi/challenge-platform` script tag as a challenge, because Cloudflare injects that script on real post-challenge pages too — matching it produced false positives that discarded valid HTML.
-- **Payment Gating**: Integrates Stripe for secure one-time and subscription-based downloads, with customer lookup for restoring access.
+- **Password Reset**: "Forgot password?" on the login form → /forgot-password emails a single-use, 1-hour reset link via the Resend connection (server/email.ts); /reset-password?token=... sets the new password and signs the user in. Only SHA-256 token hashes are stored (password_reset_tokens table). NOTE: until a domain is verified in Resend, emails send from onboarding@resend.dev and only deliver to the Resend account owner's address — verify websitesucker.com in Resend for production.
+- **Accounts + Credits Gating**: Scraping requires an account (email+password, bcryptjs, express-session + connect-pg-simple). Entitlement order in POST /api/scrape: active subscription > unused free scrape > atomic credit decrement (402 code NO_CREDITS). Credit/subscription scrapes pre-authorize the download at job creation; the FREE scrape is preview-only — the download route charges a credit (or checks subscription) at download time and returns 402 NO_CREDITS otherwise. Failed scrapes refund the credit/free scrape. Credit packs: 1/$1.99, 3/$4.99, 10/$12.99 (Stripe prices with metadata type=credits); subscription $5.99/mo = unlimited. Plan purchases verified idempotently via GET /api/stripe/verify-plan (payments table onConflictDoNothing) from /checkout/success?plan=1.
 
 ## Product
 
@@ -44,7 +47,7 @@ Website Sucker is a web-based tool that allows users to scrape and analyze any w
 - **Embed Preservation**: Maintains YouTube, Vimeo, Google Maps, Spotify, etc. embeds.
 - **Real-time Feedback**: WebSocket-powered progress updates and detailed results summary.
 - **Offline Backup**: Downloadable ZIP with organized directory structure for offline use.
-- **Monetization**: Gated downloads via Stripe for one-time purchases or monthly subscriptions.
+- **Monetization**: Account required to scrape; 1 free scrape on signup (preview only — no free ZIP download), then credit packs (1/$1.99, 3/$4.99, 10/$12.99) or $5.99/mo unlimited subscription via Stripe.
 - **Admin Dashboard**: Password-protected `/admin` for usage analytics and Stripe revenue.
 - **SEO/Content**: `/blog`, `/features`, `/faq` pages with rich content and SEO optimizations.
 
