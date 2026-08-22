@@ -104,7 +104,7 @@ function unwrapWixMediaUrl(value: string): string {
 // such as /h_399, /al_c, /q_90 and /quality_auto/foo.jpg.
 function isBareWixTransformFragment(value: string): boolean {
   const v = value.trim().replace(/^\/+/, "");
-  return /^(?:[wh]_\d+|al_[^/]+|q_\d+|enc_[^/]+|usm_[^/]+|quality_[^/]+)(?:\/|$)/i.test(v);
+  return /^(?:[wh]_\d+|al_[^/]+|q_\d+|blur_\d+|enc_[^/]+|usm_[^/]+|quality_[^/]+)(?:\/|$)/i.test(v);
 }
 
 // Extract the media hash from a valid Wix CDN URL.
@@ -176,6 +176,26 @@ function parseSrcset(srcset: string): Array<{ url: string; descriptor: string }>
   }
 
   return entries;
+}
+
+function enqueueWixDataImageUrls(
+  $: cheerio.CheerioAPI,
+  discoveredUrls: Set<string>,
+  urlQueue: Array<{ url: string; referrer: string }>,
+  currentUrl: string,
+): void {
+  $("[data-image-info]").each((_, el) => {
+    try {
+      const info = JSON.parse($(el).attr("data-image-info") || "{}");
+      if (!info.uri) return;
+      const cdnUrl = resolveWixUri(String(info.uri));
+      const normalized = cdnUrl ? normalizeUrl(cdnUrl, currentUrl) : null;
+      if (normalized && !discoveredUrls.has(normalized)) {
+        discoveredUrls.add(normalized);
+        urlQueue.push({ url: normalized, referrer: currentUrl });
+      }
+    } catch {}
+  });
 }
 
 function convertToEmbedUrl(url: string): string | null {
@@ -2265,19 +2285,10 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           });
         }
         
-        // Wix-specific: extract images from data-image-info JSON attributes
-        $("[data-image-info]").each((_, el) => {
-          try {
-            const info = JSON.parse($(el).attr("data-image-info") || "{}");
-            if (info.uri) {
-              const cdnUrl = resolveWixUri(String(info.uri));
-              if (cdnUrl && !discoveredUrls.has(cdnUrl)) {
-                discoveredUrls.add(cdnUrl);
-                urlQueue.push({ url: cdnUrl, referrer: currentUrl });
-              }
-            }
-          } catch {}
-        });
+        // Wix-specific: images may exist only in data-image-info. Queue their
+        // canonical CDN URL now, before the crawl drains, so offline rewriting
+        // has a downloaded local asset rather than falling back to a placeholder.
+        enqueueWixDataImageUrls($, discoveredUrls, urlQueue, currentUrl);
 
         // Wix-specific: resolve wix:image:// URIs in src / data-src to real CDN URLs
         $("img[src^='wix:image://'], img[data-src^='wix:image://']").each((_, el) => {
@@ -2630,8 +2641,11 @@ async function transformForOffline(outputDir: string): Promise<void> {
         try {
           const info = JSON.parse($(el).attr("data-image-info") || "{}");
           if (info.uri) {
-            $(el).attr("src", `https://static.wixstatic.com/media/${info.uri}`);
-            modified = true;
+            const cdnUrl = resolveWixUri(String(info.uri));
+            if (cdnUrl) {
+              $(el).attr("src", cdnUrl);
+              modified = true;
+            }
           }
         } catch {}
       }
@@ -3294,3 +3308,18 @@ export async function cleanupScrapeFiles(jobId: string): Promise<void> {
   // Clear per-job ScrapingBee budget tracker so the Map doesn't grow forever.
   resetScrapingBeeUsage(jobId);
 }
+
+// Narrow, side-effect-free test surface for regression fixtures. Keeping these
+// helpers attached to the implementation lets tests exercise the exact URL and
+// offline-transform logic used by real scrape jobs.
+export const scraperTestUtils = {
+  unwrapWixMediaUrl,
+  isBareWixTransformFragment,
+  extractWixMediaHash,
+  resolveWixUri,
+  parseSrcset,
+  enqueueWixDataImageUrls,
+  normalizeUrl,
+  transformForOffline,
+  rewriteUrls,
+};

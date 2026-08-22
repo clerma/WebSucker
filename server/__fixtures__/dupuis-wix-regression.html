@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Dupuis Package Wix regression fixture</title>
+    <style>
+      #comp-header:not([data-motion-enter="done"]),
+      #comp-logo:not([data-motion-enter="done"]),
+      #comp-tagline:not([data-motion-enter="done"]),
+      #comp-copy:not([data-motion-enter="done"]),
+      #comp-cta:not([data-motion-enter="done"]) {
+        opacity: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="SITE_CONTAINER" data-mesh-id="SITE_CONTAINERinlineContent">
+      <div id="PAGES_CONTAINER">
+        <header id="comp-header" class="hidden-during-prewarmup">
+          <span>Dupuis Package, CARENCRO LOUISIANA</span>
+          <nav aria-label="Main navigation"><a href="#hero">MENU</a></nav>
+        </header>
+        <main id="hero">
+          <img
+            id="comp-logo"
+            alt="Dupuis Package logo"
+            src="https://static.wixstatic.com/media/03ce9f_logo~mv2.png/v1/fill/w_520,h_300,al_c,q_90,enc_avif/dupuis-logo.png"
+            srcset="https://static.wixstatic.com/media/03ce9f_logo~mv2.png/v1/fill/w_520,h_300,al_c,q_90,enc_avif/dupuis-logo.png 1x,https://static.wixstatic.com/media/03ce9f_logo~mv2.png/v1/fill/w_1040,h_600,al_c,q_90,enc_avif/dupuis-logo.png 2x"
+          >
+          <img
+            id="comp-nested-media"
+            alt="Nested Wix media URL regression"
+            data-image-info='{"uri":"https://static.wixstatic.com/media/https://static.wixstatic.com/media/03ce9f_logo~mv2.png"}'
+          >
+          <h1 class="wixui-rich-text">DUPUIS PACKAGE</h1>
+          <p id="comp-tagline">YOUR RECIPE OUR PRECISION</p>
+          <p id="comp-copy">We provide smooth co-packing for sauces and marinades.</p>
+          <a id="comp-cta" href="#contact">Get Started</a>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
