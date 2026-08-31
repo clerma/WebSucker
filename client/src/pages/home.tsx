@@ -1,10 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Globe, ArrowDown, Zap, Shield, FolderOpen, Lock, AlertCircle } from "lucide-react";
+import { Globe, ArrowDown, Shield, AlertCircle } from "lucide-react";
 import { useAuth, refreshAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
 import { Reveal } from "@/components/reveal";
+import {
+  PlatformStrip,
+  ProcessFlow,
+  AppPreview,
+  FeatureHighlights,
+  FeaturedGuides,
+} from "@/components/landing";
 import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
 import { PricingDialog } from "@/components/pricing-dialog";
@@ -524,66 +531,13 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="bg-muted/50 border-t py-16 px-4">
-            <div className="max-w-4xl mx-auto">
-              <Reveal>
-                <h2 className="text-2xl font-semibold text-center mb-10">
-                  How It Works
-                </h2>
-              </Reveal>
-              <div className="grid md:grid-cols-3 gap-8">
-                <Reveal delay={0}>
-                  <FeatureCard
-                    icon={Globe}
-                    title="1. Create a Free Account"
-                    description="Sign up in seconds and preview your first scrape free — no card required."
-                  />
-                </Reveal>
-                <Reveal delay={120}>
-                  <FeatureCard
-                    icon={Zap}
-                    title="2. Paste Any URL"
-                    description="We scan and capture every asset — HTML, CSS, JS, images, fonts, and more."
-                  />
-                </Reveal>
-                <Reveal delay={240}>
-                  <FeatureCard
-                    icon={Lock}
-                    title="3. Download Your Backup"
-                    description="Download the full ZIP with a credit — from $1.99 — or go unlimited for $5.99/month."
-                  />
-                </Reveal>
-              </div>
-            </div>
-          </div>
+          <PlatformStrip />
 
-          <div className="py-12 px-4">
-            <div className="max-w-4xl mx-auto">
-              <Reveal>
-                <h2 className="text-2xl font-semibold text-center mb-10">
-                  What Gets Downloaded
-                </h2>
-              </Reveal>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Reveal delay={0}>
-                  <AssetTypeCard label="HTML Pages" icon="html" />
-                </Reveal>
-                <Reveal delay={80}>
-                  <AssetTypeCard label="CSS Styles" icon="css" />
-                </Reveal>
-                <Reveal delay={160}>
-                  <AssetTypeCard label="JavaScript" icon="js" />
-                </Reveal>
-                <Reveal delay={240}>
-                  <AssetTypeCard label="Images" icon="image" />
-                </Reveal>
-              </div>
-              <p className="text-center text-sm text-muted-foreground mt-6">
-                Including CDN assets, background images, fonts, and embedded
-                resources
-              </p>
-            </div>
-          </div>
+          <ProcessFlow />
+
+          <AppPreview />
+
+          <FeatureHighlights />
 
           <div className="border-t py-16 px-4">
             <div className="max-w-3xl mx-auto">
@@ -634,6 +588,8 @@ export default function Home() {
               </p>
             </div>
           </div>
+
+          <FeaturedGuides />
 
           <div className="bg-muted/50 border-t py-12 px-4">
             <div className="max-w-4xl mx-auto flex flex-col items-center gap-3">
@@ -708,46 +664,6 @@ export default function Home() {
         jobId={currentJob?.id}
         onAccessGranted={handleDownload}
       />
-    </div>
-  );
-}
-
-function FeatureCard({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: typeof Globe;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="group text-center">
-      <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 mb-4 transition-transform duration-300 group-hover:scale-110 group-hover:bg-primary/15">
-        <Icon className="h-6 w-6 text-primary" />
-      </div>
-      <h3 className="font-semibold mb-2">{title}</h3>
-      <p className="text-sm text-muted-foreground">{description}</p>
-    </div>
-  );
-}
-
-function AssetTypeCard({ label, icon }: { label: string; icon: string }) {
-  const iconColors: Record<string, string> = {
-    html: "bg-orange-500/10 text-orange-500",
-    css: "bg-blue-500/10 text-blue-500",
-    js: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
-    image: "bg-green-500/10 text-green-500",
-  };
-
-  return (
-    <div className="group p-4 rounded-lg bg-card border text-center h-full transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
-      <div
-        className={`inline-flex items-center justify-center w-10 h-10 rounded-lg mb-3 transition-transform duration-300 group-hover:scale-110 ${iconColors[icon]}`}
-      >
-        <span className="font-mono text-xs font-bold uppercase">{icon}</span>
-      </div>
-      <p className="text-sm font-medium">{label}</p>
     </div>
   );
 }
