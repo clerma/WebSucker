@@ -86,20 +86,59 @@ const EMBED_DOMAINS = new Set([
 
 // Wix helpers ---------------------------------------------------------------
 
-// Extract the media hash from a Wix CDN URL.
+// Unwrap malformed nested Wix URLs occasionally emitted by serialized
+// data-image-info values, e.g.
+// static.wixstatic.com/media/https://static.wixstatic.com/media/{hash}.
+function unwrapWixMediaUrl(value: string): string {
+  let cleaned = value.trim().replace(/&amp;/g, "&");
+  const marker = "/media/https://static.wixstatic.com/media/";
+  const markerIndex = cleaned.indexOf(marker);
+  if (markerIndex !== -1) {
+    cleaned = cleaned.slice(markerIndex + "/media/".length);
+  }
+  return cleaned;
+}
+
+// Wix transform paths use comma-delimited tokens. They are URL fragments, not
+// standalone assets; rejecting them here prevents bogus same-origin requests
+// such as /h_399, /al_c, /q_90 and /quality_auto/foo.jpg.
+function isBareWixTransformFragment(value: string): boolean {
+  const v = value.trim().replace(/^\/+/, "");
+  return /^(?:[wh]_\d+|al_[^/]+|q_\d+|blur_\d+|enc_[^/]+|usm_[^/]+|quality_[^/]+)(?:\/|$)/i.test(v);
+}
+
+// Extract the media hash from a valid Wix CDN URL.
 // e.g. https://static.wixstatic.com/media/abc123_9.jpg/v1/fill/w_480,...
 // returns "abc123_9.jpg"
 function extractWixMediaHash(url: string): string | null {
-  const match = url.match(/static\.wixstatic\.com\/media\/([^/]+)/);
-  return match ? match[1] : null;
+  try {
+    const parsed = new URL(unwrapWixMediaUrl(url));
+    if (parsed.hostname !== "static.wixstatic.com") return null;
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const mediaIndex = parts.indexOf("media");
+    const hash = mediaIndex >= 0 ? parts[mediaIndex + 1] : undefined;
+    if (!hash || hash.includes(":") || /^https?$/i.test(hash)) return null;
+    return decodeURIComponent(hash);
+  } catch {
+    return null;
+  }
 }
 
 // Convert a wix:image://v1/{hash}/{filename}#{dims} internal URI to a real CDN URL.
 // Returns null if the input is not a wix:image URI.
 function resolveWixUri(wixUri: string): string | null {
+  const directHash = extractWixMediaHash(wixUri);
+  if (directHash) {
+    return `https://static.wixstatic.com/media/${directHash}`;
+  }
   const match = wixUri.match(/^wix:image:\/\/v1\/([^/]+)\//);
   if (match) {
     return `https://static.wixstatic.com/media/${match[1]}`;
+  }
+  // data-image-info commonly stores just the Wix media hash/filename.
+  const relativeHash = wixUri.trim();
+  if (/^[^/:?#\\]+$/i.test(relativeHash) && !isBareWixTransformFragment(relativeHash)) {
+    return `https://static.wixstatic.com/media/${relativeHash}`;
   }
   return null;
 }
@@ -108,24 +147,55 @@ function resolveWixUri(wixUri: string): string | null {
 
 function parseSrcset(srcset: string): Array<{ url: string; descriptor: string }> {
   const entries: Array<{ url: string; descriptor: string }> = [];
-  // Split on commas that are followed by whitespace and a URL-like start
-  // This preserves commas inside URLs (e.g., Wix image paths: /fill/w_100,h_200,...)
-  const parts = srcset.split(/,\s+(?=https?:\/\/|\/\/|\/(?!\/)|\w+[:.\/])/);
-  
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    
-    // Match URL and optional descriptor (1x, 2x, 100w, etc.)
-    const match = trimmed.match(/^(.+?)\s+(\d+(?:\.\d+)?[wx])$/);
-    if (match) {
-      entries.push({ url: match[1].trim(), descriptor: match[2] });
-    } else {
-      entries.push({ url: trimmed, descriptor: "" });
+  // Candidate whitespace after a comma is optional, while Wix transform URLs
+  // themselves contain commas. Descriptors are the reliable boundary:
+  //   a.jpg 1x,b.jpg 2x
+  //   .../w_100,h_200,q_90/file.jpg 1x, .../w_200,h_400/... 2x
+  const descriptorBoundary = /\s+(\d+(?:\.\d+)?[wx])\s*(?:,|$)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = descriptorBoundary.exec(srcset)) !== null) {
+    const candidateUrl = srcset.slice(cursor, match.index).trim().replace(/^,\s*/, "");
+    if (candidateUrl) {
+      entries.push({ url: candidateUrl, descriptor: match[1] });
     }
+    cursor = descriptorBoundary.lastIndex;
   }
-  
+
+  const remainder = srcset.slice(cursor).trim().replace(/^,\s*/, "");
+  if (remainder) {
+    entries.push({ url: remainder, descriptor: "" });
+  }
+
+  // Descriptor-less candidates are uncommon but valid. With no descriptor
+  // boundary available, use the normal comma separator as a fallback.
+  if (entries.length === 1 && entries[0].descriptor === "" && srcset.includes(",")) {
+    return srcset.split(/\s*,\s*/)
+      .filter(Boolean)
+      .map(url => ({ url, descriptor: "" }));
+  }
+
   return entries;
+}
+
+function enqueueWixDataImageUrls(
+  $: cheerio.CheerioAPI,
+  discoveredUrls: Set<string>,
+  urlQueue: Array<{ url: string; referrer: string }>,
+  currentUrl: string,
+): void {
+  $("[data-image-info]").each((_, el) => {
+    try {
+      const info = JSON.parse($(el).attr("data-image-info") || "{}");
+      if (!info.uri) return;
+      const cdnUrl = resolveWixUri(String(info.uri));
+      const normalized = cdnUrl ? normalizeUrl(cdnUrl, currentUrl) : null;
+      if (normalized && !discoveredUrls.has(normalized)) {
+        discoveredUrls.add(normalized);
+        urlQueue.push({ url: normalized, referrer: currentUrl });
+      }
+    } catch {}
+  });
 }
 
 function convertToEmbedUrl(url: string): string | null {
@@ -178,7 +248,9 @@ function getAssetType(url: string): AssetType {
 
 function normalizeUrl(href: string, baseUrl: string): string | null {
   try {
-    const url = new URL(href, baseUrl);
+    const cleanedHref = unwrapWixMediaUrl(href);
+    if (isBareWixTransformFragment(cleanedHref)) return null;
+    const url = new URL(cleanedHref, baseUrl);
     
     // Remove hash
     url.hash = "";
@@ -1159,7 +1231,10 @@ async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
     const start = Date.now();
     const MAX_MS = 20000;
     const MAX_ITERS = 60;
-    const distance = 800;
+    // Scroll slowly enough for IntersectionObserver-driven lazy loaders and
+    // reveal animations to actually run. A fast 800px/120ms sweep can pass a
+    // Wix section before its delayed animation has painted.
+    const distance = Math.max(320, Math.floor(window.innerHeight * 0.65));
     let lastHeight = 0;
     let lastInnerHeight = 0;
     let stableCount = 0;
@@ -1171,7 +1246,7 @@ async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
       for (const c of scrollContainers) {
         try { c.scrollTop += distance; } catch {}
       }
-      await sleep(120);
+      await sleep(260);
 
       // Periodically re-scan: lazy content can introduce new inner scrollers.
       if (i % 5 === 4) {
@@ -1189,7 +1264,12 @@ async function robustAutoScroll(page: import("puppeteer").Page): Promise<void> {
       if (h === lastHeight && ih === lastInnerHeight) {
         stableCount++;
         // Nothing growing AND window + every inner scroller at bottom → done.
-        if (atBottom && innersDone && stableCount >= 2) break;
+        if (atBottom && innersDone && stableCount >= 2) {
+          // Give bottom-of-page observers and delayed scroll effects one final
+          // chance to finish before the DOM is serialized.
+          await sleep(1200);
+          break;
+        }
         if (stableCount >= 5) break;
       } else {
         stableCount = 0;
@@ -1278,8 +1358,9 @@ async function interactionSweep(page: import("puppeteer").Page): Promise<void> {
  * poster, and computed background images).
  */
 async function collectRenderedAssetUrls(page: import("puppeteer").Page): Promise<string[]> {
-  return page.evaluate(() => {
+  const discovered = await page.evaluate(() => {
     const urls = new Set<string>();
+    const srcsets: string[] = [];
     const add = (v?: string | null) => {
       if (!v) return;
       const s = v.trim();
@@ -1287,8 +1368,7 @@ async function collectRenderedAssetUrls(page: import("puppeteer").Page): Promise
       try { urls.add(new URL(s, document.baseURI).href); } catch {}
     };
     const addSrcset = (v?: string | null) => {
-      if (!v) return;
-      v.split(",").forEach(part => add(part.trim().split(/\s+/)[0]));
+      if (v) srcsets.push(v);
     };
 
     document.querySelectorAll("img").forEach(img => {
@@ -1316,8 +1396,17 @@ async function collectRenderedAssetUrls(page: import("puppeteer").Page): Promise
         while ((m = re.exec(bg)) !== null) add(m[2]);
       }
     }
-    return Array.from(urls);
+    return { urls: Array.from(urls), srcsets, baseUrl: document.baseURI };
   });
+  const urls = new Set(discovered.urls);
+  for (const srcset of discovered.srcsets) {
+    for (const entry of parseSrcset(srcset)) {
+      if (entry.url && !entry.url.startsWith("data:") && !entry.url.startsWith("blob:")) {
+        try { urls.add(new URL(entry.url, discovered.baseUrl).href); } catch {}
+      }
+    }
+  }
+  return Array.from(urls);
 }
 
 async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): Promise<{ html: string; status: number; extraAssetUrls?: string[]; dynamicScripts?: Array<{ url: string; body: Buffer }> }> {
@@ -1902,7 +1991,25 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
                   // nav with an EMPTY <ul> while the raw SSR HTML has the full
                   // menu. Treat "raw has nav links, rendered has none" as loss.
                   const lostNav = rawScore.navLinkCount >= 2 && renderedScore.navLinkCount === 0;
-                  if (lostText || lostImgs || lostNav) {
+                  const looksLikeWix =
+                    /wix-thunderbolt|wixui-|static\.wixstatic\.com/i.test(rawHtml) ||
+                    /wix-thunderbolt|wixui-|static\.wixstatic\.com/i.test(rendered.html);
+                  const renderedHasWixLayout =
+                    /id=["']SITE_CONTAINER["']/.test(rendered.html) &&
+                    /id=["']PAGES_CONTAINER["']/.test(rendered.html);
+                  // Wix raw SSR contains a complete-looking DOM, but its motion
+                  // components are intentionally frozen before entry animations
+                  // (`:not([data-motion-enter="done"])`). Prefer the post-scroll
+                  // browser DOM whenever it still has the real Wix page layout.
+                  // Only fall back to raw on overwhelming combined evidence that
+                  // hydration actually erased the rendered page.
+                  const severeWixLoss =
+                    renderedScore.textLen < 200 ||
+                    (lostText && lostImgs);
+                  const shouldUseRaw = looksLikeWix && renderedHasWixLayout
+                    ? severeWixLoss
+                    : (lostText || lostImgs || lostNav);
+                  if (shouldUseRaw) {
                     console.warn(
                       `[render] rendered DOM lost content vs raw HTML for ${currentUrl} ` +
                       `(text ${renderedScore.textLen} vs ${rawScore.textLen}, imgs ${renderedScore.imgCount} vs ${rawScore.imgCount}, navLinks ${renderedScore.navLinkCount} vs ${rawScore.navLinkCount}) — using raw server HTML`
@@ -2178,19 +2285,10 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
           });
         }
         
-        // Wix-specific: extract images from data-image-info JSON attributes
-        $("[data-image-info]").each((_, el) => {
-          try {
-            const info = JSON.parse($(el).attr("data-image-info") || "{}");
-            if (info.uri) {
-              const cdnUrl = `https://static.wixstatic.com/media/${info.uri}`;
-              if (!discoveredUrls.has(cdnUrl)) {
-                discoveredUrls.add(cdnUrl);
-                urlQueue.push({ url: cdnUrl, referrer: currentUrl });
-              }
-            }
-          } catch {}
-        });
+        // Wix-specific: images may exist only in data-image-info. Queue their
+        // canonical CDN URL now, before the crawl drains, so offline rewriting
+        // has a downloaded local asset rather than falling back to a placeholder.
+        enqueueWixDataImageUrls($, discoveredUrls, urlQueue, currentUrl);
 
         // Wix-specific: resolve wix:image:// URIs in src / data-src to real CDN URLs
         $("img[src^='wix:image://'], img[data-src^='wix:image://']").each((_, el) => {
@@ -2543,8 +2641,11 @@ async function transformForOffline(outputDir: string): Promise<void> {
         try {
           const info = JSON.parse($(el).attr("data-image-info") || "{}");
           if (info.uri) {
-            $(el).attr("src", `https://static.wixstatic.com/media/${info.uri}`);
-            modified = true;
+            const cdnUrl = resolveWixUri(String(info.uri));
+            if (cdnUrl) {
+              $(el).attr("src", cdnUrl);
+              modified = true;
+            }
           }
         } catch {}
       }
@@ -2660,6 +2761,19 @@ async function transformForOffline(outputDir: string): Promise<void> {
         modified = true;
       }
     });
+
+    // 13. Freeze Wix scroll/entry effects in their completed state. Wix's raw
+    // SSR CSS intentionally hides motion components until runtime adds
+    // data-motion-enter="done". That runtime cannot reliably initialize from a
+    // local file/origin, so without this the logo, copy, buttons, and whole
+    // sections remain present in the HTML but invisible at opacity zero.
+    const isWixPage =
+      $("[data-mesh-id], .wixui-rich-text, #SITE_CONTAINER").length > 0;
+    if (isWixPage) {
+      $("[id^='comp-']").attr("data-motion-enter", "done");
+      $(".hidden-during-prewarmup").removeClass("hidden-during-prewarmup");
+      modified = true;
+    }
     
     // Always add conservative offline CSS fixes (minimal changes to avoid breaking layout)
     const offlineCss = `
@@ -3194,3 +3308,18 @@ export async function cleanupScrapeFiles(jobId: string): Promise<void> {
   // Clear per-job ScrapingBee budget tracker so the Map doesn't grow forever.
   resetScrapingBeeUsage(jobId);
 }
+
+// Narrow, side-effect-free test surface for regression fixtures. Keeping these
+// helpers attached to the implementation lets tests exercise the exact URL and
+// offline-transform logic used by real scrape jobs.
+export const scraperTestUtils = {
+  unwrapWixMediaUrl,
+  isBareWixTransformFragment,
+  extractWixMediaHash,
+  resolveWixUri,
+  parseSrcset,
+  enqueueWixDataImageUrls,
+  normalizeUrl,
+  transformForOffline,
+  rewriteUrls,
+};
