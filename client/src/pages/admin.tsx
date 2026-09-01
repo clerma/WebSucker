@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity, AlertTriangle, XCircle } from "lucide-react";
+import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity, AlertTriangle, XCircle, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,19 @@ interface AdminStats {
     email: string | null;
     website: string;
     method: string;
+    createdAt: string;
+  }>;
+  recentSecurityEvents?: Array<{
+    id: number;
+    email: string | null;
+    jobId: string | null;
+    website: string | null;
+    action: string;
+    outcome: string;
+    reason: string;
+    method: string | null;
+    ipAddress: string | null;
+    userAgent: string | null;
     createdAt: string;
   }>;
 }
@@ -129,6 +142,11 @@ export default function Admin() {
         handleLogout();
       }
     } catch {
+      toast({
+        title: "Could not refresh admin data",
+        description: "The security and activity logs could not be loaded. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -445,6 +463,64 @@ export default function Admin() {
                       </div>
                       <Badge variant="secondary" className="text-xs shrink-0">
                         {d.method === "access_code" ? "access code" : d.method}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-primary/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              Scrape & Download Security Log
+              {(stats?.recentSecurityEvents?.filter(e => e.outcome === "denied").length ?? 0) > 0 && (
+                <Badge variant="destructive" className="text-xs ml-auto">
+                  {stats!.recentSecurityEvents!.filter(e => e.outcome === "denied").length} denied
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-[28rem] overflow-y-auto overflow-x-hidden">
+              {!stats?.recentSecurityEvents?.length ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No security events recorded yet</p>
+              ) : (
+                <div className="divide-y">
+                  {stats.recentSecurityEvents.map((event) => (
+                    <div
+                      key={event.id}
+                      className={`px-4 sm:px-6 py-3 flex items-start justify-between gap-3 ${
+                        event.outcome === "denied" ? "bg-destructive/5" : ""
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium truncate">{event.email ?? "Unauthenticated visitor"}</p>
+                          <Badge variant="outline" className="text-[10px] uppercase">{event.action}</Badge>
+                        </div>
+                        {event.website && (
+                          <p className="text-xs text-foreground/80 truncate mt-1" title={event.website}>
+                            {event.website.replace(/^https?:\/\//, "")}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1 break-words">
+                          {event.reason.replaceAll("_", " ")}
+                          {event.method ? ` · ${event.method}` : ""}
+                          {event.ipAddress ? ` · IP ${event.ipAddress}` : ""}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(event.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={event.outcome === "allowed" ? "default" : "destructive"}
+                        className="text-xs shrink-0"
+                      >
+                        {event.outcome}
                       </Badge>
                     </div>
                   ))}

@@ -6,7 +6,7 @@ import * as fs from "fs";
 import { storage } from "./storage";
 import { rateLimit } from "./security";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
-import { startScrapeSchema, scrapeAnalytics, payments, users, downloadEvents } from "@shared/schema";
+import { startScrapeSchema, scrapeAnalytics, payments, users, downloadEvents, securityAuditEvents } from "@shared/schema";
 import type { Asset, ScrapeProgress, ScrapeJob, User } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { sql, desc, count, sum, eq, isNotNull } from "drizzle-orm";
@@ -34,6 +34,11 @@ async function sendNotification(payload: { title: string; message: string; url: 
 }
 
 const jobConnections = new Map<string, Set<WebSocket>>();
+
+function publicJobSnapshot(job: ScrapeJob) {
+  const { downloadPath: _downloadPath, ...safeJob } = job;
+  return safeJob;
+}
 
 /**
  * Constant-time admin authentication. Returns true only when ADMIN_SECRET is
@@ -72,11 +77,15 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const wss = new WebSocketServer({ noServer: true });
+  const sessionMiddleware = app.get("sessionMiddleware") as (
+    req: Request,
+    res: Response,
+    next: (err?: unknown) => void,
+  ) => void;
 
   // Job ownership: jobId -> userId. Jobs live in memory, so this map matches
-  // their lifetime. Enforced on job status reads and downloads.
+  // their lifetime. Enforced on status reads, WebSockets, and downloads.
   const jobOwners = new Map<string, number>();
 
   // Jobs currently having a download charge applied — prevents concurrent
@@ -93,29 +102,85 @@ export async function registerRoutes(
     });
   }, 25000);
   
-  wss.on("connection", (ws) => {
+  httpServer.on("upgrade", (request, socket, head) => {
+    let pathname: string;
+    try {
+      pathname = new URL(request.url || "/", "http://localhost").pathname;
+    } catch {
+      socket.destroy();
+      return;
+    }
+    if (pathname !== "/ws") {
+      // Vite owns its HMR upgrade path in development. The production server
+      // has no other upgrade consumers, so reject unmatched upgrades instead
+      // of leaving sockets open indefinitely.
+      if (process.env.NODE_ENV === "production") {
+        socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+      }
+      return;
+    }
+
+    sessionMiddleware(request as Request, {} as Response, (err?: unknown) => {
+      const userId = (request as Request).session?.userId;
+      if (err || !userId) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    });
+  });
+
+  wss.on("connection", (ws, request) => {
+    const userId = (request as Request).session.userId!;
     let subscribedJobId: string | null = null;
+
+    const unsubscribe = () => {
+      if (!subscribedJobId) return;
+      const connections = jobConnections.get(subscribedJobId);
+      if (connections) {
+        connections.delete(ws);
+        if (connections.size === 0) {
+          jobConnections.delete(subscribedJobId);
+        }
+      }
+      subscribedJobId = null;
+    };
     
     ws.on("message", (message) => {
       try {
         const data = JSON.parse(message.toString());
         
-        if (data.type === "subscribe" && data.jobId) {
-          subscribedJobId = data.jobId;
-          
-          if (!jobConnections.has(data.jobId)) {
-            jobConnections.set(data.jobId, new Set());
+        if (data.type === "subscribe" && typeof data.jobId === "string") {
+          const jobId = data.jobId;
+          if (jobOwners.get(jobId) !== userId) {
+            ws.close(1008, "Not authorized for this scrape job");
+            return;
           }
-          jobConnections.get(data.jobId)!.add(ws);
+
+          unsubscribe();
+          subscribedJobId = jobId;
+          
+          if (!jobConnections.has(jobId)) {
+            jobConnections.set(jobId, new Set());
+          }
+          jobConnections.get(jobId)!.add(ws);
 
           // Send an immediate catch-up snapshot so reconnected clients see
           // the current state without waiting for the next broadcast.
-          storage.getJob(data.jobId).then((job) => {
-            if (!job || ws.readyState !== ws.OPEN) return;
+          storage.getJob(jobId).then((job) => {
+            if (
+              !job ||
+              jobOwners.get(jobId) !== userId ||
+              ws.readyState !== WebSocket.OPEN
+            ) return;
 
             if (job.status === "completed") {
               // Job already done — send complete event right away.
-              ws.send(JSON.stringify({ type: "complete", job }));
+              ws.send(JSON.stringify({ type: "complete", job: publicJobSnapshot(job) }));
               return;
             }
 
@@ -155,17 +220,7 @@ export async function registerRoutes(
       }
     });
     
-    ws.on("close", () => {
-      if (subscribedJobId) {
-        const connections = jobConnections.get(subscribedJobId);
-        if (connections) {
-          connections.delete(ws);
-          if (connections.size === 0) {
-            jobConnections.delete(subscribedJobId);
-          }
-        }
-      }
-    });
+    ws.on("close", unsubscribe);
   });
 
   wss.on("close", () => clearInterval(heartbeatInterval));
@@ -297,7 +352,11 @@ export async function registerRoutes(
 
         // Re-fetch job so expiresAt is included in the broadcast
         const jobWithExpiry = await storage.getJob(job.id);
-        broadcast(job.id, { type: "complete", job: jobWithExpiry ?? completedJob });
+        const completedSnapshot = jobWithExpiry ?? completedJob;
+        broadcast(job.id, {
+          type: "complete",
+          job: completedSnapshot ? publicJobSnapshot(completedSnapshot) : completedSnapshot,
+        });
 
       } catch (error) {
         console.error("Scrape error:", error);
@@ -341,12 +400,13 @@ export async function registerRoutes(
   }
 
   // Strip credentials/query tokens from a URL before persisting it anywhere.
-  const sanitizeUrlForLog = (raw: string): string => {
+  const sanitizeUrlForLog = (raw: string): string | null => {
     try {
       const u = new URL(raw);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
       return `${u.protocol}//${u.host}${u.pathname}`.slice(0, 450);
     } catch {
-      return raw.slice(0, 450);
+      return null;
     }
   };
 
@@ -358,16 +418,66 @@ export async function registerRoutes(
       userId: e.userId ?? null,
       userEmail: e.userEmail ?? null,
       jobId: e.jobId ?? null,
-      websiteUrl: sanitizeUrlForLog(e.websiteUrl),
+      websiteUrl: sanitizeUrlForLog(e.websiteUrl) ?? "invalid-url",
       method: e.method,
     }).onConflictDoNothing().catch((err) => console.error("Failed to record download event:", err));
   };
 
-  app.post("/api/scrape", scrapeLimiter, requireAuth, async (req, res) => {
+  // Best-effort audit trail for entitlement-sensitive actions. Logging never
+  // blocks the request, and URLs are stripped of credentials/query tokens.
+  const recordSecurityEvent = (
+    req: Request,
+    e: {
+      action: "scrape" | "download";
+      outcome: "allowed" | "denied";
+      reason: string;
+      userId?: number | null;
+      userEmail?: string | null;
+      jobId?: string | null;
+      websiteUrl?: string | null;
+      method?: string | null;
+    },
+  ) => {
+    db.insert(securityAuditEvents).values({
+      userId: e.userId ?? null,
+      userEmail: e.userEmail ?? null,
+      jobId: e.jobId ?? null,
+      websiteUrl: e.websiteUrl ? sanitizeUrlForLog(e.websiteUrl) : null,
+      action: e.action,
+      outcome: e.outcome,
+      reason: e.reason.slice(0, 120),
+      method: e.method ?? null,
+      ipAddress: (req.ip || req.socket.remoteAddress || "").slice(0, 64) || null,
+      userAgent: String(req.headers["user-agent"] || "").slice(0, 300) || null,
+    }).catch((err) => console.error("Failed to record security event:", err));
+  };
+
+  const auditUnauthenticated = (action: "scrape" | "download") =>
+    (req: Request, _res: Response, next: () => void) => {
+      if (!req.session?.userId) {
+        recordSecurityEvent(req, {
+          action,
+          outcome: "denied",
+          reason: "authentication_required",
+          websiteUrl: action === "scrape" && typeof req.body?.url === "string" ? req.body.url : null,
+          jobId: action === "download" ? String(req.params.id || "") || null : null,
+        });
+      }
+      next();
+    };
+
+  app.post("/api/scrape", auditUnauthenticated("scrape"), scrapeLimiter, requireAuth, async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
 
       if (isAdultUrl(validatedData.url)) {
+        recordSecurityEvent(req, {
+          action: "scrape",
+          outcome: "denied",
+          reason: "disallowed_site",
+          userId: req.session.userId,
+          websiteUrl: validatedData.url,
+        });
         return res.status(400).json({
           message: "We do not back up adult websites.",
         });
@@ -375,6 +485,13 @@ export async function registerRoutes(
 
       const user = await getUserById(req.session.userId!);
       if (!user) {
+        recordSecurityEvent(req, {
+          action: "scrape",
+          outcome: "denied",
+          reason: "user_not_found",
+          userId: req.session.userId,
+          websiteUrl: validatedData.url,
+        });
         return res.status(401).json({ message: "Please sign in to continue" });
       }
 
@@ -399,6 +516,14 @@ export async function registerRoutes(
             .where(sql`${users.id} = ${user.id} AND ${users.credits} > 0`)
             .returning({ credits: users.credits });
           if (updated.length === 0) {
+            recordSecurityEvent(req, {
+              action: "scrape",
+              outcome: "denied",
+              reason: "no_credits",
+              userId: user.id,
+              userEmail: user.email,
+              websiteUrl: validatedData.url,
+            });
             return res.status(402).json({
               message: "You're out of credits. Buy a credit pack or subscribe for unlimited scrapes.",
               code: "NO_CREDITS",
@@ -419,6 +544,16 @@ export async function registerRoutes(
         recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: paidWith });
       }
       jobOwners.set(job.id, user.id);
+      recordSecurityEvent(req, {
+        action: "scrape",
+        outcome: "allowed",
+        reason: "entitlement_verified",
+        userId: user.id,
+        userEmail: user.email,
+        jobId: job.id,
+        websiteUrl: job.url,
+        method: paidWith,
+      });
 
       // Refund the free scrape or credit if the job fails outright.
       const refundOnFailure = async () => {
@@ -441,6 +576,13 @@ export async function registerRoutes(
       res.json(job);
     } catch (error) {
       console.error("Scrape start error:", error);
+      recordSecurityEvent(req, {
+        action: "scrape",
+        outcome: "denied",
+        reason: "invalid_or_failed_start",
+        userId: req.session.userId,
+        websiteUrl: typeof req.body?.url === "string" ? req.body.url : null,
+      });
       res.status(400).json({
         message: error instanceof Error ? error.message : "Invalid request",
       });
@@ -455,7 +597,7 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Job not found" });
       }
       const owner = jobOwners.get(jobId);
-      if (owner !== undefined && owner !== req.session.userId) {
+      if (owner !== req.session.userId) {
         return res.status(404).json({ message: "Job not found" });
       }
       res.json(job);
@@ -805,19 +947,46 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/scrape/:id/download", requireAuth, async (req, res) => {
+  app.get("/api/scrape/:id/download", auditUnauthenticated("download"), requireAuth, async (req, res) => {
     try {
       const jobId = String(req.params.id);
+      const requestUser = await getUserById(req.session.userId!);
       const job = await storage.getJob(jobId);
       if (!job) {
+        recordSecurityEvent(req, {
+          action: "download",
+          outcome: "denied",
+          reason: "job_not_found",
+          userId: req.session.userId,
+          userEmail: requestUser?.email,
+          jobId,
+        });
         return res.status(404).json({ message: "Job not found" });
       }
       if (job.status !== "completed" || !job.downloadPath) {
+        recordSecurityEvent(req, {
+          action: "download",
+          outcome: "denied",
+          reason: "download_not_ready",
+          userId: req.session.userId,
+          userEmail: requestUser?.email,
+          jobId,
+          websiteUrl: job.url,
+        });
         return res.status(400).json({ message: "Download not ready" });
       }
 
       const owner = jobOwners.get(jobId);
-      if (owner !== undefined && owner !== req.session.userId) {
+      if (owner !== req.session.userId) {
+        recordSecurityEvent(req, {
+          action: "download",
+          outcome: "denied",
+          reason: owner === undefined ? "owner_missing" : "owner_mismatch",
+          userId: req.session.userId,
+          userEmail: requestUser?.email,
+          jobId,
+          websiteUrl: job.url,
+        });
         return res.status(404).json({ message: "Job not found" });
       }
 
@@ -826,13 +995,24 @@ export async function registerRoutes(
       try {
         await fs.promises.access(job.downloadPath);
       } catch {
+        recordSecurityEvent(req, {
+          action: "download",
+          outcome: "denied",
+          reason: "artifact_missing",
+          userId: requestUser?.id,
+          userEmail: requestUser?.email,
+          jobId,
+          websiteUrl: job.url,
+        });
         return res.status(404).json({ message: "Download file not found" });
       }
 
+      let authorizationMethod = storage.isDownloadAuthorized(job.id) ? "preauthorized" : null;
       // Webhook-recorded payments authorize the download even if the buyer
       // never returned to the success page (paid, closed the tab).
       if (!storage.isDownloadAuthorized(job.id)) {
         await authorizeFromPersistedPayment(job.id);
+        if (storage.isDownloadAuthorized(job.id)) authorizationMethod = "payment";
       }
 
       if (!storage.isDownloadAuthorized(job.id)) {
@@ -840,12 +1020,30 @@ export async function registerRoutes(
         // with a subscription or a credit. A per-job in-flight lock makes the
         // charge single-consumer so concurrent requests can't double-charge.
         if (chargingJobs.has(job.id)) {
+          recordSecurityEvent(req, {
+            action: "download",
+            outcome: "denied",
+            reason: "authorization_in_progress",
+            userId: requestUser?.id,
+            userEmail: requestUser?.email,
+            jobId,
+            websiteUrl: job.url,
+          });
           return res.status(409).json({ message: "Download is already being prepared — try again in a moment." });
         }
         chargingJobs.add(job.id);
         try {
-          const user = await getUserById(req.session.userId!);
+          const user = requestUser;
           if (!user || owner !== user.id) {
+            recordSecurityEvent(req, {
+              action: "download",
+              outcome: "denied",
+              reason: "payment_required",
+              userId: req.session.userId,
+              userEmail: user?.email,
+              jobId,
+              websiteUrl: job.url,
+            });
             return res.status(402).json({ message: "Payment required" });
           }
           // Re-check after acquiring the lock — another request may have
@@ -853,6 +1051,7 @@ export async function registerRoutes(
           if (!storage.isDownloadAuthorized(job.id)) {
             if (await userHasActiveSubscription(user)) {
               storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+              authorizationMethod = "subscription";
               recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "subscription" });
             } else {
               const updated = await db
@@ -861,12 +1060,22 @@ export async function registerRoutes(
                 .where(sql`${users.id} = ${user.id} AND ${users.credits} > 0`)
                 .returning({ credits: users.credits });
               if (updated.length === 0) {
+                recordSecurityEvent(req, {
+                  action: "download",
+                  outcome: "denied",
+                  reason: "no_credits",
+                  userId: user.id,
+                  userEmail: user.email,
+                  jobId,
+                  websiteUrl: job.url,
+                });
                 return res.status(402).json({
                   message: "Downloading requires a credit. Buy a credit pack or subscribe for unlimited scrapes.",
                   code: "NO_CREDITS",
                 });
               }
               storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+              authorizationMethod = "credit";
               recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "credit" });
             }
           }
@@ -878,6 +1087,16 @@ export async function registerRoutes(
       // Cancel the 10-minute expiry timer so it doesn't delete files mid-download
       storage.cancelExpiry(job.id);
       storage.recordDownload();
+      recordSecurityEvent(req, {
+        action: "download",
+        outcome: "allowed",
+        reason: "authorized_stream_started",
+        userId: requestUser?.id,
+        userEmail: requestUser?.email,
+        jobId,
+        websiteUrl: job.url,
+        method: authorizationMethod ?? "authorized",
+      });
       
       const hostname = new URL(job.url).hostname.replace(/[^a-zA-Z0-9.-]/g, "_");
       res.setHeader("Content-Type", "application/zip");
@@ -922,6 +1141,13 @@ export async function registerRoutes(
 
     } catch (error) {
       console.error("Download error:", error);
+      recordSecurityEvent(req, {
+        action: "download",
+        outcome: "denied",
+        reason: "download_failed",
+        userId: req.session.userId,
+        jobId: String(req.params.id || "") || null,
+      });
       res.status(500).json({ message: "Download failed" });
     }
   });
@@ -940,7 +1166,7 @@ export async function registerRoutes(
       const existing = await storage.getJob(requestedJobId);
       if (existing) {
         const owner = jobOwners.get(requestedJobId);
-        if (owner !== undefined && owner !== req.session.userId) {
+        if (owner !== req.session.userId) {
           return res.status(404).json({ message: "Job not found" });
         }
         return res.json({ job: existing, recovered: false });
@@ -1051,7 +1277,7 @@ export async function registerRoutes(
     if (jobId) {
       const job = await storage.getJob(jobId);
       const owner = jobOwners.get(jobId);
-      if (!job || job.status !== "completed" || (owner !== undefined && owner !== req.session.userId)) {
+      if (!job || job.status !== "completed" || owner !== req.session.userId) {
         return res.status(400).json({ success: false, message: "This code can't be applied to that download" });
       }
     }
@@ -1298,6 +1524,42 @@ export async function registerRoutes(
         console.warn("Could not load download events:", e);
       }
 
+      let recentSecurityEvents: Array<{
+        id: number;
+        email: string | null;
+        jobId: string | null;
+        website: string | null;
+        action: string;
+        outcome: string;
+        reason: string;
+        method: string | null;
+        ipAddress: string | null;
+        userAgent: string | null;
+        createdAt: string;
+      }> = [];
+      try {
+        const rows = await db
+          .select()
+          .from(securityAuditEvents)
+          .orderBy(desc(securityAuditEvents.createdAt))
+          .limit(100);
+        recentSecurityEvents = rows.map(r => ({
+          id: r.id,
+          email: r.userEmail,
+          jobId: r.jobId,
+          website: r.websiteUrl,
+          action: r.action,
+          outcome: r.outcome,
+          reason: r.reason,
+          method: r.method,
+          ipAddress: r.ipAddress,
+          userAgent: r.userAgent,
+          createdAt: r.createdAt.toISOString(),
+        }));
+      } catch (e) {
+        console.warn("Could not load security audit events:", e);
+      }
+
       res.json({
         analytics,
         stripe: {
@@ -1308,6 +1570,7 @@ export async function registerRoutes(
           failedPayments,
         },
         recentDownloads,
+        recentSecurityEvents,
       });
     } catch (error) {
       console.error("Admin stats error:", error);
