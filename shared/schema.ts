@@ -92,6 +92,28 @@ export const downloadEvents = pgTable("download_events", {
   uniqueIndex("download_events_job_method_idx").on(table.jobId, table.method),
 ]);
 
+// Security audit trail for entitlement-sensitive operations. Unlike
+// downloadEvents (successful unlocks only), this records both allowed and
+// denied scrape/download attempts so admins can spot credit bypass attempts.
+export const securityAuditEvents = pgTable("security_audit_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id"),
+  userEmail: text("user_email"),
+  jobId: text("job_id"),
+  websiteUrl: text("website_url"),
+  action: text("action").notNull(), // 'scrape' | 'download'
+  outcome: text("outcome").notNull(), // 'allowed' | 'denied'
+  reason: text("reason").notNull(),
+  method: text("method"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("security_audit_created_at_idx").on(table.createdAt),
+  index("security_audit_outcome_idx").on(table.outcome),
+  index("security_audit_user_id_idx").on(table.userId),
+]);
+
 // Express session store (managed by connect-pg-simple at runtime).
 // Declared here so drizzle db:push doesn't try to drop it.
 export const userSessions = pgTable("user_sessions", {

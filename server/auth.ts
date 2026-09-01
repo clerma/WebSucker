@@ -21,23 +21,23 @@ export function setupSession(app: Express) {
   }
   const PgStore = connectPgSimple(session);
   app.set("trust proxy", 1);
-  app.use(
-    session({
-      store: new PgStore({
-        conString: process.env.DATABASE_URL,
-        tableName: "user_sessions",
-        createTableIfMissing: true,
-      }),
-      secret: process.env.SESSION_SECRET || "dev-only-secret",
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      },
-    })
-  );
+  const sessionMiddleware = session({
+    store: new PgStore({
+      conString: process.env.DATABASE_URL,
+      tableName: "user_sessions",
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET || "dev-only-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    },
+  });
+  app.set("sessionMiddleware", sessionMiddleware);
+  app.use(sessionMiddleware);
 }
 
 export async function getUserById(id: number): Promise<User | undefined> {
