@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, Lock, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity, AlertTriangle, XCircle, ShieldCheck } from "lucide-react";
+import { BarChart3, Users, Globe, Download, TrendingUp, RefreshCw, LogOut, Clock, DollarSign, KeyRound, Plus, Trash2, Copy, Check, Infinity, AlertTriangle, XCircle, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useSeo } from "@/lib/seo";
+import { WsLogo, WsMark } from "@/components/logo";
 
 interface AnalyticsData {
   totalJobsCreated: number;
@@ -217,11 +218,11 @@ export default function Admin() {
       <div className="min-h-screen flex items-center justify-center px-4 bg-background">
         <Card className="w-full max-w-sm">
           <CardHeader className="text-center pb-4">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 mx-auto mb-3">
-              <Lock className="h-6 w-6 text-primary" />
+            <div className="inline-flex items-center justify-center w-12 h-12 bg-primary/10 mx-auto mb-3">
+              <WsMark className="h-6 w-6" />
             </div>
             <CardTitle className="text-xl">Admin Access</CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">Website Sucker dashboard</p>
+            <p className="text-sm text-muted-foreground mt-1">WebsiteSucker dashboard</p>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
@@ -256,8 +257,8 @@ export default function Admin() {
     <div className="min-h-screen bg-background overflow-x-hidden">
       <div className="border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <BarChart3 className="h-5 w-5 text-primary shrink-0" />
-          <h1 className="font-semibold text-base sm:text-lg truncate">Website Sucker — Admin</h1>
+          <WsLogo markClassName="h-6 w-auto shrink-0" />
+          <span className="ws-label text-muted-foreground border-l pl-2 sm:pl-3 shrink-0">Admin</span>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {lastRefreshed && (
