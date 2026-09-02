@@ -103,7 +103,7 @@ export const securityAuditEvents = pgTable("security_audit_events", {
   userEmail: text("user_email"),
   jobId: text("job_id"),
   websiteUrl: text("website_url"),
-  action: text("action").notNull(), // 'scrape' | 'download'
+  action: text("action").notNull(), // 'scrape' | 'download' | 'rate_limit'
   outcome: text("outcome").notNull(), // 'allowed' | 'denied'
   reason: text("reason").notNull(),
   method: text("method"),
@@ -115,9 +115,6 @@ export const securityAuditEvents = pgTable("security_audit_events", {
   index("security_audit_outcome_idx").on(table.outcome),
   index("security_audit_user_id_idx").on(table.userId),
 ]);
-
-// Express session store (managed by connect-pg-simple at runtime).
-// Declared here so drizzle db:push doesn't try to drop it.
 export const userSessions = pgTable("user_sessions", {
   sid: varchar("sid").primaryKey(),
   sess: json("sess").notNull(),

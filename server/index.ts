@@ -7,6 +7,7 @@ import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from './stripeClient';
 import { WebhookHandlers } from './webhookHandlers';
 import { sameOriginProtection } from "./security";
+import { ensureSecurityInfrastructure } from "./security";
 
 const app = express();
 // Behind the hosting proxy (Replit/Cloud), trust the first proxy hop so req.ip
@@ -104,6 +105,7 @@ async function main() {
   app.use(sameOriginProtection);
 
   setupSession(app);
+  await ensureSecurityInfrastructure();
 
   app.use((req, res, next) => {
     const start = Date.now();
