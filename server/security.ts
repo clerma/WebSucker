@@ -1,8 +1,9 @@
 import { promises as dns } from "dns";
 import net from "net";
 import type { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 import { db } from "./db";
-import { rateLimitBuckets } from "@shared/schema";
+import { rateLimitBuckets, securityAuditEvents } from "@shared/schema";
 import { sql } from "drizzle-orm";
 
 /**
@@ -197,50 +198,121 @@ export function requireTrustedOrigin(req: Request, res: Response, next: NextFunc
 
 // --- Distributed rate limiting --------------------------------------------
 
-const rateLimitCleanup = setInterval(() => {
-  db.execute(sql`
-    DELETE FROM rate_limit_buckets
-    WHERE reset_at < NOW() - INTERVAL '24 hours'
-  `).catch((error) => console.error("Rate-limit bucket cleanup failed:", error));
-}, 60 * 60_000);
-rateLimitCleanup.unref?.();
+function hashIdentity(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function requestIdentities(req: Request, subject?: (req: Request) => string | null): string[] {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const identities = [`ip:${hashIdentity(ip)}`];
+  if (req.session?.userId) identities.push(`user:${req.session.userId}`);
+  const target = subject?.(req);
+  if (target) identities.push(`subject:${hashIdentity(target)}`);
+  return [...new Set(identities)];
+}
+
+let rateLimitCleanupTimer: NodeJS.Timeout | undefined;
+
+async function deleteExpiredRateLimitBuckets() {
+  await db.execute(sql`
+    DELETE FROM "rate_limit_buckets"
+    WHERE "reset_at" < NOW()
+  `);
+}
+
+export async function ensureSecurityInfrastructure() {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "rate_limit_buckets" (
+      "key" text PRIMARY KEY,
+      "count" integer NOT NULL DEFAULT 0,
+      "reset_at" timestamp NOT NULL,
+      "audit_emitted" boolean NOT NULL DEFAULT false
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS "rate_limit_buckets_reset_at_idx"
+    ON "rate_limit_buckets" ("reset_at")
+  `);
+  await deleteExpiredRateLimitBuckets();
+  if (!rateLimitCleanupTimer) {
+    rateLimitCleanupTimer = setInterval(() => {
+      deleteExpiredRateLimitBuckets().catch((err) =>
+        console.error("Failed to clean expired rate-limit buckets:", err),
+      );
+    }, 5 * 60_000);
+    rateLimitCleanupTimer.unref?.();
+  }
+}
+
+async function recordRateLimitAudit(req: Request, keyPrefix: string) {
+  await db.insert(securityAuditEvents).values({
+    userId: req.session?.userId ?? null,
+    action: "rate_limit",
+    outcome: "denied",
+    reason: keyPrefix.slice(0, 120),
+    ipAddress: (req.ip || req.socket.remoteAddress || "").slice(0, 64) || null,
+    userAgent: String(req.headers["user-agent"] || "").slice(0, 300) || null,
+  });
+}
 
 export function rateLimit(opts: {
   windowMs: number;
   max: number;
   keyPrefix?: string;
   message?: string;
+  subject?: (req: Request) => string | null;
 }) {
-  const { windowMs, max, keyPrefix = "", message = "Too many requests. Please slow down and try again shortly." } = opts;
+  const { windowMs, max, keyPrefix = "", message = "Too many requests. Please slow down and try again shortly.", subject } = opts;
   return async (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || req.socket.remoteAddress || "unknown";
-    const key = `${keyPrefix}:${ip}`;
+    const resetAt = new Date(Date.now() + windowMs);
     try {
-      const result = await db.execute(sql`
-        INSERT INTO rate_limit_buckets ("key", "count", "reset_at", "audit_emitted")
-        VALUES (${key}, 1, NOW() + (${windowMs} * INTERVAL '1 millisecond'), false)
-        ON CONFLICT ("key") DO UPDATE SET
-          "count" = CASE WHEN rate_limit_buckets.reset_at <= NOW() THEN 1
-                         ELSE rate_limit_buckets.count + 1 END,
-          "reset_at" = CASE WHEN rate_limit_buckets.reset_at <= NOW()
-                            THEN NOW() + (${windowMs} * INTERVAL '1 millisecond')
-                            ELSE rate_limit_buckets.reset_at END,
-          "audit_emitted" = CASE WHEN rate_limit_buckets.reset_at <= NOW()
-                                 THEN false ELSE rate_limit_buckets.audit_emitted END
-        RETURNING "count", "reset_at"
-      `);
-      const bucket = result.rows[0] as { count: number; reset_at: Date | string };
-      if (Number(bucket.count) > max) {
-        const resetAt = new Date(bucket.reset_at).getTime();
-        res.setHeader("Retry-After", String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))));
-        return res.status(429).json({ message });
+      for (const identity of requestIdentities(req, subject)) {
+        const key = `${keyPrefix}:${identity}`;
+        const result = await db.execute(sql`
+          INSERT INTO ${rateLimitBuckets} ("key", "count", "reset_at", "audit_emitted")
+          VALUES (${key}, 1, ${resetAt}, false)
+          ON CONFLICT ("key") DO UPDATE SET
+            "count" = CASE
+              WHEN ${rateLimitBuckets.resetAt} <= NOW() THEN 1
+              ELSE ${rateLimitBuckets.count} + 1
+            END,
+            "reset_at" = CASE
+              WHEN ${rateLimitBuckets.resetAt} <= NOW() THEN ${resetAt}
+              ELSE ${rateLimitBuckets.resetAt}
+            END,
+            "audit_emitted" = CASE
+              WHEN ${rateLimitBuckets.resetAt} <= NOW() THEN false
+              ELSE ${rateLimitBuckets.auditEmitted}
+            END
+          RETURNING "count", "reset_at"
+        `);
+        const bucket = result.rows[0] as { count: number; reset_at: Date | string };
+        if (Number(bucket.count) > max) {
+          const claimed = await db.execute(sql`
+            UPDATE ${rateLimitBuckets}
+            SET "audit_emitted" = true
+            WHERE "key" = ${key} AND "audit_emitted" = false
+            RETURNING "key"
+          `);
+          if (claimed.rowCount) {
+            recordRateLimitAudit(req, keyPrefix).catch((err) =>
+              console.error("Failed to record rate-limit audit event:", err),
+            );
+          }
+          const retryAfter = Math.max(
+            1,
+            Math.ceil((new Date(bucket.reset_at).getTime() - Date.now()) / 1000),
+          );
+          res.setHeader("Retry-After", String(retryAfter));
+          return res.status(429).json({ message });
+        }
       }
       next();
-    } catch (error) {
-      console.error("Rate limiter database error:", error);
+    } catch (err) {
+      console.error("Rate limiter unavailable:", err);
       // Never silently turn a database outage into an abuse-control bypass.
       res.setHeader("Retry-After", "5");
-      return res.status(503).json({ message: "Request protection is temporarily unavailable. Please try again." });
+      return res.status(503).json({ message: "Security checks are temporarily unavailable. Please try again." });
     }
   };
 }

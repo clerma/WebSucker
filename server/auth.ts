@@ -8,6 +8,7 @@ import type { User } from "@shared/schema";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import crypto from "crypto";
 import { sendPasswordResetEmail } from "./email";
+import { rateLimit } from "./security";
 
 declare module "express-session" {
   interface SessionData {
@@ -33,6 +34,7 @@ export function setupSession(app: Express) {
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     },
   });
@@ -68,7 +70,27 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function registerAuthRoutes(app: Express) {
-  app.post("/api/auth/register", async (req, res) => {
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    max: 20,
+    keyPrefix: "auth",
+    message: "Too many sign-in attempts. Please wait and try again.",
+    subject: (req) => typeof req.body?.email === "string" ? req.body.email.toLowerCase().trim() : null,
+  });
+  const recoveryLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    max: 8,
+    keyPrefix: "recovery",
+    message: "Too many password recovery attempts. Please wait and try again.",
+    subject: (req) => {
+      if (typeof req.body?.email === "string") return req.body.email.toLowerCase().trim();
+      if (typeof req.body?.token === "string") return req.body.token;
+      return null;
+    },
+  });
+  const statusLimiter = rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "auth_status" });
+
+  app.post("/api/auth/register", authLimiter, async (req, res) => {
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -96,7 +118,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", authLimiter, async (req, res) => {
     try {
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -121,7 +143,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", recoveryLimiter, async (req, res) => {
     try {
       const parsed = forgotPasswordSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -164,7 +186,7 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/reset-password", async (req, res) => {
+  app.post("/api/auth/reset-password", recoveryLimiter, async (req, res) => {
     try {
       const parsed = resetPasswordSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -208,14 +230,14 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/logout", (req, res) => {
+  app.post("/api/auth/logout", authLimiter, (req, res) => {
     req.session.destroy(() => {
       res.clearCookie("connect.sid");
       res.json({ ok: true });
     });
   });
 
-  app.get("/api/auth/me", async (req, res) => {
+  app.get("/api/auth/me", statusLimiter, async (req, res) => {
     if (!req.session.userId) return res.json({ user: null });
     const user = await getUserById(req.session.userId);
     if (!user) {

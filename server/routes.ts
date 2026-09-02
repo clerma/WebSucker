@@ -69,12 +69,28 @@ function requireAdmin(req: Request, res: Response): boolean {
   return true;
 }
 
-// Rate limiters (in-memory, per-IP) for abuse-prone endpoints.
+// Shared rate limiters for abuse-prone endpoints.
 const scrapeLimiter = rateLimit({ windowMs: 60_000, max: 12, keyPrefix: "scrape", message: "Too many scrape requests. Please wait a minute and try again." });
-const redeemLimiter = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "redeem", message: "Too many attempts. Please wait a minute and try again." });
-const lookupLimiter = rateLimit({ windowMs: 60_000, max: 6, keyPrefix: "lookup", message: "Too many lookups. Please wait a minute and try again." });
+const redeemLimiter = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: "redeem", message: "Too many attempts. Please wait a minute and try again.", subject: (req) => typeof req.body?.code === "string" ? req.body.code : null });
+const lookupLimiter = rateLimit({ windowMs: 60_000, max: 6, keyPrefix: "lookup", message: "Too many lookups. Please wait a minute and try again.", subject: (req) => typeof req.body?.email === "string" ? req.body.email.toLowerCase().trim() : null });
 const adminLimiter = rateLimit({ windowMs: 60_000, max: 20, keyPrefix: "admin", message: "Too many requests." });
 const paymentLimiter = rateLimit({ windowMs: 60_000, max: 30, keyPrefix: "payment", message: "Too many requests. Please wait a moment." });
+const paymentVerificationLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  max: 15,
+  keyPrefix: "payment_verify",
+  message: "Too many verification attempts. Please wait and try again.",
+  subject: (req) => typeof req.body?.session_id === "string" ? req.body.session_id : null,
+});
+const subscriptionStatusLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  keyPrefix: "subscription_status",
+  subject: (req) => typeof req.query?.customer_id === "string" ? req.query.customer_id : null,
+});
+const statusLimiter = rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "status" });
+const recoveryLimiter = rateLimit({ windowMs: 10 * 60_000, max: 5, keyPrefix: "scrape_recovery", message: "Too many recovery attempts. Please wait and try again." });
+const downloadLimiter = rateLimit({ windowMs: 60_000, max: 30, keyPrefix: "download", message: "Too many download attempts. Please wait and try again." });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -538,7 +554,7 @@ export async function registerRoutes(
       next();
     };
 
-  app.post("/api/scrape", auditUnauthenticated("scrape"), scrapeLimiter, requireAuth, async (req, res) => {
+  app.post("/api/scrape", scrapeLimiter, auditUnauthenticated("scrape"), requireAuth, async (req, res) => {
     try {
       const validatedData = startScrapeSchema.parse(req.body);
 
@@ -620,7 +636,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scrape/:id", requireAuth, async (req, res) => {
+  app.get("/api/scrape/:id", statusLimiter, requireAuth, async (req, res) => {
     try {
       const jobId = String(req.params.id);
       const job = await storage.getOwnedJob(jobId, req.session.userId!);
@@ -791,7 +807,7 @@ export async function registerRoutes(
 
   // Verify a plan purchase (credits or subscription) and apply it to the account.
   // Idempotent: the payments table records each session once.
-  app.post("/api/stripe/verify-plan", paymentLimiter, requireAuth, async (req, res) => {
+  app.post("/api/stripe/verify-plan", paymentVerificationLimiter, requireAuth, async (req, res) => {
     try {
       const { session_id } = req.body;
       if (!session_id || typeof session_id !== "string") {
@@ -882,7 +898,7 @@ export async function registerRoutes(
     }
   }
 
-  app.post("/api/stripe/verify-payment", paymentLimiter, requireAuth, async (req, res) => {
+  app.post("/api/stripe/verify-payment", paymentVerificationLimiter, requireAuth, async (req, res) => {
     try {
       const { session_id } = req.body;
       if (!session_id || typeof session_id !== "string") {
@@ -976,7 +992,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stripe/check-subscription", async (req, res) => {
+  app.get("/api/stripe/check-subscription", subscriptionStatusLimiter, async (req, res) => {
     try {
       const { customer_id } = req.query;
       if (!customer_id || typeof customer_id !== "string") {
@@ -1001,7 +1017,7 @@ export async function registerRoutes(
     res.status(405).json({ message: "Use the download button in the app" });
   });
 
-  app.post("/api/scrape/:id/download", auditUnauthenticated("download"), requireAuth, async (req, res) => {
+  app.post("/api/scrape/:id/download", downloadLimiter, auditUnauthenticated("download"), requireAuth, async (req, res) => {
     try {
       const jobId = String(req.params.id);
       const requestUser = await getUserById(req.session.userId!);
@@ -1217,7 +1233,7 @@ export async function registerRoutes(
   // After a server restart, in-memory jobs and their ZIP files are gone but
   // the payment record survives. Recover a paid download by re-scraping the
   // purchased URL for free, with the download pre-authorized.
-  app.post("/api/scrape/:id/recover", requireAuth, async (req, res) => {
+  app.post("/api/scrape/:id/recover", recoveryLimiter, requireAuth, async (req, res) => {
     try {
       const requestedJobId = String(req.params.id);
       // If the job still exists, no recovery needed — return it as-is.
