@@ -1,4 +1,17 @@
-import { Check } from "lucide-react";
+import {
+  Check,
+  ClipboardPaste,
+  ScanLine,
+  FileArchive,
+  Globe,
+  Images,
+  Film,
+  Link2,
+  Eye,
+  ShieldCheck,
+  Unlock,
+  type LucideIcon,
+} from "lucide-react";
 import { Reveal } from "@/components/reveal";
 
 /* -------------------------------------------------------------------------- */
@@ -38,21 +51,24 @@ export function PlatformStrip() {
 /* 01 — How it works                                                           */
 /* -------------------------------------------------------------------------- */
 
-const STEPS = [
+const STEPS: { n: string; title: string; body: string; icon: LucideIcon }[] = [
   {
     n: "01",
     title: "Paste the URL",
     body: "Drop in any address — a whole site or a single page. No account needed to start.",
+    icon: ClipboardPaste,
   },
   {
     n: "02",
     title: "Watch the crawl",
     body: "A real browser renders every page and pulls each asset, live, as it finds them.",
+    icon: ScanLine,
   },
   {
     n: "03",
     title: "Take the ZIP",
     body: "One organised archive that opens offline in any browser. Pay only if you keep it.",
+    icon: FileArchive,
   },
 ];
 
@@ -70,7 +86,10 @@ export function HowItWorks() {
           {STEPS.map((s, i) => (
             <Reveal key={s.n} delay={i * 110}>
               <div className="h-full p-7">
-                <div className="ws-label mb-6 text-ws-steel">Step {s.n}</div>
+                <div className="mb-6 flex items-center justify-between">
+                  <div className="ws-label text-ws-steel">Step {s.n}</div>
+                  <s.icon className="h-5 w-5 text-primary" />
+                </div>
                 <h3 className="mb-2 text-xl font-bold tracking-tight">{s.title}</h3>
                 <p className="text-[15px] leading-relaxed text-ws-steel">{s.body}</p>
               </div>
@@ -102,11 +121,11 @@ const ZIP_TREE: [string, string][] = [
   ["manifest.json", "crawl report"],
 ];
 
-const HANDLED = [
-  { n: "01", title: "JavaScript-rendered pages", body: "React, Vue and Wix sites render fully before capture." },
-  { n: "02", title: "Lazy-loaded media", body: "Images and fonts that only load on scroll are pulled in." },
-  { n: "03", title: "Embeds preserved", body: "YouTube, Vimeo, Maps and 25+ providers stay intact offline." },
-  { n: "04", title: "Links rewritten", body: "Every internal link points at local files, so it just works." },
+const HANDLED: { n: string; title: string; body: string; icon: LucideIcon }[] = [
+  { n: "01", title: "JavaScript-rendered pages", body: "React, Vue and Wix sites render fully before capture.", icon: Globe },
+  { n: "02", title: "Lazy-loaded media", body: "Images and fonts that only load on scroll are pulled in.", icon: Images },
+  { n: "03", title: "Embeds preserved", body: "YouTube, Vimeo, Maps and 25+ providers stay intact offline.", icon: Film },
+  { n: "04", title: "Links rewritten", body: "Every internal link points at local files, so it just works.", icon: Link2 },
 ];
 
 export function WhatYouGet() {
@@ -155,7 +174,9 @@ export function WhatYouGet() {
               <div className="divide-y divide-ws-graphite">
                 {HANDLED.map((h) => (
                   <div key={h.n} className="flex gap-4 px-5 py-4">
-                    <span className="ws-label pt-0.5 text-ws-cyan">{h.n}</span>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-ws-graphite text-ws-cyan">
+                      <h.icon className="h-4 w-4" />
+                    </span>
                     <div>
                       <h3 className="font-semibold tracking-tight">{h.title}</h3>
                       <p className="mt-0.5 text-sm leading-relaxed text-ws-steel">{h.body}</p>
@@ -176,26 +197,30 @@ export function WhatYouGet() {
 /* -------------------------------------------------------------------------- */
 
 // Truthful trust pillars — every claim here is backed by the FAQ / product.
-const PILLARS = [
+const PILLARS: { n: string; title: string; body: string; icon: LucideIcon }[] = [
   {
     n: "01",
     title: "Try before you pay",
     body: "Your first scrape is free and every analysis is free — see the full asset inventory and size before a single credit is spent.",
+    icon: Eye,
   },
   {
     n: "02",
     title: "Your files, then gone",
     body: "Scraped files are auto-deleted 10 minutes after the run completes. We never keep copies, share them, or reuse them.",
+    icon: ShieldCheck,
   },
   {
     n: "03",
     title: "Real-browser fidelity",
     body: "A full headless browser renders JavaScript-heavy sites — Wix, Squarespace, React — before capture, so the copy matches the live page.",
+    icon: Globe,
   },
   {
     n: "04",
     title: "No lock-in",
     body: "Credits never expire and the unlimited plan cancels anytime — no minimum term, no cancellation fee.",
+    icon: Unlock,
   },
 ];
 
@@ -228,7 +253,9 @@ export function Credibility() {
           {PILLARS.map((p, i) => (
             <Reveal key={p.n} delay={i * 90}>
               <div className="h-full p-7">
-                <div className="ws-label mb-6 text-ws-steel">{p.n}</div>
+                <span className="mb-5 inline-flex h-11 w-11 items-center justify-center border-2 border-ws-ink text-primary">
+                  <p.icon className="h-5 w-5" />
+                </span>
                 <h3 className="mb-2 text-lg font-bold tracking-tight">{p.title}</h3>
                 <p className="text-[15px] leading-relaxed text-ws-steel">{p.body}</p>
               </div>
