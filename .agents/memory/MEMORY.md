@@ -7,3 +7,4 @@
 - [Stripe managed key override](stripe-managed-key-override.md) — STRIPE_SECRET_KEY is injected by the Replit Stripe integration and can't be overridden; app reads STRIPE_LIVE_SECRET_KEY (user's sk_live) first.
 - [Pushing to GitHub](github-push.md) — git push fails auth; use the GitHub connection's proxyFetch + Git Data API (blob→tree→commit→ref), then reset local main to origin.
 - [Host firewall block breaker](host-block-breaker.md) — sites can firewall our IP mid-crawl; per-host circuit breaker must fail fast + entry-page failure must fail the job, never "complete" an empty ZIP.
+- [Managed database migration](managed-database-migration.md) — remove legacy deployment DATABASE_URL only after backups; preserve newer production data and cross-schema Stripe triggers.
