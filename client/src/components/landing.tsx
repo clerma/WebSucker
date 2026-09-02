@@ -172,7 +172,92 @@ export function WhatYouGet() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* 03 — Pricing                                                                */
+/* 03 — Proof / credibility                                                    */
+/* -------------------------------------------------------------------------- */
+
+// Truthful trust pillars — every claim here is backed by the FAQ / product.
+const PILLARS = [
+  {
+    n: "01",
+    title: "Try before you pay",
+    body: "Your first scrape is free and every analysis is free — see the full asset inventory and size before a single credit is spent.",
+  },
+  {
+    n: "02",
+    title: "Your files, then gone",
+    body: "Scraped files are auto-deleted 10 minutes after the run completes. We never keep copies, share them, or reuse them.",
+  },
+  {
+    n: "03",
+    title: "Real-browser fidelity",
+    body: "A full headless browser renders JavaScript-heavy sites — Wix, Squarespace, React — before capture, so the copy matches the live page.",
+  },
+  {
+    n: "04",
+    title: "No lock-in",
+    body: "Credits never expire and the unlimited plan cancels anytime — no minimum term, no cancellation fee.",
+  },
+];
+
+/**
+ * PLACEHOLDER testimonials. Replace `quote` / `name` / `role` with real,
+ * permissioned customer quotes before relying on this as social proof —
+ * do not ship fabricated reviews. When the list is empty the block is
+ * hidden automatically, and no rating/review schema is emitted anywhere.
+ */
+const TESTIMONIALS: { quote: string; name: string; role: string }[] = [
+  // {
+  //   quote: "Pasted a Squarespace URL and had the whole site as a clean ZIP in two minutes.",
+  //   name: "Real Customer Name",
+  //   role: "Freelance developer",
+  // },
+];
+
+export function Credibility() {
+  return (
+    <section className="bg-ws-paper text-ws-ink py-20 px-4">
+      <div className="mx-auto max-w-6xl">
+        <Reveal>
+          <p className="ws-label mb-3 text-primary">03 — Why people trust it</p>
+          <h2 className="mb-14 max-w-2xl text-3xl font-extrabold tracking-tight sm:text-4xl">
+            Low risk by design.
+          </h2>
+        </Reveal>
+
+        <div className="grid gap-0 border-2 border-ws-ink sm:grid-cols-2 lg:grid-cols-4 [&>*]:border-ws-ink [&>*+*]:border-t-2 sm:[&>*+*]:border-t-0 sm:[&>*:nth-child(n+3)]:border-t-2 lg:[&>*:nth-child(n+3)]:border-t-0 sm:[&>*:nth-child(2n)]:border-l-2 lg:[&>*+*]:border-l-2">
+          {PILLARS.map((p, i) => (
+            <Reveal key={p.n} delay={i * 90}>
+              <div className="h-full p-7">
+                <div className="ws-label mb-6 text-ws-steel">{p.n}</div>
+                <h3 className="mb-2 text-lg font-bold tracking-tight">{p.title}</h3>
+                <p className="text-[15px] leading-relaxed text-ws-steel">{p.body}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+
+        {TESTIMONIALS.length > 0 && (
+          <div className="mt-6 grid gap-0 border-2 border-ws-ink md:grid-cols-2 lg:grid-cols-3 [&>*+*]:border-t-2 md:[&>*+*]:border-t-0 md:[&>*:nth-child(n+3)]:border-t-2 lg:[&>*:nth-child(n+3)]:border-t-0 md:[&>*:nth-child(2n)]:border-l-2 lg:[&>*:nth-child(3n+2)]:border-l-2 lg:[&>*:nth-child(3n)]:border-l-2">
+            {TESTIMONIALS.map((t, i) => (
+              <Reveal key={i} delay={i * 90}>
+                <figure className="h-full p-7">
+                  <blockquote className="text-[15px] leading-relaxed text-ws-ink">"{t.quote}"</blockquote>
+                  <figcaption className="mt-4">
+                    <div className="text-sm font-semibold tracking-tight">{t.name}</div>
+                    <div className="ws-label mt-0.5 text-ws-steel">{t.role}</div>
+                  </figcaption>
+                </figure>
+              </Reveal>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* 04 — Pricing                                                                */
 /* -------------------------------------------------------------------------- */
 
 const TIERS = [
@@ -210,7 +295,7 @@ export function Pricing({ onStart }: { onStart?: () => void }) {
     <section className="bg-ws-paper text-ws-ink py-20 px-4">
       <div className="mx-auto max-w-6xl">
         <Reveal>
-          <p className="ws-label mb-3 text-primary">03 — Pricing</p>
+          <p className="ws-label mb-3 text-primary">04 — Pricing</p>
           <h2 className="mb-14 max-w-2xl text-3xl font-extrabold tracking-tight sm:text-4xl">
             Analyse for free. Pay per ZIP.
           </h2>
