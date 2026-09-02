@@ -177,25 +177,28 @@ const TIERS = [
     label: "Analysis",
     price: "Free",
     unit: "",
-    body: "Full inventory and size estimate before you commit. Unlimited runs.",
-    features: ["Every asset listed", "Total size estimate", "No account required"],
+    body: "Full inventory and size estimate before you commit. Analyse as many sites as you like.",
+    features: ["Every asset listed", "Total size estimate", "No card required"],
     highlight: false,
+    badge: "",
   },
   {
-    label: "Single download",
+    label: "Credits",
     price: "$1.99",
-    unit: "/ site",
-    body: "One ZIP, no subscription. Card or Apple Pay.",
-    features: ["Complete offline copy", "All pages & assets", "Opens in any browser"],
-    highlight: true,
+    unit: "/ scrape",
+    body: "One credit = one full scrape and download. Buy in packs — credits never expire.",
+    features: ["3 credits — $4.99 ($1.66 each)", "10 credits — $12.99 ($1.30 each)", "No subscription"],
+    highlight: false,
+    badge: "",
   },
   {
-    label: "Studio",
-    price: "$29",
+    label: "Unlimited Monthly",
+    price: "$5.99",
     unit: "/ month",
-    body: "25 sites a month, saved crawl history and re-runs. For agencies moving client work.",
-    features: ["25 downloads / month", "Saved crawl history", "Re-run any crawl"],
-    highlight: false,
+    body: "Unlimited scrapes and downloads. Cancel anytime.",
+    features: ["Unlimited scrapes", "Unlimited downloads", "Cancel anytime"],
+    highlight: true,
+    badge: "Best value",
   },
 ];
 
@@ -213,7 +216,14 @@ export function Pricing({ onStart }: { onStart?: () => void }) {
           {TIERS.map((t, i) => (
             <Reveal key={t.label} delay={i * 110}>
               <div className={t.highlight ? "h-full bg-ws-ink p-7 text-ws-paper" : "h-full p-7"}>
-                <div className={`ws-label mb-6 ${t.highlight ? "text-ws-cyan" : "text-ws-steel"}`}>{t.label}</div>
+                <div className="mb-6 flex items-center justify-between gap-2">
+                  <span className={`ws-label ${t.highlight ? "text-ws-cyan" : "text-ws-steel"}`}>{t.label}</span>
+                  {t.badge && (
+                    <span className="bg-primary px-2 py-1 font-mono text-[0.625rem] uppercase tracking-[0.12em] text-primary-foreground">
+                      {t.badge}
+                    </span>
+                  )}
+                </div>
                 <div className="mb-4 flex items-end gap-1.5">
                   <span className="font-mono text-4xl font-bold tracking-tight">{t.price}</span>
                   {t.unit && (
