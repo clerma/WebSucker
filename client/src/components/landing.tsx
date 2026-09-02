@@ -16,7 +16,6 @@ import {
   ArrowRight,
   Clock,
   CheckCircle2,
-  Loader2,
 } from "lucide-react";
 import { Reveal } from "@/components/reveal";
 import { articles } from "@/data/articles";
@@ -103,10 +102,10 @@ export function ProcessFlow() {
         <div className="grid gap-6 md:grid-cols-4 md:gap-3">
           {STEPS.map((step, i) => (
             <Reveal key={step.title} delay={i * 110} className="relative">
-              <div className="group h-full rounded-2xl border bg-card p-6 text-center transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg">
+              <div className="group h-full rounded-2xl border-2 border-border bg-card p-6 text-center transition-colors duration-200 hover:border-primary">
                 <div className="relative mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/15 transition-transform duration-300 group-hover:scale-110">
                   <step.icon className="h-7 w-7 text-primary" />
-                  <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground shadow">
+                  <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
                     {i + 1}
                   </span>
                 </div>
@@ -137,12 +136,12 @@ export function ProcessFlow() {
 /* App preview — a stylised browser window showing a scrape in progress        */
 /* -------------------------------------------------------------------------- */
 
-const PREVIEW_ROWS: { label: string; type: string; tone: string; done: boolean }[] = [
-  { label: "index.html", type: "HTML", tone: "text-orange-500 bg-orange-500/10", done: true },
-  { label: "styles/main.css", type: "CSS", tone: "text-blue-500 bg-blue-500/10", done: true },
-  { label: "app.bundle.js", type: "JS", tone: "text-yellow-600 dark:text-yellow-400 bg-yellow-500/10", done: true },
-  { label: "images/hero@2x.webp", type: "IMG", tone: "text-green-500 bg-green-500/10", done: true },
-  { label: "fonts/inter.woff2", type: "FONT", tone: "text-purple-500 bg-purple-500/10", done: false },
+const PREVIEW_ROWS: { type: string; count: string }[] = [
+  { type: "HTML", count: "34" },
+  { type: "CSS", count: "12" },
+  { type: "JS", count: "20" },
+  { type: "Images", count: "1,102" },
+  { type: "Fonts", count: "8" },
 ];
 
 export function AppPreview() {
@@ -151,7 +150,7 @@ export function AppPreview() {
       <div className="mx-auto grid max-w-5xl items-center gap-12 lg:grid-cols-2">
         <Reveal>
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+            <span className="ws-label inline-flex items-center gap-1.5 text-primary">
               <Activity className="h-3.5 w-3.5" /> Live progress
             </span>
             <h2 className="mt-4 text-3xl font-bold tracking-tight">
@@ -177,48 +176,21 @@ export function AppPreview() {
         </Reveal>
 
         <Reveal delay={140}>
-          <div className="overflow-hidden rounded-xl border bg-card shadow-xl">
-            {/* Browser chrome */}
-            <div className="flex items-center gap-2 border-b bg-muted/50 px-4 py-3">
-              <span className="h-3 w-3 rounded-full bg-red-400/80" />
-              <span className="h-3 w-3 rounded-full bg-yellow-400/80" />
-              <span className="h-3 w-3 rounded-full bg-green-400/80" />
-              <div className="ml-3 flex-1 truncate rounded-md bg-background px-3 py-1 text-xs text-muted-foreground">
-                websitesucker.com · scraping example.com
-              </div>
+          {/* Ink plate — depth from the plate, not from blur. Mono machine output. */}
+          <div className="ws-plate border-2 border-ws-ink p-5 text-[13px]">
+            <p className="ws-label mb-4 text-ws-steel">Crawling example.com</p>
+            <div className="space-y-1.5">
+              {PREVIEW_ROWS.map((row) => (
+                <div key={row.type} className="flex items-center justify-between text-ws-mist">
+                  <span>{row.type}</span>
+                  <span className="tabular-nums">{row.count}</span>
+                </div>
+              ))}
             </div>
-
-            {/* Body */}
-            <div className="p-5">
-              <div className="mb-4 flex items-center justify-between text-sm">
-                <span className="font-medium">Scanning example.com</span>
-                <span className="text-muted-foreground">128 / 142 assets</span>
-              </div>
-              <div className="mb-5 h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full w-[90%] rounded-full bg-primary" />
-              </div>
-
-              <div className="space-y-2">
-                {PREVIEW_ROWS.map((row) => (
-                  <div
-                    key={row.label}
-                    className="flex items-center gap-3 rounded-lg border bg-background/60 px-3 py-2"
-                  >
-                    <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${row.tone}`}>
-                      {row.type}
-                    </span>
-                    <span className="flex-1 truncate font-mono text-xs text-muted-foreground">
-                      {row.label}
-                    </span>
-                    {row.done ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                    )}
-                  </div>
-                ))}
-              </div>
+            <div className="mt-4 mb-2 h-1.5 w-full bg-ws-graphite">
+              <div className="h-full bg-ws-cyan" style={{ width: "40%" }} />
             </div>
+            <p className="ws-label text-ws-steel">46.2 MB · 40%</p>
           </div>
         </Reveal>
       </div>
@@ -282,7 +254,7 @@ export function FeatureHighlights() {
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f, i) => (
             <Reveal key={f.title} delay={(i % 3) * 100}>
-              <div className="group h-full rounded-2xl border bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg">
+              <div className="group h-full rounded-2xl border-2 border-border bg-card p-6 transition-colors duration-200 hover:border-primary">
                 <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 transition-transform duration-300 group-hover:scale-110">
                   <f.icon className="h-5 w-5 text-primary" />
                 </div>
@@ -351,7 +323,7 @@ export function FeaturedGuides() {
             <Reveal key={article.slug} delay={i * 110}>
               <a
                 href={`/blog/${article.slug}`}
-                className="group flex h-full flex-col rounded-2xl border bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg"
+                className="group flex h-full flex-col rounded-2xl border-2 border-border bg-card p-6 transition-colors duration-200 hover:border-primary"
                 data-testid={`home-guide-${article.slug}`}
               >
                 <div className="mb-3 flex items-center gap-3">

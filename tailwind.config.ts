@@ -5,10 +5,17 @@ export default {
   content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
   theme: {
     extend: {
+      /* Brand: 0px radius everywhere. Rectangles are sharp; only genuinely
+         circular controls (spinners) keep `rounded-full`. */
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        none: "0",
+        sm: "0",
+        DEFAULT: "0",
+        md: "0",
+        lg: "0",
+        xl: "0",
+        "2xl": "0",
+        "3xl": "0",
       },
       colors: {
         // Flat / base colors (regular buttons)
@@ -80,6 +87,22 @@ export default {
           away: "rgb(245 158 11)",
           busy: "rgb(239 68 68)",
           offline: "rgb(156 163 175)",
+        },
+        // --- WebsiteSucker brand palette ---
+        ws: {
+          accent: "hsl(var(--ws-accent) / <alpha-value>)",
+          "accent-pressed": "hsl(var(--ws-accent-pressed) / <alpha-value>)",
+          cyan: "hsl(var(--ws-cyan) / <alpha-value>)",
+          wash: "hsl(var(--ws-wash) / <alpha-value>)",
+          ink: "hsl(var(--ws-ink) / <alpha-value>)",
+          slate: "hsl(var(--ws-slate) / <alpha-value>)",
+          graphite: "hsl(var(--ws-graphite) / <alpha-value>)",
+          steel: "hsl(var(--ws-steel) / <alpha-value>)",
+          mist: "hsl(var(--ws-mist) / <alpha-value>)",
+          paper: "hsl(var(--ws-paper) / <alpha-value>)",
+          complete: "hsl(var(--ws-complete) / <alpha-value>)",
+          partial: "hsl(var(--ws-partial) / <alpha-value>)",
+          failed: "hsl(var(--ws-failed) / <alpha-value>)",
         },
       },
       fontFamily: {
