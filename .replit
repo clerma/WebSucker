@@ -84,3 +84,6 @@ APP_BASE_URL = "https://websitesucker.com"
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 180000
+
+[objectStorage]
+defaultBucketID = "replit-objstore-f8ab5fcf-70ef-489b-871d-34df606c5fc2"
