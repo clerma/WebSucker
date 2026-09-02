@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Globe, ArrowDown, Shield, AlertCircle } from "lucide-react";
+import { Shield, AlertCircle } from "lucide-react";
+import { WsLogo } from "@/components/logo";
 import { useAuth, refreshAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
@@ -473,61 +474,34 @@ export default function Home() {
     <div className="min-h-screen">
       {viewState === "input" && (
         <div className="min-h-screen flex flex-col">
-          <div className="relative flex-1 flex flex-col items-center justify-center px-4 py-12 overflow-hidden">
-            {/* Animated aurora backdrop */}
-            <div aria-hidden className="absolute inset-0 overflow-hidden">
-              <div className="hero-aurora animate-aurora bg-primary/25 dark:bg-primary/20 w-[38rem] h-[38rem] -top-40 -left-24" />
-              <div
-                className="hero-aurora animate-aurora bg-chart-4/20 w-[30rem] h-[30rem] top-10 -right-24"
-                style={{ animationDelay: "-7s" }}
-              />
-              <div
-                className="hero-aurora animate-aurora bg-chart-2/10 w-[26rem] h-[26rem] bottom-0 left-1/3"
-                style={{ animationDelay: "-13s" }}
-              />
+          {/* Ruled header — the mark leads, nothing floats */}
+          <header className="border-b-2 border-foreground">
+            <div className="max-w-6xl mx-auto px-4 h-14 flex items-center">
+              <WsLogo markClassName="h-6 w-auto" />
             </div>
+          </header>
 
-            <div className="relative z-10 w-full flex flex-col items-center">
-              <div className="text-center mb-10 max-w-2xl">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 ring-1 ring-primary/20 mb-6 animate-fade-up animate-float shadow-lg shadow-primary/5">
-                  <Globe className="h-8 w-8 text-primary" />
-                </div>
-
-                <h1
-                  className="text-4xl md:text-5xl font-bold tracking-tight mb-4 animate-fade-up"
-                  style={{ animationDelay: "80ms" }}
-                >
-                  <span className="text-gradient-animate">Website Sucker</span>
-                </h1>
-                <p
-                  className="text-lg text-muted-foreground max-w-lg mx-auto animate-fade-up"
-                  style={{ animationDelay: "160ms" }}
-                >
-                  The free online tool to back up, archive, and transfer any website.
-                  No app to install, no OS restrictions — just paste a URL and download
-                  a complete offline copy.
-                </p>
-              </div>
+          <div className="flex-1 flex flex-col justify-center px-4 py-16 border-b-2 border-foreground">
+            <div className="max-w-3xl mx-auto w-full animate-fade-up">
+              <p className="ws-label mb-5">Backup · Archive · Migrate</p>
+              <h1 className="text-[2.75rem] leading-[0.95] sm:text-6xl font-extrabold tracking-tight mb-5">
+                Take the whole site with you.
+              </h1>
+              <p className="text-lg text-muted-foreground max-w-xl mb-8 leading-relaxed">
+                Paste a URL. See every asset we find. Pay $1.99 only if you want the ZIP.
+              </p>
 
               {lastError && (
-                <Alert variant="destructive" className="mb-6 max-w-xl w-full" data-testid="alert-scrape-error">
+                <Alert variant="destructive" className="mb-6 max-w-2xl w-full" data-testid="alert-scrape-error">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>Couldn't scrape that site</AlertTitle>
                   <AlertDescription data-testid="text-scrape-error">{lastError}</AlertDescription>
                 </Alert>
               )}
 
-              <div className="w-full animate-fade-up" style={{ animationDelay: "240ms" }}>
-                <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} />
-              </div>
+              <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} />
 
-              <div
-                className="mt-16 flex items-center gap-2 text-muted-foreground animate-fade-up"
-                style={{ animationDelay: "360ms" }}
-              >
-                <ArrowDown className="h-4 w-4 animate-bounce" />
-                <span className="text-sm">See how it works</span>
-              </div>
+              <p className="ws-label mt-4">No install · Any OS · 1 min average</p>
             </div>
           </div>
 

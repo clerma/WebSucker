@@ -266,29 +266,29 @@ export default function Admin() {
               icon={Globe}
               label="Total Scrapes"
               value={stats?.analytics.totalJobsCreated ?? 0}
-              color="text-blue-500"
-              bg="bg-blue-500/10"
+              color="text-ws-accent"
+              bg="bg-ws-accent/10"
             />
             <StatCard
               icon={TrendingUp}
               label="Assets Scraped"
               value={(stats?.analytics.totalAssetsScraped ?? 0).toLocaleString()}
-              color="text-green-500"
-              bg="bg-green-500/10"
+              color="text-ws-complete"
+              bg="bg-ws-complete/10"
             />
             <StatCard
               icon={Download}
               label="Downloads"
               value={stats?.analytics.totalDownloads ?? 0}
-              color="text-amber-500"
-              bg="bg-amber-500/10"
+              color="text-ws-partial"
+              bg="bg-ws-partial/10"
             />
             <StatCard
               icon={Globe}
               label="Unique Sites"
               value={stats?.analytics.uniqueUrlsScraped.length ?? 0}
-              color="text-violet-500"
-              bg="bg-violet-500/10"
+              color="text-ws-cyan"
+              bg="bg-ws-cyan/10"
             />
             <StatCard
               icon={AlertTriangle}
@@ -314,15 +314,15 @@ export default function Admin() {
               icon={DollarSign}
               label="MRR"
               value={`$${(mrr / 100).toFixed(2)}`}
-              color="text-green-500"
-              bg="bg-green-500/10"
+              color="text-ws-complete"
+              bg="bg-ws-complete/10"
             />
             <StatCard
               icon={DollarSign}
               label="Total Revenue"
               value={`$${(totalRev / 100).toFixed(2)}`}
-              color="text-emerald-500"
-              bg="bg-emerald-500/10"
+              color="text-ws-complete"
+              bg="bg-ws-complete/10"
             />
           </div>
         </div>
@@ -554,7 +554,7 @@ export default function Admin() {
                           onClick={() => handleCopyCode(c.code)}
                           data-testid={`button-copy-code-${c.code}`}
                         >
-                          {copiedCode === c.code ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                          {copiedCode === c.code ? <Check className="h-3 w-3 text-ws-complete" /> : <Copy className="h-3 w-3" />}
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">

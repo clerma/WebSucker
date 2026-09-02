@@ -109,7 +109,7 @@ export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
                 {progressPercent}%
               </span>
             </div>
-            <Progress value={progressPercent} className="h-2" data-testid="progress-bar" />
+            <Progress value={progressPercent} className="h-2 [&>div]:bg-ws-cyan" data-testid="progress-bar" />
           </div>
 
           <div className="pt-2">
