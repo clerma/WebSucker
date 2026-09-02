@@ -314,6 +314,16 @@
   /* 2px ink rule that separates sections (brand: never whitespace alone). */
   .ws-rule { border-top: 2px solid hsl(var(--foreground)); }
 
+  /* Blueprint grid texture for the dark hero, faded toward the top-left. */
+  .ws-hero-grid {
+    background-image:
+      linear-gradient(hsl(var(--ws-graphite) / 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--ws-graphite) / 0.35) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(ellipse 75% 60% at 25% 0%, #000 30%, transparent 100%);
+    mask-image: radial-gradient(ellipse 75% 60% at 25% 0%, #000 30%, transparent 100%);
+  }
+
   /* Respect users who prefer reduced motion: show everything, animate nothing */
   @media (prefers-reduced-motion: reduce) {
     .reveal {
