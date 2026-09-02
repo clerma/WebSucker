@@ -17,10 +17,19 @@ export function WsMark({
   title?: string;
 }) {
   const uid = useId().replace(/:/g, "");
-  const w = `wsW-${uid}`;
-  const s = `wsS-${uid}`;
-  const sFill = flat ? "currentColor" : `url(#${s})`;
-  const wFill = flat ? "currentColor" : `url(#${w})`;
+  // Five gradients from the original brand artwork (userSpaceOnUse, tied to the
+  // viewBox coords below). The S steps down in cyan→blue; the W rises in
+  // green→teal→blue. Below 24px / single-ink use, pass `flat` for currentColor.
+  const gS1 = `wsS1-${uid}`;
+  const gS2 = `wsS2-${uid}`;
+  const gS3 = `wsS3-${uid}`;
+  const gW1 = `wsW1-${uid}`;
+  const gW2 = `wsW2-${uid}`;
+  const fS1 = flat ? "currentColor" : `url(#${gS1})`;
+  const fS2 = flat ? "currentColor" : `url(#${gS2})`;
+  const fS3 = flat ? "currentColor" : `url(#${gS3})`;
+  const fW1 = flat ? "currentColor" : `url(#${gW1})`;
+  const fW2 = flat ? "currentColor" : `url(#${gW2})`;
 
   return (
     <svg
@@ -32,25 +41,39 @@ export function WsMark({
     >
       {!flat && (
         <defs>
-          {/* W — rising: teal → blue (210°) */}
-          <linearGradient id={w} x1="0" y1="1" x2="1" y2="0">
-            <stop offset="0" stopColor="#0FE8D8" />
-            <stop offset="1" stopColor="#2DA9FF" />
-          </linearGradient>
-          {/* S — falling: cyan → blue (150°) */}
-          <linearGradient id={s} x1="0.1" y1="0" x2="0.9" y2="1">
+          <linearGradient id={gS1} x1="347.66" y1="324.71" x2="476.11" y2="324.71" gradientUnits="userSpaceOnUse">
             <stop offset="0" stopColor="#29E7FF" />
             <stop offset="1" stopColor="#265EFF" />
+          </linearGradient>
+          <linearGradient id={gS2} x1="347.69" y1="398.53" x2="476.13" y2="398.53" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#29E7FF" />
+            <stop offset="1" stopColor="#265EFF" />
+          </linearGradient>
+          <linearGradient id={gS3} x1="347.66" y1="474.01" x2="476.11" y2="474.01" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#61D8FF" />
+            <stop offset="1" stopColor="#265EFF" />
+          </linearGradient>
+          <linearGradient id={gW1} x1="279.82" y1="417.95" x2="391.94" y2="530.07" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#47FF87" />
+            <stop offset="0.69" stopColor="#0FFFE8" />
+            <stop offset="1" stopColor="#2DA9FF" />
+          </linearGradient>
+          <linearGradient id={gW2} x1="124.62" y1="473.73" x2="326.86" y2="473.73" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stopColor="#0FFFE8" />
+            <stop offset="1" stopColor="#47FF87" />
           </linearGradient>
         </defs>
       )}
       {/* S — the right stack, stepping down */}
-      <path fillRule="evenodd" fill={sFill} d="M467.96,268.67c10.86,10.85,10.86,28.45,0,39.31l-72.82,72.78c-10.86,10.85-28.47,10.85-39.33,0-10.86-10.85-10.86-28.45,0-39.31l72.82-72.78c10.86-10.85,28.47-10.85,39.33,0h0Z" />
-      <path fillRule="evenodd" fill={sFill} d="M355.83,342.49c10.86-10.85,28.47-10.85,39.33,0l72.82,72.78c10.86,10.85,10.86,28.45,0,39.31-10.86,10.85-28.47,10.85-39.33,0l-72.82-72.78c-10.86-10.85-10.86-28.45,0-39.31h0Z" />
-      <path fillRule="evenodd" fill={sFill} d="M467.96,417.97c10.86,10.85,10.86,28.45,0,39.31l-72.82,72.78c-10.86,10.85-28.47,10.85-39.33,0-10.86-10.85-10.86-28.45,0-39.31l72.82-72.78c10.86-10.85,28.47-10.85,39.33,0h0Z" />
-      {/* W — the left stack, rising */}
-      <path fillRule="evenodd" fill={wFill} d="M279.81,417.97c10.86-10.85,28.47-10.85,39.33,0l72.82,72.78c10.86,10.85,10.86,28.45,0,39.31-10.86,10.85-28.47,10.85-39.33,0l-72.82-72.78c-10.86-10.85-10.86-28.45,0-39.31h0Z" />
-      <path fillRule="evenodd" fill={wFill} d="M244.92,529.5c-10.86,10.85-28.47,10.85-39.33,0l-72.82-72.78c-10.86-10.85-10.86-28.45,0-39.31,10.86-10.85,28.47-10.85,39.33,0l72.82,72.78c10.86,10.85,10.86,28.45,0,39.31h0ZM318.72,457.27l-72.82,72.78c-10.86,10.85-28.47,10.85-39.33,0-10.86-10.85-10.86-28.45,0-39.31l72.82-72.78c10.86-10.85,28.47-10.85,39.33,0,10.86,10.85,10.86,28.45,0,39.31h0Z" />
+      <path fill={fS1} d="M467.96,268.67c10.86,10.85,10.86,28.45,0,39.31l-72.82,72.78c-10.86,10.85-28.47,10.85-39.33,0-10.86-10.85-10.86-28.45,0-39.31l72.82-72.78c10.86-10.85,28.47-10.85,39.33,0h0Z" />
+      <path fill={fS2} d="M355.83,342.49c10.86-10.85,28.47-10.85,39.33,0l72.82,72.78c10.86,10.85,10.86,28.45,0,39.31-10.86,10.85-28.47,10.85-39.33,0l-72.82-72.78c-10.86-10.85-10.86-28.45,0-39.31h0Z" />
+      <path fill={fS3} d="M467.96,417.97c10.86,10.85,10.86,28.45,0,39.31l-72.82,72.78c-10.86,10.85-28.47,10.85-39.33,0-10.86-10.85-10.86-28.45,0-39.31l72.82-72.78c10.86-10.85,28.47-10.85,39.33,0h0Z" />
+      {/* W — the left stack, rising. The two lower arms are kept as separate
+          paths (not one evenodd compound path) so their overlap fills solid
+          instead of punching a hole at the bottom-left vertex. */}
+      <path fill={fW1} d="M279.81,417.97c10.86-10.85,28.47-10.85,39.33,0l72.82,72.78c10.86,10.85,10.86,28.45,0,39.31-10.86,10.85-28.47,10.85-39.33,0l-72.82-72.78c-10.86-10.85-10.86-28.45,0-39.31h0Z" />
+      <path fill={fW2} d="M244.92,529.5c-10.86,10.85-28.47,10.85-39.33,0l-72.82-72.78c-10.86-10.85-10.86-28.45,0-39.31,10.86-10.85,28.47-10.85,39.33,0l72.82,72.78c10.86,10.85,10.86,28.45,0,39.31h0Z" />
+      <path fill={fW2} d="M318.72,457.27l-72.82,72.78c-10.86,10.85-28.47,10.85-39.33,0-10.86-10.85-10.86-28.45,0-39.31l72.82-72.78c10.86-10.85,28.47-10.85,39.33,0,10.86,10.85,10.86,28.45,0,39.31h0Z" />
     </svg>
   );
 }

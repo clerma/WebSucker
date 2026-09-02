@@ -1,0 +1,23 @@
+# Website Sucker
+
+> Website Sucker is an online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JavaScript, images, and fonts — as a single ZIP.
+
+Website Sucker renders JavaScript-heavy sites (Wix, Squarespace, Webflow, Shopify, React SPAs) with a real headless browser before capture, so the offline copy matches the live page. Every internal link is rewritten to point at local files, so the ZIP opens and works in any browser with no internet connection.
+
+Analysis is free: paste a URL and see every page, image, stylesheet, script, and font before paying. Your first scrape is free to preview. ZIP downloads then cost one credit — $1.99 for a single credit, $4.99 for 3 credits ($1.66 each), or $12.99 for 10 credits ($1.30 each); credits never expire. Unlimited scrapes and downloads are $5.99/month, cancel anytime. Scraped files are stored only temporarily and auto-deleted 10 minutes after the run completes.
+
+It runs entirely in the browser on Windows, Mac, Linux, or Chromebook — nothing to install. Use it to back up a site, archive a snapshot before it changes, migrate to a new platform, or keep an offline copy for reference. Only download sites you own or have permission to copy.
+
+## Key pages
+
+- [Home](https://websitesucker.com/): Paste a URL and start a free analysis.
+- [Features](https://websitesucker.com/features): Full feature list and an honest comparison to SiteSucker, HTTrack, and other tools.
+- [Pricing](https://websitesucker.com/#pricing): Free analysis, pay-per-ZIP credits, and the $5.99/month unlimited plan.
+- [FAQ](https://websitesucker.com/faq): How to back up, archive, and transfer a website; what's included; legality; and how it compares to other tools.
+- [Blog](https://websitesucker.com/blog): Guides on downloading, cloning, backing up, and migrating websites.
+
+## How it works
+
+1. Paste the website URL. Analysis is free and needs no card; your first scrape is free to preview.
+2. Website Sucker renders every page with a real browser and lists every asset it finds.
+3. Download a single organised ZIP with a credit. Unzip it and the whole site opens offline in any browser.
