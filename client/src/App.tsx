@@ -42,7 +42,9 @@ function Router() {
 
 function AppShell() {
   const [location] = useLocation();
-  const hideChrome = location === "/admin";
+  // Home renders its own controls (in the dark hero header / floating per view);
+  // admin has its own shell. Everywhere else uses the global floating chrome.
+  const hideChrome = location === "/admin" || location === "/";
   return (
     <div className="relative min-h-screen">
       {!hideChrome && (

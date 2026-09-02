@@ -18,12 +18,15 @@ const PLATFORMS = [
 ];
 
 export function PlatformStrip() {
+  // Two copies of the row so the -50% marquee loops seamlessly.
+  const row = [...PLATFORMS, ...PLATFORMS];
   return (
-    <div className="bg-ws-ink border-b-2 border-ws-graphite py-4 px-4">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-7 gap-y-2">
-        {PLATFORMS.map((p) => (
-          <span key={p} className="ws-label text-ws-steel">
-            {p}
+    <div className="bg-ws-ink border-b-2 border-ws-graphite overflow-hidden py-4">
+      <div className="ws-marquee flex w-max items-center">
+        {row.map((p, i) => (
+          <span key={i} className="flex items-center">
+            <span className="ws-label px-6 text-ws-steel">{p}</span>
+            <span aria-hidden className="text-ws-graphite">/</span>
           </span>
         ))}
       </div>
