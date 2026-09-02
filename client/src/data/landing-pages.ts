@@ -15,7 +15,24 @@ export interface LandingFaq {
   a: string;
 }
 
+/** Icon keys map to lucide icons in pages/landing-page.tsx. */
+export type LandingIcon =
+  | "zip"
+  | "render"
+  | "link"
+  | "device"
+  | "copy"
+  | "own"
+  | "shield"
+  | "crawl"
+  | "folder"
+  | "offline"
+  | "gauge"
+  | "backup"
+  | "reference";
+
 export interface LandingBullet {
+  icon: LandingIcon;
   title: string;
   body: string;
 }
@@ -51,10 +68,10 @@ export const LANDING_PAGES: LandingPageContent[] = [
       "Analysis is free: you see a full inventory of every page and asset, with a total size estimate, before you pay anything. Your first scrape is free to preview, and ZIP downloads start at $1.99.",
     ],
     bullets: [
-      { title: "Every asset, one ZIP", body: "HTML, CSS, JavaScript, images, and fonts, organised into folders that open offline in any browser." },
-      { title: "Real-browser rendering", body: "A full headless browser loads each page before capture, so dynamic and lazy-loaded content is included." },
-      { title: "Links rewritten", body: "Internal links are pointed at local files, so the downloaded copy just works with no internet connection." },
-      { title: "Nothing to install", body: "Runs in the browser on Windows, Mac, Linux, or Chromebook — no desktop app, no command line." },
+      { icon: "zip", title: "Every asset, one ZIP", body: "HTML, CSS, JavaScript, images, and fonts, organised into folders that open offline in any browser." },
+      { icon: "render", title: "Real-browser rendering", body: "A full headless browser loads each page before capture, so dynamic and lazy-loaded content is included." },
+      { icon: "link", title: "Links rewritten", body: "Internal links are pointed at local files, so the downloaded copy just works with no internet connection." },
+      { icon: "device", title: "Nothing to install", body: "Runs in the browser on Windows, Mac, Linux, or Chromebook — no desktop app, no command line." },
     ],
     faq: [
       { q: "How do I download an entire website?", a: "Paste the website's URL into Website Sucker and let it analyse every page and asset for free. When the inventory looks right, download the complete offline copy as a ZIP with a credit — your first scrape is free to preview." },
@@ -80,10 +97,10 @@ export const LANDING_PAGES: LandingPageContent[] = [
       "Start free: Website Sucker lists every asset it finds and estimates the total size before you pay. Your first scrape is free to preview, and downloads start at $1.99.",
     ],
     bullets: [
-      { title: "Faithful copy", body: "The offline version reflects the page as rendered — dynamic content, embeds, and lazy-loaded media included." },
-      { title: "Own your copy", body: "The ZIP is yours to keep. Host it, archive it, or use it as a reference when rebuilding." },
-      { title: "Private by default", body: "Copied files live on our server only long enough to download and are auto-deleted 10 minutes after the run." },
-      { title: "Works everywhere", body: "No install and no command line — copy a site from any browser on any operating system." },
+      { icon: "copy", title: "Faithful copy", body: "The offline version reflects the page as rendered — dynamic content, embeds, and lazy-loaded media included." },
+      { icon: "own", title: "Own your copy", body: "The ZIP is yours to keep. Host it, archive it, or use it as a reference when rebuilding." },
+      { icon: "shield", title: "Private by default", body: "Copied files live on our server only long enough to download and are auto-deleted 10 minutes after the run." },
+      { icon: "device", title: "Works everywhere", body: "No install and no command line — copy a site from any browser on any operating system." },
     ],
     faq: [
       { q: "How do I copy a website?", a: "Paste the site's URL into Website Sucker, let it analyse every page and asset for free, then download the complete copy as a ZIP with a credit. Your first scrape is free to preview." },
@@ -109,10 +126,10 @@ export const LANDING_PAGES: LandingPageContent[] = [
       "Every analysis is free and shows you exactly what will be captured — pages, images, stylesheets, scripts, and fonts — with a size estimate. Your first scrape is free to preview; downloads start at $1.99.",
     ],
     bullets: [
-      { title: "Whole-site crawl", body: "Follows internal links and pulls every page and asset it finds, live, as it goes." },
-      { title: "Modern sites intact", body: "Real-browser rendering means JavaScript-driven pages are ripped as they actually render." },
-      { title: "One organised archive", body: "Everything lands in a single ZIP with folders for pages, CSS, JS, images, and fonts." },
-      { title: "Browser-based", body: "No HTTrack-style desktop install — rip a site from any device with a browser." },
+      { icon: "crawl", title: "Whole-site crawl", body: "Follows internal links and pulls every page and asset it finds, live, as it goes." },
+      { icon: "render", title: "Modern sites intact", body: "Real-browser rendering means JavaScript-driven pages are ripped as they actually render." },
+      { icon: "zip", title: "One organised archive", body: "Everything lands in a single ZIP with folders for pages, CSS, JS, images, and fonts." },
+      { icon: "device", title: "Browser-based", body: "No HTTrack-style desktop install — rip a site from any device with a browser." },
     ],
     faq: [
       { q: "What is a website ripper?", a: "A website ripper is a tool that downloads all of a site's pages and assets so you can browse it offline or keep a copy. Website Sucker does this online and packages the result as a single ZIP." },
@@ -138,10 +155,10 @@ export const LANDING_PAGES: LandingPageContent[] = [
       "See exactly what you'll get before you pay: the free analysis lists every asset and estimates the ZIP size. Your first scrape is free to preview, and downloads start at $1.99.",
     ],
     bullets: [
-      { title: "Single file", body: "The entire site — pages, styles, scripts, images, fonts — packaged into one ZIP." },
-      { title: "Organised inside", body: "Clean folder structure plus a crawl report, so you can find and reuse any asset." },
-      { title: "Opens offline", body: "Rewritten internal links mean the unzipped site browses with no internet connection." },
-      { title: "Know the size first", body: "The free analysis estimates the ZIP size before you download anything." },
+      { icon: "zip", title: "Single file", body: "The entire site — pages, styles, scripts, images, fonts — packaged into one ZIP." },
+      { icon: "folder", title: "Organised inside", body: "Clean folder structure plus a crawl report, so you can find and reuse any asset." },
+      { icon: "offline", title: "Opens offline", body: "Rewritten internal links mean the unzipped site browses with no internet connection." },
+      { icon: "gauge", title: "Know the size first", body: "The free analysis estimates the ZIP size before you download anything." },
     ],
     faq: [
       { q: "How do I save a website as a ZIP file?", a: "Paste the site's URL into Website Sucker, let the free analysis list every page and asset, then download the result as a single ZIP with a credit — your first scrape is free to preview." },
@@ -167,10 +184,10 @@ export const LANDING_PAGES: LandingPageContent[] = [
       "It's a fast way to keep an offline backup, archive a snapshot before a redesign, or hand a developer the static files as a reference for a migration. Analysis is free and your first scrape is free to preview.",
     ],
     bullets: [
-      { title: "Full rendered capture", body: "Real-browser rendering pulls Squarespace's JavaScript-driven pages, galleries, and fonts as they actually appear." },
-      { title: "Backup before changes", body: "Keep a complete offline snapshot before a redesign, template change, or platform move." },
-      { title: "Migration-ready files", body: "Hand a developer the static HTML, CSS, and assets as a reference when rebuilding elsewhere." },
-      { title: "No plugins or install", body: "Runs in the browser — nothing to add to your Squarespace account and no desktop software." },
+      { icon: "render", title: "Full rendered capture", body: "Real-browser rendering pulls Squarespace's JavaScript-driven pages, galleries, and fonts as they actually appear." },
+      { icon: "backup", title: "Backup before changes", body: "Keep a complete offline snapshot before a redesign, template change, or platform move." },
+      { icon: "reference", title: "Migration-ready files", body: "Hand a developer the static HTML, CSS, and assets as a reference when rebuilding elsewhere." },
+      { icon: "device", title: "No plugins or install", body: "Runs in the browser — nothing to add to your Squarespace account and no desktop software." },
     ],
     faq: [
       { q: "Can you download a full Squarespace website?", a: "Yes. Squarespace's built-in export is partial, but Website Sucker captures the rendered site — every page, image, style, and font — into a single offline ZIP. Paste your Squarespace URL to start a free analysis." },
@@ -196,10 +213,10 @@ export const LANDING_PAGES: LandingPageContent[] = [
       "Use it to back up your Wix site, archive a snapshot before changes, or give a developer the static reference they need to rebuild elsewhere. Analysis is free and your first scrape is free to preview.",
     ],
     bullets: [
-      { title: "Captures Wix's JavaScript", body: "Real-browser rendering pulls Wix's dynamic, script-rendered pages as they actually appear — not an empty shell." },
-      { title: "A copy you control", body: "Wix offers no file export; the ZIP gives you an offline copy of the rendered site to keep." },
-      { title: "Reference for rebuilding", body: "Static HTML, images, and styles help a developer recreate the site on another platform." },
-      { title: "Browser-based", body: "No install and nothing added to your Wix account — capture the site from any device." },
+      { icon: "render", title: "Captures Wix's JavaScript", body: "Real-browser rendering pulls Wix's dynamic, script-rendered pages as they actually appear — not an empty shell." },
+      { icon: "own", title: "A copy you control", body: "Wix offers no file export; the ZIP gives you an offline copy of the rendered site to keep." },
+      { icon: "reference", title: "Reference for rebuilding", body: "Static HTML, images, and styles help a developer recreate the site on another platform." },
+      { icon: "device", title: "Browser-based", body: "No install and nothing added to your Wix account — capture the site from any device." },
     ],
     faq: [
       { q: "Can you download a website from Wix?", a: "Wix has no built-in file export, but Website Sucker captures the rendered site — every page, image, style, and font — into a single offline ZIP. Paste your Wix URL to start a free analysis." },
