@@ -14,56 +14,74 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  --background: 210 20% 98%;
-  --foreground: 222 47% 11%;
+  --background: 210 17% 96%;      /* Paper #F4F5F6 */
+  --foreground: 210 24% 8%;       /* Ink #101418 */
 
-  --border: 214 20% 88%;
+  --border: 213 12% 85%;          /* Mist */
 
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --card-border: 214 20% 91%;
+  --card-foreground: 210 24% 8%;
+  --card-border: 213 12% 85%;
 
-  --sidebar: 210 25% 96%;
-  --sidebar-foreground: 222 47% 11%;
-  --sidebar-border: 214 20% 88%;
-  --sidebar-primary: 217 91% 60%;
+  --sidebar: 210 17% 96%;
+  --sidebar-foreground: 210 24% 8%;
+  --sidebar-border: 213 12% 85%;
+  --sidebar-primary: 224 100% 56%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 214 32% 91%;
-  --sidebar-accent-foreground: 222 47% 11%;
-  --sidebar-ring: 217 91% 60%;
+  --sidebar-accent: 226 100% 95%;
+  --sidebar-accent-foreground: 224 100% 40%;
+  --sidebar-ring: 224 100% 56%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-  --popover-border: 214 20% 88%;
+  --popover-foreground: 210 24% 8%;
+  --popover-border: 213 12% 85%;
 
-  --primary: 217 91% 60%;
+  --primary: 224 100% 56%;        /* Suction Blue #1F5BFF */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 214 32% 91%;
-  --secondary-foreground: 222 47% 11%;
+  --secondary: 210 16% 93%;       /* Mist light */
+  --secondary-foreground: 210 24% 12%;
 
-  --muted: 210 20% 96%;
-  --muted-foreground: 215 16% 47%;
+  --muted: 210 17% 94%;
+  --muted-foreground: 211 9% 40%; /* Steel */
 
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 47% 11%;
+  --accent: 226 100% 95%;         /* Blue Wash #E7EDFF */
+  --accent-foreground: 224 100% 40%;
 
-  --destructive: 0 84% 60%;
+  --destructive: 358 66% 49%;     /* Failed #CF2A2F */
   --destructive-foreground: 0 0% 100%;
 
-  --input: 214 20% 85%;
-  --ring: 217 91% 60%;
-  
-  --chart-1: 217 91% 60%;
-  --chart-2: 142 76% 36%;
-  --chart-3: 47 96% 53%;
-  --chart-4: 262 83% 58%;
-  --chart-5: 0 84% 60%;
+  --input: 213 12% 80%;
+  --ring: 224 100% 56%;
 
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --chart-1: 224 100% 56%;   /* Suction Blue */
+  --chart-2: 160 84% 34%;    /* Complete */
+  --chart-3: 36 95% 40%;     /* Partial */
+  --chart-4: 191 88% 51%;    /* Signal Cyan */
+  --chart-5: 358 66% 49%;    /* Failed */
+
+  --font-sans: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --radius: .5rem;
+  --radius: 0px; /* Brand: 0px radius everywhere */
+
+  /* --- WebsiteSucker brand tokens (raw, HSL triplets) --- */
+  --ws-accent: 224 100% 56%;         /* Suction Blue  #1F5BFF */
+  --ws-accent-pressed: 225 90% 42%;  /* Deep Blue     #0B3ACC */
+  --ws-cyan: 191 88% 51%;            /* Signal Cyan   #12C8F0 */
+  --ws-wash: 226 100% 95%;           /* Blue Wash     #E7EDFF */
+  --ws-ink: 210 24% 8%;              /* Ink           #101418 */
+  --ws-slate: 210 14% 19%;           /* Slate         #2A3138 */
+  --ws-graphite: 213 12% 26%;        /* Graphite      #3A4149 */
+  --ws-steel: 211 9% 45%;            /* Steel         #6B747D */
+  --ws-mist: 213 12% 87%;            /* Mist          #D9DDE1 */
+  --ws-paper: 210 17% 96%;           /* Paper         #F4F5F6 */
+  --ws-complete: 160 84% 34%;        /* Complete      #0E9F6E */
+  --ws-partial: 36 95% 40%;          /* Partial       #C97A05 */
+  --ws-failed: 358 66% 49%;          /* Failed        #CF2A2F */
+  /* Signature gradients — the logo MARK only, never UI chrome */
+  --ws-grad-w: linear-gradient(210deg, #0FE8D8, #2DA9FF);
+  --ws-grad-s: linear-gradient(150deg, #29E7FF, #265EFF);
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.05);
   --shadow-xs: 0px 1px 3px 0px rgba(0,0,0,0.1);
   --shadow-sm: 0px 2px 4px 0px rgba(0,0,0,0.06), 0px 1px 2px -1px rgba(0,0,0,0.06);
@@ -102,51 +120,51 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: 222 47% 8%;
-  --foreground: 210 20% 98%;
+  --background: 210 24% 8%;       /* Ink #101418 */
+  --foreground: 210 17% 96%;      /* Paper */
 
-  --border: 217 19% 20%;
+  --border: 213 12% 26%;          /* Graphite rules */
 
-  --card: 222 47% 11%;
-  --card-foreground: 210 20% 98%;
-  --card-border: 217 19% 18%;
+  --card: 210 14% 13%;            /* between Ink and Slate */
+  --card-foreground: 210 17% 96%;
+  --card-border: 213 12% 26%;
 
-  --sidebar: 222 47% 10%;
-  --sidebar-foreground: 210 20% 98%;
-  --sidebar-border: 217 19% 18%;
-  --sidebar-primary: 217 91% 60%;
+  --sidebar: 210 24% 8%;
+  --sidebar-foreground: 210 17% 96%;
+  --sidebar-border: 213 12% 26%;
+  --sidebar-primary: 224 100% 56%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 217 33% 17%;
-  --sidebar-accent-foreground: 210 20% 98%;
-  --sidebar-ring: 217 91% 60%;
+  --sidebar-accent: 210 14% 19%;
+  --sidebar-accent-foreground: 210 17% 96%;
+  --sidebar-ring: 224 100% 56%;
 
-  --popover: 222 47% 11%;
-  --popover-foreground: 210 20% 98%;
-  --popover-border: 217 19% 20%;
+  --popover: 210 14% 13%;
+  --popover-foreground: 210 17% 96%;
+  --popover-border: 213 12% 26%;
 
-  --primary: 217 91% 60%;
+  --primary: 224 100% 56%;        /* Suction Blue */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 217 33% 17%;
-  --secondary-foreground: 210 20% 98%;
+  --secondary: 210 14% 19%;       /* Slate */
+  --secondary-foreground: 210 17% 96%;
 
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 55%;
+  --muted: 210 14% 19%;           /* Slate */
+  --muted-foreground: 211 9% 62%; /* Steel, lightened */
 
-  --accent: 217 33% 17%;
-  --accent-foreground: 210 20% 98%;
+  --accent: 210 14% 19%;
+  --accent-foreground: 210 17% 96%;
 
-  --destructive: 0 62% 50%;
+  --destructive: 358 66% 49%;     /* Failed */
   --destructive-foreground: 0 0% 100%;
 
-  --input: 217 19% 25%;
-  --ring: 217 91% 60%;
-  
-  --chart-1: 217 91% 60%;
-  --chart-2: 142 70% 45%;
-  --chart-3: 47 96% 53%;
-  --chart-4: 262 83% 58%;
-  --chart-5: 0 72% 55%;
+  --input: 213 12% 30%;
+  --ring: 224 100% 56%;
+
+  --chart-1: 224 100% 56%;
+  --chart-2: 160 70% 45%;
+  --chart-3: 36 95% 50%;
+  --chart-4: 191 88% 55%;
+  --chart-5: 358 66% 55%;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.3);
   --shadow-xs: 0px 1px 3px 0px rgba(0,0,0,0.4);
@@ -259,29 +277,42 @@
     transform: none;
   }
 
-  /* Animated gradient text for hero headlines */
+  /* Brand: the wordmark is flat ink/paper — no UI gradients. Kept as a flat
+     token so any lingering reference stays on-brand rather than gradient. */
   .text-gradient-animate {
-    background-image: linear-gradient(
-      90deg,
-      hsl(var(--primary)),
-      hsl(262 83% 62%),
-      hsl(var(--primary))
-    );
-    background-size: 200% auto;
+    color: hsl(var(--foreground));
+  }
+
+  /* Brand forbids the "gradient sky" — neutralise the old aurora blobs. */
+  .hero-aurora { display: none !important; }
+
+  /* Signature gradient — the LOGO MARK only (≥24px). Never on UI chrome. */
+  .ws-mark-gradient {
+    background-image: var(--ws-grad-s);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    animation: gradient-pan 6s ease infinite;
   }
 
-  /* Soft blurred colour blobs behind the hero */
-  .hero-aurora {
-    position: absolute;
-    border-radius: 9999px;
-    filter: blur(64px);
-    pointer-events: none;
-    z-index: 0;
+  /* Machine-output / eyebrow label: JetBrains Mono, uppercase, tracked. */
+  .ws-label {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    color: hsl(var(--muted-foreground));
   }
+
+  /* Ink plate — the dark structural panel (proof rows, code blocks). */
+  .ws-plate {
+    background-color: hsl(var(--ws-ink));
+    color: hsl(var(--ws-paper));
+    font-family: var(--font-mono);
+  }
+
+  /* 2px ink rule that separates sections (brand: never whitespace alone). */
+  .ws-rule { border-top: 2px solid hsl(var(--foreground)); }
 
   /* Respect users who prefer reduced motion: show everything, animate nothing */
   @media (prefers-reduced-motion: reduce) {
