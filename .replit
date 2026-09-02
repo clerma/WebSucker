@@ -78,6 +78,9 @@ integrations = ["stripe:1.0.0"]
 
 [userenv.shared]
 
+[userenv.production]
+APP_BASE_URL = "https://websitesucker.com"
+
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 180000

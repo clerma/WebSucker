@@ -44,7 +44,12 @@ export default function CheckoutSuccess() {
 
   const verifyPlan = async (sid: string) => {
     try {
-      const response = await fetch(`/api/stripe/verify-plan?session_id=${sid}`, { credentials: "include" });
+      const response = await fetch("/api/stripe/verify-plan", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      });
       const data = await response.json();
       if (data.paid) {
         setStatus("success");
@@ -61,7 +66,12 @@ export default function CheckoutSuccess() {
 
   const verifyPayment = async (sid: string) => {
     try {
-      const response = await fetch(`/api/stripe/verify-payment?session_id=${sid}`);
+      const response = await fetch("/api/stripe/verify-payment", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      });
       const data = await response.json();
 
       if (data.paid) {
@@ -117,7 +127,10 @@ export default function CheckoutSuccess() {
 
     setIsDownloading(true);
     try {
-      const response = await fetch(`/api/scrape/${jobId}/download`, { credentials: "include" });
+      const response = await fetch(`/api/scrape/${jobId}/download`, {
+        method: "POST",
+        credentials: "include",
+      });
       if (!response.ok) {
         // The server may have restarted since payment — the job and its ZIP
         // are gone but the payment record survives. Offer a free re-scrape.

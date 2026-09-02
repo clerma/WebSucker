@@ -408,7 +408,9 @@ export default function Home() {
     // if the account has none.
     setIsDownloading(true);
     try {
-      const response = await fetch(`/api/scrape/${currentJob.id}/download`);
+      const response = await fetch(`/api/scrape/${currentJob.id}/download`, {
+        method: "POST",
+      });
       if (response.status === 402) {
         toast({
           title: "Download requires a credit",

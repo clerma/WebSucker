@@ -1,8 +1,8 @@
 import Stripe from 'stripe';
 import { getStripeSync, getUncachableStripeClient } from './stripeClient';
 import { db } from './db';
-import { payments, users, downloadEvents } from '@shared/schema';
-import { sql, eq } from 'drizzle-orm';
+import { payments, users, downloadEvents, scrapeJobs } from '@shared/schema';
+import { sql, eq, and, isNull } from 'drizzle-orm';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -88,37 +88,62 @@ export class WebhookHandlers {
     // only record once actually paid (or a $0/no-payment subscription setup).
     if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') return;
 
-    const inserted = await db
-      .insert(payments)
-      .values({
+    let validatedUserId: number | null = null;
+    const metadataUserId = Number(session.metadata?.userId);
+    if (session.metadata?.jobId) {
+      const [job] = await db.select({ ownerId: scrapeJobs.ownerId }).from(scrapeJobs)
+        .where(eq(scrapeJobs.id, session.metadata.jobId)).limit(1);
+      if (job) {
+        validatedUserId = job.ownerId;
+        if (Number.isInteger(metadataUserId) && metadataUserId !== job.ownerId) {
+          console.warn(`Ignoring mismatched payment user metadata for session ${session.id}`);
+        }
+      }
+    }
+    if (validatedUserId === null && Number.isInteger(metadataUserId) && metadataUserId > 0) {
+      const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, metadataUserId)).limit(1);
+      if (user) validatedUserId = user.id;
+    }
+
+    const isCreditPurchase = session.metadata?.type === 'credits';
+    if (isCreditPurchase && validatedUserId === null) {
+      // Never consume the unique idempotency marker for an entitlement that
+      // has no verified recipient. Throwing makes Stripe retry after data is
+      // corrected instead of losing the buyer's credits permanently.
+      throw new Error(`Credit purchase ${session.id} has no validated user`);
+    }
+    const parsedCredits = parseInt(session.metadata?.credits ?? '0', 10);
+    const creditAmount = Number.isSafeInteger(parsedCredits) && parsedCredits > 0 ? parsedCredits : 0;
+
+    // The insert winner and its credit grant share one transaction. A browser
+    // verify request racing this webhook will lose the unique insert and grant
+    // nothing; a transaction failure rolls both changes back for Stripe retry.
+    const inserted = await db.transaction(async (tx) => {
+      const inserted = await tx.insert(payments).values({
+        userId: validatedUserId,
         stripeSessionId: session.id,
-        stripePaymentIntentId:
-          typeof session.payment_intent === 'string'
-            ? session.payment_intent
-            : session.payment_intent?.id ?? null,
+        stripePaymentIntentId: typeof session.payment_intent === 'string'
+          ? session.payment_intent : session.payment_intent?.id ?? null,
         customerEmail: session.customer_details?.email ?? null,
         amountCents: session.amount_total ?? 0,
         currency: session.currency ?? 'usd',
         mode: session.mode ?? 'payment',
         jobId: session.metadata?.jobId ?? null,
         websiteUrl: session.metadata?.url ?? null,
-      })
-      .onConflictDoNothing()
-      .returning({ id: payments.id });
-
-    // Credit-pack purchases: verify-plan only grants credits when its own
-    // insert wins the idempotency race. If the webhook's insert won instead,
-    // apply the credits here so the buyer never loses them.
-    if (inserted.length > 0 && session.metadata?.type === 'credits' && session.metadata?.userId) {
-      const creditAmount = parseInt(session.metadata?.credits ?? '0', 10);
-      const userId = parseInt(session.metadata.userId, 10);
-      if (creditAmount > 0 && Number.isFinite(userId)) {
-        await db
-          .update(users)
-          .set({ credits: sql`${users.credits} + ${creditAmount}` })
-          .where(eq(users.id, userId));
-        console.log(`Webhook granted ${creditAmount} credits to user ${userId} (session ${session.id})`);
+      }).onConflictDoNothing().returning({ id: payments.id });
+      if (validatedUserId !== null) {
+        await tx.update(payments).set({ userId: validatedUserId })
+          .where(and(eq(payments.stripeSessionId, session.id), isNull(payments.userId)));
       }
+      if (inserted.length > 0 && isCreditPurchase && creditAmount > 0) {
+        const credited = await tx.update(users).set({ credits: sql`${users.credits} + ${creditAmount}` })
+          .where(eq(users.id, validatedUserId!)).returning({ id: users.id });
+        if (!credited.length) throw new Error(`Credit purchase ${session.id} recipient disappeared`);
+      }
+      return inserted;
+    });
+    if (inserted.length > 0 && isCreditPurchase && creditAmount > 0) {
+      console.log(`Webhook granted ${creditAmount} credits to user ${validatedUserId} (session ${session.id})`);
     }
 
     if (inserted.length > 0) {
@@ -131,6 +156,7 @@ export class WebhookHandlers {
         await db
           .insert(downloadEvents)
           .values({
+            userId: validatedUserId,
             userEmail: session.customer_details?.email ?? null,
             jobId: session.metadata.jobId,
             websiteUrl: session.metadata.url,

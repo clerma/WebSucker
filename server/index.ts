@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from './stripeClient';
 import { WebhookHandlers } from './webhookHandlers';
+import { sameOriginProtection } from "./security";
 
 const app = express();
 // Behind the hosting proxy (Replit/Cloud), trust the first proxy hop so req.ip
@@ -100,6 +101,7 @@ async function main() {
   );
 
   app.use(express.urlencoded({ extended: false }));
+  app.use(sameOriginProtection);
 
   setupSession(app);
 

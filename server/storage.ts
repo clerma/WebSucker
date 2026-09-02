@@ -1,19 +1,16 @@
-import { randomUUID, randomBytes } from "crypto";
-import type { Asset, ScrapeJob, ScrapeStatus, AssetStatus, AssetType } from "@shared/schema";
+import { randomBytes, randomUUID } from "crypto";
+import type { Asset, ScrapeJob, ScrapeStatus } from "@shared/schema";
+import { accessCodes as accessCodesTable, downloadEvents, scrapeJobs, users } from "@shared/schema";
 import { db } from "./db";
-import { accessCodes as accessCodesTable } from "@shared/schema";
-import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, lt, or, sql } from "drizzle-orm";
 
-// Crockford base32 (no ambiguous 0/O, 1/I/L, U). 256 % 32 === 0, so indexing
-// random bytes mod 32 is unbiased.
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-function generateAccessCode(): string {
+const generateAccessCode = () => {
   const bytes = randomBytes(10);
   let out = "";
-  for (let i = 0; i < bytes.length; i++) out += CODE_ALPHABET[bytes[i] % 32];
-  return `WS-${out.slice(0, 5)}-${out.slice(5, 10)}`; // ~50 bits of entropy
-}
+  for (const byte of bytes) out += CODE_ALPHABET[byte % 32];
+  return `WS-${out.slice(0, 5)}-${out.slice(5, 10)}`;
+};
 
 export interface AccessCode {
   code: string;
@@ -29,273 +26,354 @@ export interface AnalyticsData {
   totalDownloads: number;
   uniqueUrlsScraped: string[];
   recentJobs: Array<{
-    id: string;
-    url: string;
-    status: ScrapeStatus;
-    totalAssets: number;
-    successfulAssets: number;
-    failedAssets: number;
-    errorMessage?: string;
-    createdAt: string;
-    completedAt?: string;
+    id: string; url: string; status: ScrapeStatus; totalAssets: number;
+    successfulAssets: number; failedAssets: number; errorMessage?: string;
+    createdAt: string; completedAt?: string;
   }>;
 }
 
-export interface IStorage {
-  createJob(url: string): Promise<ScrapeJob>;
-  getJob(id: string): Promise<ScrapeJob | undefined>;
-  updateJobStatus(id: string, status: ScrapeStatus): Promise<void>;
-  updateJobProgress(id: string, data: Partial<ScrapeJob>): Promise<void>;
-  addAsset(jobId: string, asset: Omit<Asset, "id">): Promise<Asset>;
-  updateAsset(jobId: string, assetId: string, data: Partial<Asset>): Promise<Asset | undefined>;
-  completeJob(id: string, downloadPath?: string): Promise<ScrapeJob | undefined>;
-  deleteJob(id: string): Promise<void>;
-  scheduleExpiry(id: string, onExpire: () => void, ttlMs: number): void;
-  cancelExpiry(id: string): void;
-  authorizeDownload(jobId: string, sessionId: string): void;
-  isDownloadAuthorized(jobId: string): boolean;
-  isSessionConsumed(sessionId: string): boolean;
-  recordDownload(): void;
-  getAnalytics(): AnalyticsData;
-  createAccessCode(note: string, maxUses: number | null): Promise<AccessCode>;
-  listAccessCodes(): Promise<AccessCode[]>;
-  deleteAccessCode(code: string): Promise<boolean>;
-  redeemAccessCode(code: string): Promise<boolean>;
+type FundingMethod = "subscription" | "free" | "credit" | "payment" | "access_code";
+export type CreateFundedJobResult =
+  | { ok: true; job: ScrapeJob; fundingMethod: "subscription" | "free" | "credit" }
+  | { ok: false; reason: "no_credit" | "user_not_found" };
+
+function toJob(row: typeof scrapeJobs.$inferSelect): ScrapeJob {
+  return {
+    id: row.id,
+    url: row.url,
+    status: row.status as ScrapeStatus,
+    createdAt: row.createdAt.toISOString(),
+    completedAt: row.completedAt?.toISOString(),
+    expiresAt: row.expiresAt?.toISOString(),
+    assets: row.assets as Asset[],
+    totalAssets: row.totalAssets,
+    processedAssets: row.processedAssets,
+    successfulAssets: row.successfulAssets,
+    failedAssets: row.failedAssets,
+    downloadPath: row.downloadPath ?? undefined,
+    errorMessage: row.errorMessage ?? undefined,
+  };
 }
 
-export class MemStorage implements IStorage {
-  private jobs: Map<string, ScrapeJob>;
-  private authorizedJobs: Set<string>;
-  private consumedSessions: Set<string>;
-  private expiryTimers: Map<string, ReturnType<typeof setTimeout>>;
-  private totalJobsCreated: number;
-  private totalAssetsScraped: number;
-  private totalDownloads: number;
-  private uniqueUrlsScraped: Set<string>;
-  private recentJobs: AnalyticsData["recentJobs"];
+export class DbStorage {
+  // Timers are only an optimization. The durable expiry and cleanup lease are
+  // authoritative, so losing these handles during restart does not grant access.
+  private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private totalDownloads = 0;
 
-  constructor() {
-    this.jobs = new Map();
-    this.authorizedJobs = new Set();
-    this.consumedSessions = new Set();
-    this.expiryTimers = new Map();
-    this.totalJobsCreated = 0;
-    this.totalAssetsScraped = 0;
-    this.totalDownloads = 0;
-    this.uniqueUrlsScraped = new Set();
-    this.recentJobs = [];
+  async createJob(url: string, ownerId: number, fundingMethod: FundingMethod = "free"): Promise<ScrapeJob> {
+    const id = randomUUID();
+    const [row] = await db.insert(scrapeJobs).values({
+      id, ownerId, url, status: "scraping", assets: [],
+      totalAssets: 0, processedAssets: 0, successfulAssets: 0, failedAssets: 0,
+      downloadAuthorized: fundingMethod !== "free",
+      authorizationSessionId: fundingMethod !== "free" ? `user_${ownerId}_${id}` : null,
+      createdAt: new Date(), fundingMethod, refundApplied: false,
+    }).returning();
+    return toJob(row);
   }
 
-  async createJob(url: string): Promise<ScrapeJob> {
-    const id = randomUUID();
-    const job: ScrapeJob = {
-      id,
-      url,
-      status: "scraping",
-      createdAt: new Date().toISOString(),
-      assets: [],
-      totalAssets: 0,
-      processedAssets: 0,
-      successfulAssets: 0,
-      failedAssets: 0,
-    };
-    this.jobs.set(id, job);
-    this.totalJobsCreated++;
-    try {
-      const hostname = new URL(url).hostname;
-      this.uniqueUrlsScraped.add(hostname);
-    } catch {}
-    return job;
+  async createFundedJob(url: string, ownerId: number, subscribed: boolean): Promise<CreateFundedJobResult> {
+    return db.transaction(async (tx) => {
+      const result = await tx.execute(sql`select id, free_scrape_used, credits from users where id = ${ownerId} for update`);
+      const user = result.rows[0] as { id: number; free_scrape_used: boolean; credits: number } | undefined;
+      if (!user) return { ok: false, reason: "user_not_found" };
+      let fundingMethod: "subscription" | "free" | "credit";
+      if (subscribed) {
+        fundingMethod = "subscription";
+      } else if (!user.free_scrape_used) {
+        fundingMethod = "free";
+        await tx.update(users).set({ freeScrapeUsed: true }).where(eq(users.id, ownerId));
+      } else if (user.credits > 0) {
+        fundingMethod = "credit";
+        await tx.update(users).set({ credits: sql`${users.credits} - 1` }).where(eq(users.id, ownerId));
+      } else {
+        return { ok: false, reason: "no_credit" };
+      }
+      const id = randomUUID();
+      const [row] = await tx.insert(scrapeJobs).values({
+        id, ownerId, url, status: "scraping", assets: [],
+        downloadAuthorized: fundingMethod !== "free",
+        authorizationSessionId: fundingMethod !== "free" ? `user_${ownerId}_${id}` : null,
+        fundingMethod, refundApplied: false,
+      }).returning();
+      return { ok: true, job: toJob(row), fundingMethod };
+    });
   }
 
   async getJob(id: string): Promise<ScrapeJob | undefined> {
-    return this.jobs.get(id);
+    const [row] = await db.select().from(scrapeJobs).where(eq(scrapeJobs.id, id)).limit(1);
+    return row ? toJob(row) : undefined;
+  }
+
+  async getOwnedJob(id: string, ownerId: number): Promise<ScrapeJob | undefined> {
+    const [row] = await db.select().from(scrapeJobs)
+      .where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.ownerId, ownerId))).limit(1);
+    return row ? toJob(row) : undefined;
+  }
+
+  async listExpiredJobIds(limit = 50): Promise<string[]> {
+    const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs)
+      .where(and(lte(scrapeJobs.expiresAt, new Date()),
+        or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, new Date()))))
+      .limit(limit);
+    return rows.map(row => row.id);
+  }
+
+  async isOwner(id: string, ownerId: number): Promise<boolean> {
+    const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs)
+      .where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.ownerId, ownerId))).limit(1);
+    return rows.length === 1;
   }
 
   async updateJobStatus(id: string, status: ScrapeStatus): Promise<void> {
-    const job = this.jobs.get(id);
-    if (job) {
-      job.status = status;
-      this.jobs.set(id, job);
-    }
+    await db.update(scrapeJobs).set({ status }).where(eq(scrapeJobs.id, id));
   }
 
   async updateJobProgress(id: string, data: Partial<ScrapeJob>): Promise<void> {
-    const job = this.jobs.get(id);
-    if (job) {
-      Object.assign(job, data);
-      this.jobs.set(id, job);
+    const values: Record<string, unknown> = {};
+    for (const key of ["totalAssets", "processedAssets", "successfulAssets", "failedAssets", "errorMessage"] as const) {
+      if (data[key] !== undefined) values[key] = data[key];
     }
+    if (data.assets !== undefined) values.assets = data.assets;
+    if (Object.keys(values).length) await db.update(scrapeJobs).set(values).where(eq(scrapeJobs.id, id));
   }
 
   async addAsset(jobId: string, assetData: Omit<Asset, "id">): Promise<Asset> {
-    const job = this.jobs.get(jobId);
-    if (!job) throw new Error("Job not found");
-
-    const asset: Asset = {
-      id: randomUUID(),
-      ...assetData,
-    };
-    job.assets.push(asset);
-    job.totalAssets = job.assets.length;
-    this.jobs.set(jobId, job);
-    this.totalAssetsScraped++;
-    return asset;
-  }
-
-  async updateAsset(
-    jobId: string,
-    assetId: string,
-    data: Partial<Asset>
-  ): Promise<Asset | undefined> {
-    const job = this.jobs.get(jobId);
-    if (!job) return undefined;
-
-    const assetIndex = job.assets.findIndex((a) => a.id === assetId);
-    if (assetIndex === -1) return undefined;
-
-    const asset = { ...job.assets[assetIndex], ...data };
-    job.assets[assetIndex] = asset;
-
-    job.processedAssets = job.assets.filter(
-      (a) => a.status === "success" || a.status === "failed" || a.status === "skipped"
-    ).length;
-    job.successfulAssets = job.assets.filter((a) => a.status === "success").length;
-    job.failedAssets = job.assets.filter((a) => a.status === "failed").length;
-
-    this.jobs.set(jobId, job);
-    return asset;
-  }
-
-  scheduleExpiry(id: string, onExpire: () => void, ttlMs: number): void {
-    this.cancelExpiry(id);
-    const timer = setTimeout(() => {
-      this.expiryTimers.delete(id);
-      onExpire();
-    }, ttlMs);
-    this.expiryTimers.set(id, timer);
-    // Update job expiresAt
-    const job = this.jobs.get(id);
-    if (job) {
-      job.expiresAt = new Date(Date.now() + ttlMs).toISOString();
-      this.jobs.set(id, job);
-    }
-  }
-
-  cancelExpiry(id: string): void {
-    const timer = this.expiryTimers.get(id);
-    if (timer) {
-      clearTimeout(timer);
-      this.expiryTimers.delete(id);
-    }
-  }
-
-  async completeJob(id: string, downloadPath?: string): Promise<ScrapeJob | undefined> {
-    const job = this.jobs.get(id);
-    if (!job) return undefined;
-
-    job.status = "completed";
-    job.completedAt = new Date().toISOString();
-    if (downloadPath) job.downloadPath = downloadPath;
-
-    this.jobs.set(id, job);
-
-    this.recentJobs.unshift({
-      id: job.id,
-      url: job.url,
-      status: job.status,
-      totalAssets: job.totalAssets,
-      successfulAssets: job.successfulAssets,
-      failedAssets: job.failedAssets,
-      createdAt: job.createdAt,
-      completedAt: job.completedAt,
+    const asset = { id: randomUUID(), ...assetData };
+    await db.transaction(async (tx) => {
+      const rows = await tx.execute(sql`select assets from scrape_jobs where id = ${jobId} for update`);
+      const row = rows.rows[0] as { assets: Asset[] } | undefined;
+      if (!row) throw new Error("Job not found");
+      const assets = [...row.assets, asset];
+      await tx.update(scrapeJobs).set({ assets, totalAssets: assets.length }).where(eq(scrapeJobs.id, jobId));
     });
-    if (this.recentJobs.length > 50) {
-      this.recentJobs = this.recentJobs.slice(0, 50);
-    }
+    return asset;
+  }
 
-    return job;
+  async updateAsset(jobId: string, assetId: string, data: Partial<Asset>): Promise<Asset | undefined> {
+    return db.transaction(async (tx) => {
+      const rows = await tx.execute(sql`select assets from scrape_jobs where id = ${jobId} for update`);
+      const row = rows.rows[0] as { assets: Asset[] } | undefined;
+      if (!row) return undefined;
+      const index = row.assets.findIndex((asset) => asset.id === assetId);
+      if (index < 0) return undefined;
+      const asset = { ...row.assets[index], ...data };
+      const assets = [...row.assets];
+      assets[index] = asset;
+      await tx.update(scrapeJobs).set({
+        assets,
+        processedAssets: assets.filter(a => ["success", "failed", "skipped"].includes(a.status)).length,
+        successfulAssets: assets.filter(a => a.status === "success").length,
+        failedAssets: assets.filter(a => a.status === "failed").length,
+      }).where(eq(scrapeJobs.id, jobId));
+      return asset;
+    });
+  }
+
+  async completeJob(id: string, executionToken: string, downloadPath?: string): Promise<ScrapeJob | undefined> {
+    const [row] = await db.update(scrapeJobs).set({
+      status: "completed", completedAt: new Date(), downloadPath,
+      executionLeaseUntil: null, executionToken: null,
+    }).where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, executionToken),
+      gt(scrapeJobs.executionLeaseUntil, new Date()), eq(scrapeJobs.status, "scraping"))).returning();
+    return row ? toJob(row) : undefined;
   }
 
   async deleteJob(id: string): Promise<void> {
     this.cancelExpiry(id);
-    this.jobs.delete(id);
-    this.authorizedJobs.delete(id);
+    await db.delete(scrapeJobs).where(eq(scrapeJobs.id, id));
   }
 
-  authorizeDownload(jobId: string, sessionId: string): void {
-    this.authorizedJobs.add(jobId);
-    this.consumedSessions.add(sessionId);
+  async scheduleExpiry(id: string, onExpire: () => void | Promise<void>, ttlMs: number): Promise<void> {
+    this.cancelExpiry(id);
+    const expiresAt = new Date(Date.now() + ttlMs);
+    await db.update(scrapeJobs).set({ expiresAt }).where(eq(scrapeJobs.id, id));
+    const timer = setTimeout(async () => {
+      this.expiryTimers.delete(id);
+      if (await this.claimCleanup(id, 60_000)) await onExpire();
+    }, ttlMs);
+    timer.unref?.();
+    this.expiryTimers.set(id, timer);
   }
 
-  isDownloadAuthorized(jobId: string): boolean {
-    return this.authorizedJobs.has(jobId);
+  cancelExpiry(id: string): void {
+    const timer = this.expiryTimers.get(id);
+    if (timer) clearTimeout(timer);
+    this.expiryTimers.delete(id);
   }
 
-  isSessionConsumed(sessionId: string): boolean {
-    return this.consumedSessions.has(sessionId);
+  async claimCleanup(id: string, leaseMs: number): Promise<boolean> {
+    const now = new Date();
+    const rows = await db.update(scrapeJobs).set({ cleanupLeaseUntil: new Date(now.getTime() + leaseMs) })
+      .where(and(eq(scrapeJobs.id, id), or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now))))
+      .returning({ id: scrapeJobs.id });
+    return rows.length === 1;
   }
 
-  recordDownload(): void {
-    this.totalDownloads++;
+  async claimExecution(id: string, token: string, leaseMs = 45_000): Promise<boolean> {
+    const now = new Date();
+    const rows = await db.update(scrapeJobs).set({
+      executionToken: token, executionLeaseUntil: new Date(now.getTime() + leaseMs),
+    }).where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.status, "scraping"),
+      or(isNull(scrapeJobs.executionLeaseUntil), lt(scrapeJobs.executionLeaseUntil, now))))
+      .returning({ id: scrapeJobs.id });
+    return rows.length === 1;
   }
 
+  async renewExecution(id: string, token: string, leaseMs = 45_000): Promise<boolean> {
+    const rows = await db.update(scrapeJobs).set({ executionLeaseUntil: new Date(Date.now() + leaseMs) })
+      .where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, token),
+        eq(scrapeJobs.status, "scraping"), gt(scrapeJobs.executionLeaseUntil, new Date())))
+      .returning({ id: scrapeJobs.id });
+    return rows.length === 1;
+  }
+
+  async failExecution(id: string, token: string, errorMessage: string): Promise<boolean> {
+    const rows = await db.update(scrapeJobs).set({
+      status: "failed", errorMessage, completedAt: new Date(),
+      executionLeaseUntil: null, executionToken: null,
+    }).where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, token),
+      eq(scrapeJobs.status, "scraping"), gt(scrapeJobs.executionLeaseUntil, new Date())))
+      .returning({ id: scrapeJobs.id });
+    return rows.length === 1;
+  }
+
+  async authorizeDownload(jobId: string, sessionId: string): Promise<boolean> {
+    const rows = await db.update(scrapeJobs).set({
+      downloadAuthorized: true, authorizationSessionId: sessionId, chargingUntil: null, chargingToken: null,
+    }).where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.downloadAuthorized, false)))
+      .returning({ id: scrapeJobs.id });
+    if (rows.length) return true;
+    return this.isDownloadAuthorized(jobId);
+  }
+
+  async isDownloadAuthorized(jobId: string): Promise<boolean> {
+    const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs)
+      .where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.downloadAuthorized, true))).limit(1);
+    return rows.length === 1;
+  }
+
+  async isSessionConsumed(sessionId: string): Promise<boolean> {
+    const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs)
+      .where(eq(scrapeJobs.authorizationSessionId, sessionId)).limit(1);
+    return rows.length === 1;
+  }
+
+  async claimCharging(jobId: string, leaseMs = 15 * 60_000): Promise<string | null> {
+    const now = new Date();
+    const token = randomUUID();
+    const rows = await db.update(scrapeJobs).set({ chargingUntil: new Date(now.getTime() + leaseMs), chargingToken: token })
+      .where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.downloadAuthorized, false),
+        or(isNull(scrapeJobs.chargingUntil), lt(scrapeJobs.chargingUntil, now))))
+      .returning({ id: scrapeJobs.id });
+    return rows.length === 1 ? token : null;
+  }
+
+  async releaseCharging(jobId: string, token: string): Promise<void> {
+    await db.update(scrapeJobs).set({ chargingUntil: null, chargingToken: null })
+      .where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.chargingToken, token)));
+  }
+
+  async chargeCreditAndAuthorize(jobId: string, ownerId: number, sessionId: string, chargingToken: string): Promise<"authorized" | "no_credit" | "not_claimed"> {
+    return db.transaction(async (tx) => {
+      const locked = await tx.execute(sql`
+        select owner_id, download_authorized, charging_until, charging_token
+        from scrape_jobs where id = ${jobId} for update
+      `);
+      const job = locked.rows[0] as {
+        owner_id: number;
+        download_authorized: boolean;
+        charging_until: Date | string | null;
+        charging_token: string | null;
+      } | undefined;
+      if (!job || job.owner_id !== ownerId || job.charging_token !== chargingToken ||
+          !job.charging_until || new Date(job.charging_until).getTime() <= Date.now()) return "not_claimed";
+      if (job.download_authorized) return "authorized";
+      const charged = await tx.update(users).set({ credits: sql`${users.credits} - 1` })
+        .where(and(eq(users.id, ownerId), gt(users.credits, 0))).returning({ id: users.id });
+      if (!charged.length) return "no_credit";
+      await tx.update(scrapeJobs).set({
+        downloadAuthorized: true, authorizationSessionId: sessionId, chargingUntil: null, chargingToken: null,
+      }).where(eq(scrapeJobs.id, jobId));
+      return "authorized";
+    });
+  }
+
+  async failAbandonedJobs(limit = 50): Promise<string[]> {
+    return db.transaction(async (tx) => {
+      const stale = await tx.execute(sql`
+        select id, owner_id, funding_method, refund_applied
+        from scrape_jobs
+        where status = 'scraping'
+          and ((execution_lease_until is not null and execution_lease_until <= now())
+            or (execution_lease_until is null and created_at <= now() - interval '2 minutes'))
+        for update skip locked limit ${limit}
+      `);
+      const ids: string[] = [];
+      for (const raw of stale.rows) {
+        const job = raw as { id: string; owner_id: number; funding_method: FundingMethod; refund_applied: boolean };
+        if (!job.refund_applied) {
+          if (job.funding_method === "free") await tx.update(users).set({ freeScrapeUsed: false }).where(eq(users.id, job.owner_id));
+          if (job.funding_method === "credit") await tx.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, job.owner_id));
+          await tx.delete(downloadEvents).where(eq(downloadEvents.jobId, job.id));
+        }
+        await tx.update(scrapeJobs).set({
+          status: "failed", errorMessage: "Scrape interrupted before completion",
+          completedAt: new Date(), executionLeaseUntil: null, executionToken: null,
+          refundApplied: true, expiresAt: new Date(Date.now() + 2 * 60_000),
+        }).where(eq(scrapeJobs.id, job.id));
+        ids.push(job.id);
+      }
+      return ids;
+    });
+  }
+
+  // The entitlement restoration and durable marker commit together: a crash
+  // can neither lose a refund nor apply it twice.
+  async refundFailedJob(jobId: string): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      const locked = await tx.execute(sql`
+        select owner_id, funding_method, refund_applied
+        from scrape_jobs where id = ${jobId} for update
+      `);
+      const job = locked.rows[0] as { owner_id: number; funding_method: FundingMethod; refund_applied: boolean } | undefined;
+      if (!job || job.refund_applied) return false;
+      if (job.funding_method === "free") {
+        await tx.update(users).set({ freeScrapeUsed: false }).where(eq(users.id, job.owner_id));
+      } else if (job.funding_method === "credit") {
+        await tx.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, job.owner_id));
+      }
+      await tx.delete(downloadEvents).where(eq(downloadEvents.jobId, jobId));
+      await tx.update(scrapeJobs).set({ refundApplied: true }).where(eq(scrapeJobs.id, jobId));
+      return true;
+    });
+  }
+
+  recordDownload(): void { this.totalDownloads++; }
   getAnalytics(): AnalyticsData {
-    return {
-      totalJobsCreated: this.totalJobsCreated,
-      totalAssetsScraped: this.totalAssetsScraped,
-      totalDownloads: this.totalDownloads,
-      uniqueUrlsScraped: Array.from(this.uniqueUrlsScraped),
-      recentJobs: this.recentJobs,
-    };
+    return { totalJobsCreated: 0, totalAssetsScraped: 0, totalDownloads: this.totalDownloads, uniqueUrlsScraped: [], recentJobs: [] };
   }
 
   async createAccessCode(note: string, maxUses: number | null): Promise<AccessCode> {
-    const code = generateAccessCode();
-    const [row] = await db.insert(accessCodesTable).values({
-      code,
-      note: note || "",
-      maxUses,
-      uses: 0,
-    }).returning();
-    return {
-      code: row.code,
-      note: row.note,
-      maxUses: row.maxUses ?? null,
-      uses: row.uses,
-      createdAt: row.createdAt.toISOString(),
-    };
+    const [row] = await db.insert(accessCodesTable).values({ code: generateAccessCode(), note: note || "", maxUses, uses: 0 }).returning();
+    return { ...row, maxUses: row.maxUses ?? null, createdAt: row.createdAt.toISOString() };
   }
-
   async listAccessCodes(): Promise<AccessCode[]> {
     const rows = await db.select().from(accessCodesTable).orderBy(accessCodesTable.createdAt);
-    return rows.reverse().map(row => ({
-      code: row.code,
-      note: row.note,
-      maxUses: row.maxUses ?? null,
-      uses: row.uses,
-      createdAt: row.createdAt.toISOString(),
-    }));
+    return rows.reverse().map(row => ({ ...row, maxUses: row.maxUses ?? null, createdAt: row.createdAt.toISOString() }));
   }
-
   async deleteAccessCode(code: string): Promise<boolean> {
     const result = await db.delete(accessCodesTable).where(eq(accessCodesTable.code, code));
     return (result.rowCount ?? 0) > 0;
   }
-
   async redeemAccessCode(code: string): Promise<boolean> {
-    const normalized = code.toUpperCase().trim();
-    // Atomic conditional increment — the WHERE clause enforces maxUses so
-    // concurrent redemptions can't over-consume a limited-use code.
-    const rows = await db.update(accessCodesTable)
-      .set({ uses: sql`${accessCodesTable.uses} + 1` })
-      .where(and(
-        eq(accessCodesTable.code, normalized),
-        or(isNull(accessCodesTable.maxUses), lt(accessCodesTable.uses, accessCodesTable.maxUses)),
-      ))
+    const rows = await db.update(accessCodesTable).set({ uses: sql`${accessCodesTable.uses} + 1` })
+      .where(and(eq(accessCodesTable.code, code.toUpperCase().trim()),
+        or(isNull(accessCodesTable.maxUses), lt(accessCodesTable.uses, accessCodesTable.maxUses))))
       .returning({ code: accessCodesTable.code });
     return rows.length > 0;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DbStorage();

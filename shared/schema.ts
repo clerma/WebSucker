@@ -64,6 +64,7 @@ export const accessCodes = pgTable("access_codes", {
 // Persistent payments table — survives key changes and restarts
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),
   stripeSessionId: text("stripe_session_id").unique(),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   customerEmail: text("customer_email"),
@@ -72,6 +73,7 @@ export const payments = pgTable("payments", {
   mode: text("mode").notNull(), // 'payment' | 'subscription'
   jobId: text("job_id"),
   websiteUrl: text("website_url"),
+  recoveryLeaseUntil: timestamp("recovery_lease_until"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -136,6 +138,47 @@ export const scrapeAnalytics = pgTable("scrape_analytics", {
   completedAt: timestamp("completed_at"),
   errorMessage: text("error_message"),
 });
+
+// Durable scrape state. Jobs may be served by a different process after a
+// restart, so ownership, entitlement and worker leases all live with the job.
+export const scrapeJobs = pgTable("scrape_jobs", {
+  id: text("id").primaryKey(),
+  ownerId: integer("owner_id").notNull(),
+  url: text("url").notNull(),
+  status: text("status").notNull(),
+  assets: json("assets").notNull().default([]),
+  totalAssets: integer("total_assets").notNull().default(0),
+  processedAssets: integer("processed_assets").notNull().default(0),
+  successfulAssets: integer("successful_assets").notNull().default(0),
+  failedAssets: integer("failed_assets").notNull().default(0),
+  downloadPath: text("download_path"),
+  errorMessage: text("error_message"),
+  downloadAuthorized: boolean("download_authorized").notNull().default(false),
+  authorizationSessionId: text("authorization_session_id"),
+  chargingUntil: timestamp("charging_until"),
+  chargingToken: text("charging_token"),
+  cleanupLeaseUntil: timestamp("cleanup_lease_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at"),
+  executionLeaseUntil: timestamp("execution_lease_until"),
+  executionToken: text("execution_token"),
+  fundingMethod: text("funding_method").notNull().default("subscription"),
+  refundApplied: boolean("refund_applied").notNull().default(false),
+}, (table) => [
+  index("scrape_jobs_owner_id_idx").on(table.ownerId),
+  index("scrape_jobs_expires_at_idx").on(table.expiresAt),
+  uniqueIndex("scrape_jobs_authorization_session_id_key").on(table.authorizationSessionId),
+]);
+
+export const rateLimitBuckets = pgTable("rate_limit_buckets", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  resetAt: timestamp("reset_at").notNull(),
+  auditEmitted: boolean("audit_emitted").notNull().default(false),
+}, (table) => [
+  index("rate_limit_buckets_reset_at_idx").on(table.resetAt),
+]);
 
 export const AssetType = z.enum(["html", "css", "js", "image", "font", "other"]);
 export type AssetType = z.infer<typeof AssetType>;
