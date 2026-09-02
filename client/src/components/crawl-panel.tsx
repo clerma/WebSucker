@@ -32,6 +32,18 @@ export function CrawlPanel({ className }: { className?: string }) {
         aria-hidden
         className="ws-scan pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-ws-cyan/0 via-ws-cyan/25 to-ws-cyan/0"
       />
+      {/* browser chrome — window controls + address bar */}
+      <div className="relative z-20 flex items-center gap-2 border-b border-ws-graphite bg-ws-slate/50 px-3 py-2">
+        <span aria-hidden className="flex gap-1.5">
+          <span className="h-2.5 w-2.5 bg-ws-accent" />
+          <span className="h-2.5 w-2.5 bg-ws-cyan" />
+          <span className="h-2.5 w-2.5 bg-ws-steel" />
+        </span>
+        <span className="ml-1 flex-1 truncate border border-ws-graphite bg-ws-ink px-2 py-1 font-mono text-[11px] text-ws-steel">
+          https://example.com
+        </span>
+      </div>
+
       {/* cyan header rule */}
       <div className="h-0.5 w-full bg-ws-cyan" />
 

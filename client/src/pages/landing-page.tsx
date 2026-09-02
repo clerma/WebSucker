@@ -214,6 +214,39 @@ export default function LandingPage({ slug }: { slug: string }) {
         </div>
       </section>
 
+      {/* Comparison table (alternative pages) */}
+      {page.comparison && (
+        <section className="bg-ws-paper text-ws-ink pb-20 px-4">
+          <div className="mx-auto max-w-4xl">
+            <Reveal>
+              <h2 className="mb-8 text-2xl font-extrabold tracking-tight sm:text-3xl">
+                {page.comparison.heading}
+              </h2>
+              <div className="overflow-x-auto border-2 border-ws-ink">
+                <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-ws-ink">
+                      <th className="ws-label p-4 text-ws-steel">Feature</th>
+                      <th className="p-4 font-bold text-primary">{page.comparison.columns[0]}</th>
+                      <th className="ws-label p-4 text-ws-steel">{page.comparison.columns[1]}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {page.comparison.rows.map((r) => (
+                      <tr key={r.feature} className="border-t border-ws-ink/10">
+                        <td className="p-4 font-semibold">{r.feature}</td>
+                        <td className="p-4 text-ws-ink">{r.us}</td>
+                        <td className="p-4 text-ws-steel">{r.them}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+      )}
+
       {/* Shared how-it-works */}
       <HowItWorks />
 
