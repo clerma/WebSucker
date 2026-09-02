@@ -16,7 +16,7 @@ import {
   RefreshCw,
   CheckCircle2,
 } from "lucide-react";
-import { useSeo, softwareApplicationSchema } from "@/lib/seo";
+import { useSeo } from "@/lib/seo";
 
 interface Feature {
   icon: typeof Globe;
@@ -172,7 +172,6 @@ export default function Features() {
     description:
       "See every Website Sucker feature: real headless-browser rendering, full asset capture, embed preservation, and a one-click offline ZIP. The modern website backup, archive, and transfer tool — compared honestly to SiteSucker, HTTrack, and more.",
     canonicalPath: "/features",
-    jsonLd: softwareApplicationSchema,
   });
 
   return (

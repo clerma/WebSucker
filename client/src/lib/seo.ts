@@ -103,37 +103,3 @@ export function useSeo({ title, description, canonicalPath, jsonLd, noIndex }: S
     };
   }, [title, description, canonicalPath, jsonLdKey, noIndex]);
 }
-
-/**
- * SoftwareApplication structured data for the product itself. Answer engines
- * (Google, and increasingly LLM assistants) use this to describe and price the
- * tool. Every field here is truthful; no aggregateRating/review is emitted
- * because there are no verified public reviews yet — do not add fabricated
- * ratings. Reused on the home and features pages.
- */
-export const softwareApplicationSchema: Record<string, unknown> = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: "Website Sucker",
-  alternateName: "WebsiteSucker",
-  applicationCategory: "UtilitiesApplication",
-  operatingSystem: "Any (web-based)",
-  url: SITE_URL,
-  description:
-    "Website Sucker is an online tool to back up, archive, and transfer any website. Paste a URL and download a complete offline copy — HTML, CSS, JavaScript, images, and fonts — as a single ZIP. It renders JavaScript-heavy sites with a real headless browser, so modern platforms like Wix and Squarespace are captured faithfully.",
-  featureList: [
-    "Renders JavaScript-heavy sites with a real headless browser",
-    "Captures HTML, CSS, JavaScript, images, and fonts",
-    "Packages everything into a single organised ZIP",
-    "Rewrites internal links so the copy works offline",
-    "Free analysis of every asset before you pay",
-    "Runs in any browser on Windows, Mac, Linux, or Chromebook",
-  ],
-  offers: [
-    { "@type": "Offer", name: "Analysis", price: "0", priceCurrency: "USD", description: "Free asset inventory and size estimate for any website." },
-    { "@type": "Offer", name: "Single credit", price: "1.99", priceCurrency: "USD", description: "One full scrape and ZIP download." },
-    { "@type": "Offer", name: "3-credit pack", price: "4.99", priceCurrency: "USD", description: "Three scrapes and downloads — credits never expire." },
-    { "@type": "Offer", name: "10-credit pack", price: "12.99", priceCurrency: "USD", description: "Ten scrapes and downloads — credits never expire." },
-    { "@type": "Offer", name: "Unlimited Monthly", price: "5.99", priceCurrency: "USD", description: "Unlimited scrapes and downloads. Cancel anytime." },
-  ],
-};

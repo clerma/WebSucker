@@ -18,9 +18,7 @@ import Faq from "@/pages/faq";
 import AuthPage from "@/pages/auth";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
-import LandingPage from "@/pages/landing-page";
 import { AccountMenu } from "@/components/account-menu";
-import { LANDING_SLUGS } from "@/data/landing-pages";
 
 function Router() {
   return (
@@ -37,7 +35,6 @@ function Router() {
       <Route path="/admin" component={Admin} />
       <Route path="/checkout/success" component={CheckoutSuccess} />
       <Route path="/checkout/cancel" component={CheckoutCancel} />
-      <Route path="/:slug">{(params) => <LandingPage slug={params.slug} />}</Route>
       <Route component={NotFound} />
     </Switch>
   );
@@ -47,8 +44,7 @@ function AppShell() {
   const [location] = useLocation();
   // Home renders its own controls (in the dark hero header / floating per view);
   // admin has its own shell. Everywhere else uses the global floating chrome.
-  const isLanding = LANDING_SLUGS.has(location.replace(/^\//, ""));
-  const hideChrome = location === "/admin" || location === "/" || isLanding;
+  const hideChrome = location === "/admin" || location === "/";
   return (
     <div className="relative min-h-screen">
       {!hideChrome && (
