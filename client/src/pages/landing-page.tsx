@@ -103,6 +103,9 @@ export default function LandingPage({ slug }: { slug: string }) {
 
   if (!page) return <NotFound />;
 
+  // Hoisted so TypeScript keeps the narrowing inside the row-map callbacks.
+  const cmp = page.comparison;
+
   return (
     <div className="min-h-screen bg-ws-paper">
       {/* Dark hero */}
@@ -215,33 +218,38 @@ export default function LandingPage({ slug }: { slug: string }) {
       </section>
 
       {/* Comparison table (alternative pages) */}
-      {page.comparison && (
+      {cmp && (
         <section className="bg-ws-paper text-ws-ink pb-20 px-4">
           <div className="mx-auto max-w-4xl">
             <Reveal>
               <h2 className="mb-8 text-2xl font-extrabold tracking-tight sm:text-3xl">
-                {page.comparison.heading}
+                {cmp.heading}
               </h2>
-              <div className="overflow-x-auto border-2 border-ws-ink">
-                <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-ws-ink">
-                      <th className="ws-label p-4 text-ws-steel">Feature</th>
-                      <th className="p-4 font-bold text-primary">{page.comparison.columns[0]}</th>
-                      <th className="ws-label p-4 text-ws-steel">{page.comparison.columns[1]}</th>
+              {/* Stacks into cards on mobile; a real table from md up — no horizontal scroll. */}
+              <table className="block w-full border-2 border-ws-ink border-collapse text-left text-sm md:table">
+                <thead className="hidden md:table-header-group">
+                  <tr className="border-b-2 border-ws-ink">
+                    <th className="ws-label p-4 text-ws-steel">Feature</th>
+                    <th className="p-4 font-bold text-primary">{cmp.columns[0]}</th>
+                    <th className="ws-label p-4 text-ws-steel">{cmp.columns[1]}</th>
+                  </tr>
+                </thead>
+                <tbody className="block md:table-row-group">
+                  {cmp.rows.map((r) => (
+                    <tr key={r.feature} className="block border-t-2 border-ws-ink p-4 first:border-t-0 md:table-row md:border-t md:border-ws-ink/10 md:p-0">
+                      <td className="mb-2 block font-semibold md:mb-0 md:table-cell md:p-4">{r.feature}</td>
+                      <td className="flex justify-between gap-4 py-1 text-ws-ink md:table-cell md:p-4">
+                        <span className="ws-label text-primary md:hidden">{cmp.columns[0]}</span>
+                        <span className="text-right md:text-left">{r.us}</span>
+                      </td>
+                      <td className="flex justify-between gap-4 py-1 text-ws-steel md:table-cell md:p-4">
+                        <span className="ws-label text-ws-steel md:hidden">{cmp.columns[1]}</span>
+                        <span className="text-right md:text-left">{r.them}</span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {page.comparison.rows.map((r) => (
-                      <tr key={r.feature} className="border-t border-ws-ink/10">
-                        <td className="p-4 font-semibold">{r.feature}</td>
-                        <td className="p-4 text-ws-ink">{r.us}</td>
-                        <td className="p-4 text-ws-steel">{r.them}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </Reveal>
           </div>
         </section>

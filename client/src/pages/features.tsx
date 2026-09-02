@@ -229,30 +229,38 @@ export default function Features() {
               Honest side-by-side with the most popular alternatives.
             </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full border rounded-xl overflow-hidden bg-card text-sm">
-              <thead className="bg-muted/50">
-                <tr className="text-left">
-                  <th className="px-4 py-3 font-medium">Feature</th>
-                  <th className="px-4 py-3 font-medium text-primary">Website Sucker</th>
-                  <th className="px-4 py-3 font-medium">SiteSucker</th>
-                  <th className="px-4 py-3 font-medium">HTTrack</th>
-                  <th className="px-4 py-3 font-medium">WebsiteDownloader.io</th>
+          {/* Stacks into cards on mobile; a real table from md up — no horizontal scroll. */}
+          <table className="block w-full border bg-card text-sm md:table">
+            <thead className="hidden bg-muted/50 md:table-header-group">
+              <tr className="text-left">
+                <th className="px-4 py-3 font-medium">Feature</th>
+                <th className="px-4 py-3 font-medium text-primary">Website Sucker</th>
+                <th className="px-4 py-3 font-medium">SiteSucker</th>
+                <th className="px-4 py-3 font-medium">HTTrack</th>
+                <th className="px-4 py-3 font-medium">WebsiteDownloader.io</th>
+              </tr>
+            </thead>
+            <tbody className="block md:table-row-group">
+              {comparison.map((row) => (
+                <tr key={row.feature} className="block border-t p-4 md:table-row md:p-0">
+                  <td className="mb-2 block font-semibold md:mb-0 md:table-cell md:px-4 md:py-3 md:font-medium">{row.feature}</td>
+                  {(
+                    [
+                      ["Website Sucker", row.websuck, "text-primary"],
+                      ["SiteSucker", row.sitesucker, "text-muted-foreground"],
+                      ["HTTrack", row.httrack, "text-muted-foreground"],
+                      ["WebsiteDownloader.io", row.websitedl, "text-muted-foreground"],
+                    ] as const
+                  ).map(([label, value, cls]) => (
+                    <td key={label} className={`flex justify-between gap-4 py-1 md:table-cell md:px-4 md:py-3 ${cls}`}>
+                      <span className="text-xs uppercase tracking-wider text-muted-foreground md:hidden">{label}</span>
+                      <span className="text-right md:text-left">{value}</span>
+                    </td>
+                  ))}
                 </tr>
-              </thead>
-              <tbody>
-                {comparison.map((row) => (
-                  <tr key={row.feature} className="border-t">
-                    <td className="px-4 py-3 font-medium">{row.feature}</td>
-                    <td className="px-4 py-3 text-primary">{row.websuck}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.sitesucker}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.httrack}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{row.websitedl}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
