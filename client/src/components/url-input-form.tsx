@@ -1,5 +1,4 @@
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +9,7 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form";
-import { startScrapeSchema, type StartScrapeInput } from "@shared/schema";
+import { type StartScrapeInput } from "@shared/schema";
 
 interface UrlInputFormProps {
   onSubmit: (data: StartScrapeInput) => void;
@@ -19,9 +18,13 @@ interface UrlInputFormProps {
   tone?: "light" | "dark";
 }
 
+/** Strip any protocol/leading slashes the user typed or pasted. */
+function stripProtocol(value: string): string {
+  return value.replace(/^\s*https?:\/\//i, "").replace(/^\/+/, "");
+}
+
 export function UrlInputForm({ onSubmit, isLoading, tone = "light" }: UrlInputFormProps) {
   const form = useForm<StartScrapeInput>({
-    resolver: zodResolver(startScrapeSchema),
     defaultValues: {
       url: "",
     },
@@ -29,10 +32,30 @@ export function UrlInputForm({ onSubmit, isLoading, tone = "light" }: UrlInputFo
 
   const dark = tone === "dark";
 
+  // Normalise whatever the user typed into a valid https URL. The visible
+  // field holds just the host/path (the "https://" prefix is shown alongside),
+  // and we accept pastes that already include a protocol without doubling it.
+  const handleSubmit = (data: StartScrapeInput) => {
+    const host = stripProtocol((data.url || "").trim());
+    if (!host) {
+      form.setError("url", { message: "Enter a website URL." });
+      return;
+    }
+    const full = `https://${host}`;
+    try {
+      const parsed = new URL(full);
+      if (!parsed.hostname.includes(".")) throw new Error("no tld");
+    } catch {
+      form.setError("url", { message: "Enter a valid website address, e.g. example.com" });
+      return;
+    }
+    onSubmit({ url: full });
+  };
+
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={form.handleSubmit(handleSubmit)}
         className="w-full max-w-2xl"
       >
         {/* Brand: the URL field is the hero — sharp, 2px ruled, one blue action */}
@@ -60,6 +83,10 @@ export function UrlInputForm({ onSubmit, isLoading, tone = "light" }: UrlInputFo
                 <FormControl>
                   <Input
                     {...field}
+                    onChange={(e) => {
+                      form.clearErrors("url");
+                      field.onChange(stripProtocol(e.target.value));
+                    }}
                     placeholder="example.com"
                     className={
                       dark
