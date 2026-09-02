@@ -16,6 +16,8 @@ interface UrlInputFormProps {
   isLoading: boolean;
   /** "dark" restyles for the ink hero; logic and structure are unchanged. */
   tone?: "light" | "dark";
+  /** Pre-fill the field (e.g. a URL handed in from a landing page). */
+  defaultUrl?: string;
 }
 
 /** Strip any protocol/leading slashes the user typed or pasted. */
@@ -23,10 +25,10 @@ function stripProtocol(value: string): string {
   return value.replace(/^\s*https?:\/\//i, "").replace(/^\/+/, "");
 }
 
-export function UrlInputForm({ onSubmit, isLoading, tone = "light" }: UrlInputFormProps) {
+export function UrlInputForm({ onSubmit, isLoading, tone = "light", defaultUrl = "" }: UrlInputFormProps) {
   const form = useForm<StartScrapeInput>({
     defaultValues: {
-      url: "",
+      url: stripProtocol(defaultUrl),
     },
   });
 
