@@ -12,6 +12,7 @@ import {
   PlatformStrip,
   HowItWorks,
   WhatYouGet,
+  Credibility,
   Pricing,
   CtaBand,
   SiteFooter,
@@ -20,7 +21,7 @@ import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
 import { PricingDialog } from "@/components/pricing-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useSeo } from "@/lib/seo";
+import { useSeo, softwareApplicationSchema } from "@/lib/seo";
 import type {
   Asset,
   ScrapeJob,
@@ -139,6 +140,7 @@ export default function Home() {
           },
         ],
       },
+      softwareApplicationSchema,
     ],
   });
 
@@ -549,6 +551,8 @@ export default function Home() {
           <div id="how"><HowItWorks /></div>
 
           <div id="what"><WhatYouGet /></div>
+
+          <div id="proof"><Credibility /></div>
 
           <div id="pricing">
             <Pricing onStart={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
