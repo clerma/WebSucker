@@ -26,8 +26,13 @@ const GET_LOG = [
 
 export function CrawlPanel({ className }: { className?: string }) {
   return (
-    <div className={cn("ws-plate border-2 border-ws-graphite", className)}>
-      {/* cyan scan line */}
+    <div className={cn("ws-plate relative overflow-hidden border-2 border-ws-graphite", className)}>
+      {/* moving scan line sweeping down the panel */}
+      <div
+        aria-hidden
+        className="ws-scan pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-ws-cyan/0 via-ws-cyan/25 to-ws-cyan/0"
+      />
+      {/* cyan header rule */}
       <div className="h-0.5 w-full bg-ws-cyan" />
 
       <div className="flex items-center justify-between border-b border-ws-graphite px-4 py-2.5">
@@ -51,8 +56,8 @@ export function CrawlPanel({ className }: { className?: string }) {
           {BARS.map((h, i) => (
             <div
               key={i}
-              className={cn("flex-1", i % 3 === 0 ? "bg-ws-cyan" : "bg-ws-accent")}
-              style={{ height: `${h}%` }}
+              className={cn("ws-bar flex-1", i % 3 === 0 ? "bg-ws-cyan" : "bg-ws-accent")}
+              style={{ height: `${h}%`, animationDelay: `${(i % 12) * 0.08}s` }}
             />
           ))}
         </div>

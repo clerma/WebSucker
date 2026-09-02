@@ -11,12 +11,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
+import { cn } from "@/lib/utils";
 import { PricingDialog } from "@/components/pricing-dialog";
 
-export function AccountMenu() {
+export function AccountMenu({ onDark = false }: { onDark?: boolean }) {
   const { user, isLoading, logout, isLoggingOut } = useAuth();
   const [, navigate] = useLocation();
   const [showPricing, setShowPricing] = useState(false);
+
+  // Legible on the always-dark hero regardless of theme.
+  const darkTrigger = onDark
+    ? "border-ws-graphite bg-transparent text-ws-paper hover:bg-ws-graphite hover:text-ws-paper"
+    : "";
 
   if (isLoading) return null;
 
@@ -27,6 +33,7 @@ export function AccountMenu() {
         size="sm"
         onClick={() => navigate("/auth")}
         data-testid="button-sign-in"
+        className={darkTrigger}
       >
         <User className="h-4 w-4 mr-1.5" />
         Sign In
@@ -37,10 +44,13 @@ export function AccountMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" data-testid="button-account-menu">
-          <Coins className="h-4 w-4 mr-1.5 text-amber-500" />
+        <Button variant="outline" size="sm" data-testid="button-account-menu" className={cn("gap-1.5", darkTrigger)}>
+          <Coins className="h-4 w-4 text-amber-500" />
           <span data-testid="text-credit-balance">
             {!user.freeScrapeUsed ? "1 free scrape" : `${user.credits} credit${user.credits === 1 ? "" : "s"}`}
+          </span>
+          <span className="ml-1 rounded-none bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground">
+            + Add
           </span>
         </Button>
       </DropdownMenuTrigger>

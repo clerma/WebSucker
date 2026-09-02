@@ -3,6 +3,8 @@ import { useLocation } from "wouter";
 import { AlertCircle } from "lucide-react";
 import { WsLogo } from "@/components/logo";
 import { CrawlPanel } from "@/components/crawl-panel";
+import { AccountMenu } from "@/components/account-menu";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth, refreshAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
@@ -475,6 +477,12 @@ export default function Home() {
 
   return (
     <div className="min-h-screen">
+      {viewState !== "input" && (
+        <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
+          <AccountMenu />
+          <ThemeToggle />
+        </div>
+      )}
       {viewState === "input" && (
         <div className="min-h-screen flex flex-col bg-ws-paper">
           {/* Dark hero — blueprint grid + blue glow, live crawl on the right */}
@@ -486,13 +494,19 @@ export default function Home() {
             />
 
             <header className="relative z-10 border-b border-ws-graphite">
-              <div className="mx-auto flex h-16 max-w-6xl items-center gap-8 px-4">
-                <WsLogo markClassName="h-6 w-auto" invert />
-                <nav className="hidden items-center gap-8 md:flex">
-                  <a href="#how" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">How it works</a>
-                  <a href="#what" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">What you get</a>
-                  <a href="#pricing" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">Pricing</a>
-                </nav>
+              <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4">
+                <div className="flex items-center gap-8">
+                  <WsLogo markClassName="h-6 w-auto" invert />
+                  <nav className="hidden items-center gap-8 md:flex">
+                    <a href="#how" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">How it works</a>
+                    <a href="#what" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">What you get</a>
+                    <a href="#pricing" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">Pricing</a>
+                  </nav>
+                </div>
+                <div className="flex items-center gap-2">
+                  <AccountMenu onDark />
+                  <ThemeToggle onDark />
+                </div>
               </div>
             </header>
 
