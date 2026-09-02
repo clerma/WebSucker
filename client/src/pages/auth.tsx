@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useLocation, Link } from "wouter";
-import { Globe, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { WsLogo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,8 +62,8 @@ export default function AuthPage() {
     <div className="min-h-screen flex items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md" data-testid="card-auth">
         <CardHeader className="text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 mb-2 mx-auto">
-            <Globe className="h-6 w-6 text-primary" />
+          <div className="mb-3 flex justify-center">
+            <WsLogo markClassName="h-7 w-auto" />
           </div>
           <CardTitle className="text-2xl">
             {mode === "register" ? "Create your account" : "Sign in"}
