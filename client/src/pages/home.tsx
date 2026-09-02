@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Shield, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { WsLogo } from "@/components/logo";
+import { CrawlPanel } from "@/components/crawl-panel";
 import { useAuth, refreshAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
-import { Reveal } from "@/components/reveal";
 import {
   PlatformStrip,
-  ProcessFlow,
-  AppPreview,
-  FeatureHighlights,
-  FeaturedGuides,
+  HowItWorks,
+  WhatYouGet,
+  Pricing,
+  CtaBand,
+  SiteFooter,
 } from "@/components/landing";
 import { ProgressDisplay } from "@/components/progress-display";
 import { ResultsSummary } from "@/components/results-summary";
@@ -473,137 +474,73 @@ export default function Home() {
   return (
     <div className="min-h-screen">
       {viewState === "input" && (
-        <div className="min-h-screen flex flex-col">
-          {/* Ruled header — the mark leads, nothing floats */}
-          <header className="border-b-2 border-foreground">
-            <div className="max-w-6xl mx-auto px-4 h-14 flex items-center">
-              <WsLogo markClassName="h-6 w-auto" />
-            </div>
-          </header>
+        <div className="min-h-screen flex flex-col bg-ws-paper">
+          {/* Dark hero — blueprint grid + blue glow, live crawl on the right */}
+          <div className="relative overflow-hidden bg-ws-ink text-ws-paper">
+            <div aria-hidden className="ws-hero-grid pointer-events-none absolute inset-0" />
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -top-48 -left-40 h-[38rem] w-[38rem] rounded-full bg-primary/25 blur-[130px]"
+            />
 
-          <div className="flex-1 flex flex-col justify-center px-4 py-16 border-b-2 border-foreground">
-            <div className="max-w-3xl mx-auto w-full animate-fade-up">
-              <p className="ws-label mb-5">Backup · Archive · Migrate</p>
-              <h1 className="text-[2.75rem] leading-[0.95] sm:text-6xl font-extrabold tracking-tight mb-5">
-                Take the whole site with you.
-              </h1>
-              <p className="text-lg text-muted-foreground max-w-xl mb-8 leading-relaxed">
-                Paste a URL. See every asset we find. Pay $1.99 only if you want the ZIP.
-              </p>
+            <header className="relative z-10 border-b border-ws-graphite">
+              <div className="mx-auto flex h-16 max-w-6xl items-center gap-8 px-4">
+                <WsLogo markClassName="h-6 w-auto" invert />
+                <nav className="hidden items-center gap-8 md:flex">
+                  <a href="#how" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">How it works</a>
+                  <a href="#what" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">What you get</a>
+                  <a href="#pricing" className="text-sm text-ws-mist transition-colors hover:text-ws-paper">Pricing</a>
+                </nav>
+              </div>
+            </header>
 
-              {lastError && (
-                <Alert variant="destructive" className="mb-6 max-w-2xl w-full" data-testid="alert-scrape-error">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Couldn't scrape that site</AlertTitle>
-                  <AlertDescription data-testid="text-scrape-error">{lastError}</AlertDescription>
-                </Alert>
-              )}
+            <div className="relative z-10 mx-auto grid max-w-6xl gap-12 px-4 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:py-20">
+              <div className="animate-fade-up">
+                <p className="ws-label mb-5 inline-block border border-ws-graphite px-2.5 py-1 text-ws-steel">
+                  Backup · Archive · Migrate
+                </p>
+                <h1 className="mb-5 text-[2.75rem] font-extrabold leading-[0.95] tracking-tight sm:text-6xl">
+                  Take the whole site with you.
+                </h1>
+                <p className="mb-8 max-w-xl text-lg leading-relaxed text-ws-mist">
+                  Paste a URL. Watch every page, image, stylesheet, script and font get pulled
+                  down in real time. Pay only if you want the ZIP.
+                </p>
 
-              <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} />
+                {lastError && (
+                  <Alert variant="destructive" className="mb-6 max-w-2xl w-full" data-testid="alert-scrape-error">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Couldn't scrape that site</AlertTitle>
+                    <AlertDescription data-testid="text-scrape-error">{lastError}</AlertDescription>
+                  </Alert>
+                )}
 
-              <p className="ws-label mt-4">No install · Any OS · 1 min average</p>
+                <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} tone="dark" />
+
+                <p className="ws-label mt-4 text-ws-steel">
+                  No install · Any OS · ~2 min average · JS-rendered pages included
+                </p>
+              </div>
+
+              <div className="animate-fade-up" style={{ animationDelay: "120ms" }}>
+                <CrawlPanel />
+              </div>
             </div>
           </div>
 
           <PlatformStrip />
 
-          <ProcessFlow />
+          <div id="how"><HowItWorks /></div>
 
-          <AppPreview />
+          <div id="what"><WhatYouGet /></div>
 
-          <FeatureHighlights />
-
-          <div className="border-t py-16 px-4">
-            <div className="max-w-3xl mx-auto">
-              <Reveal>
-                <h2 className="text-2xl font-semibold text-center mb-4">
-                  What is Website Sucker?
-                </h2>
-                <p className="text-muted-foreground leading-relaxed text-center max-w-2xl mx-auto">
-                  Website Sucker is a free online tool to <strong className="text-foreground font-medium">back up, archive, and transfer any website</strong>.
-                  Paste a URL and it downloads a complete offline copy — every page, image, stylesheet,
-                  JavaScript file, and font — packaged into a single ZIP that opens in any browser.
-                  There's nothing to install, and analysing is always free.
-                </p>
-              </Reveal>
-
-              <div className="grid sm:grid-cols-3 gap-4 mt-10">
-                <Reveal delay={0}>
-                  <div className="rounded-xl border bg-card p-5 h-full transition-transform duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
-                    <h3 className="font-semibold mb-1.5">Back up a website</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      Keep a complete, offline copy of any site — pages, images, styles, and scripts included.
-                    </p>
-                  </div>
-                </Reveal>
-                <Reveal delay={120}>
-                  <div className="rounded-xl border bg-card p-5 h-full transition-transform duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
-                    <h3 className="font-semibold mb-1.5">Archive a website</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      Preserve a snapshot that stays usable even if the live site changes or goes offline.
-                    </p>
-                  </div>
-                </Reveal>
-                <Reveal delay={240}>
-                  <div className="rounded-xl border bg-card p-5 h-full transition-transform duration-300 hover:-translate-y-1 hover:shadow-md hover:border-primary/40">
-                    <h3 className="font-semibold mb-1.5">Transfer a website</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      Move the HTML, CSS, JS, images, and fonts to a new host or platform with no lock-in.
-                    </p>
-                  </div>
-                </Reveal>
-              </div>
-
-              <p className="text-center text-sm text-muted-foreground mt-8">
-                Works on Squarespace, Wix, WordPress, Webflow, Shopify, and custom sites — in any browser on
-                Windows, Linux, Mac, or Chromebook. A cross-platform{" "}
-                <a href="/blog/website-sucker-vs-sitesucker" className="underline underline-offset-2 hover:text-foreground">SiteSucker alternative</a>{" "}
-                that runs entirely online.
-              </p>
-            </div>
+          <div id="pricing">
+            <Pricing onStart={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
           </div>
 
-          <FeaturedGuides />
+          <CtaBand onStart={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
 
-          <div className="bg-muted/50 border-t py-12 px-4">
-            <div className="max-w-4xl mx-auto flex flex-col items-center gap-3">
-              <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                <Shield className="h-4 w-4" />
-                <span className="text-sm">
-                  Your first scrape is free. Your data stays private. Files are deleted 10 minutes after scraping.
-                </span>
-              </div>
-              <div className="flex items-center gap-4 flex-wrap justify-center">
-                <a
-                  href="/features"
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-                  data-testid="link-features"
-                >
-                  Features
-                </a>
-                <a
-                  href="/faq"
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-                  data-testid="link-faq"
-                >
-                  FAQ
-                </a>
-                <a
-                  href="/blog"
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-                  data-testid="link-blog"
-                >
-                  Help &amp; Guides
-                </a>
-                <a
-                  href="/terms"
-                  className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-                >
-                  Terms &amp; Conditions
-                </a>
-              </div>
-            </div>
-          </div>
+          <SiteFooter />
         </div>
       )}
 

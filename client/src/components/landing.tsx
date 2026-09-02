@@ -1,355 +1,307 @@
-import {
-  Link as LinkIcon,
-  MonitorPlay,
-  ScanLine,
-  FileArchive,
-  ChevronRight,
-  PlayCircle,
-  Image as ImageIcon,
-  Code2,
-  Layers,
-  Activity,
-  ShieldCheck,
-  RefreshCw,
-  Smartphone,
-  Zap,
-  ArrowRight,
-  Clock,
-  CheckCircle2,
-} from "lucide-react";
+import { Check } from "lucide-react";
 import { Reveal } from "@/components/reveal";
-import { articles } from "@/data/articles";
 
 /* -------------------------------------------------------------------------- */
-/* Platform strip — "works with everything" trust signal                       */
+/* Platform strip — dark bar, mono uppercase                                   */
 /* -------------------------------------------------------------------------- */
 
 const PLATFORMS = [
+  "WordPress",
   "Squarespace",
   "Wix",
-  "WordPress",
   "Webflow",
   "Shopify",
-  "GoDaddy",
-  "Framer",
-  "Custom HTML",
+  "Ghost",
+  "Hand-built HTML",
+  "Next.js",
+  "React SPAs",
 ];
 
 export function PlatformStrip() {
   return (
-    <div className="border-y bg-muted/30 py-8 px-4">
-      <div className="max-w-4xl mx-auto">
-        <p className="text-center text-xs font-medium uppercase tracking-[0.15em] text-muted-foreground mb-5">
-          Works with every major platform
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
-          {PLATFORMS.map((p) => (
-            <span
-              key={p}
-              className="text-sm sm:text-base font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
-            >
-              {p}
-            </span>
-          ))}
-        </div>
+    <div className="bg-ws-ink border-b-2 border-ws-graphite py-4 px-4">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-7 gap-y-2">
+        {PLATFORMS.map((p) => (
+          <span key={p} className="ws-label text-ws-steel">
+            {p}
+          </span>
+        ))}
       </div>
     </div>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Process flow — the four-step pipeline, as a visual diagram                   */
+/* 01 — How it works                                                           */
 /* -------------------------------------------------------------------------- */
 
 const STEPS = [
   {
-    icon: LinkIcon,
-    title: "Paste a URL",
-    body: "Drop in any website address — a whole site or a single page.",
+    n: "01",
+    title: "Paste the URL",
+    body: "Drop in any address — a whole site or a single page. No account needed to start.",
   },
   {
-    icon: MonitorPlay,
-    title: "We render it",
-    body: "A real headless browser loads the page and runs its JavaScript, just like Chrome.",
+    n: "02",
+    title: "Watch the crawl",
+    body: "A real browser renders every page and pulls each asset, live, as it finds them.",
   },
   {
-    icon: ScanLine,
-    title: "Capture every asset",
-    body: "HTML, CSS, JS, images, fonts, and embeds — scanned and downloaded, links rewritten.",
-  },
-  {
-    icon: FileArchive,
-    title: "Download the ZIP",
-    body: "One organised archive that opens offline in any browser. No install, ever.",
+    n: "03",
+    title: "Take the ZIP",
+    body: "One organised archive that opens offline in any browser. Pay only if you keep it.",
   },
 ];
 
-export function ProcessFlow() {
+export function HowItWorks() {
   return (
-    <div className="py-20 px-4">
-      <div className="max-w-5xl mx-auto">
+    <section className="bg-ws-paper text-ws-ink py-20 px-4">
+      <div className="mx-auto max-w-6xl">
         <Reveal>
-          <div className="text-center mb-14 max-w-2xl mx-auto">
-            <h2 className="text-3xl font-bold tracking-tight mb-3">
-              From URL to offline backup in one flow
-            </h2>
-            <p className="text-muted-foreground text-lg">
-              No software, no command line, no OS restrictions. Four steps, entirely in your browser.
-            </p>
-          </div>
+          <p className="ws-label mb-3 text-primary">01 — How it works</p>
+          <h2 className="mb-14 max-w-2xl text-3xl font-extrabold tracking-tight sm:text-4xl">
+            Three steps. No install, no terminal.
+          </h2>
         </Reveal>
-
-        <div className="grid gap-6 md:grid-cols-4 md:gap-3">
-          {STEPS.map((step, i) => (
-            <Reveal key={step.title} delay={i * 110} className="relative">
-              <div className="group h-full rounded-2xl border-2 border-border bg-card p-6 text-center transition-colors duration-200 hover:border-primary">
-                <div className="relative mx-auto mb-5 inline-flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/15 transition-transform duration-300 group-hover:scale-110">
-                  <step.icon className="h-7 w-7 text-primary" />
-                  <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                    {i + 1}
-                  </span>
-                </div>
-                <h3 className="mb-2 font-semibold">{step.title}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">{step.body}</p>
-              </div>
-
-              {/* Connector arrow between steps (desktop only) */}
-              {i < STEPS.length - 1 && (
-                <div
-                  aria-hidden
-                  className="absolute top-1/2 -right-3 z-10 hidden -translate-y-1/2 md:flex"
-                >
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground">
-                    <ChevronRight className="h-4 w-4" />
-                  </span>
-                </div>
-              )}
-            </Reveal>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* App preview — a stylised browser window showing a scrape in progress        */
-/* -------------------------------------------------------------------------- */
-
-const PREVIEW_ROWS: { type: string; count: string }[] = [
-  { type: "HTML", count: "34" },
-  { type: "CSS", count: "12" },
-  { type: "JS", count: "20" },
-  { type: "Images", count: "1,102" },
-  { type: "Fonts", count: "8" },
-];
-
-export function AppPreview() {
-  return (
-    <div className="border-t bg-muted/30 py-20 px-4">
-      <div className="mx-auto grid max-w-5xl items-center gap-12 lg:grid-cols-2">
-        <Reveal>
-          <div>
-            <span className="ws-label inline-flex items-center gap-1.5 text-primary">
-              <Activity className="h-3.5 w-3.5" /> Live progress
-            </span>
-            <h2 className="mt-4 text-3xl font-bold tracking-tight">
-              Watch it work, asset by asset
-            </h2>
-            <p className="mt-3 text-lg leading-relaxed text-muted-foreground">
-              A real-time view of every page and file as it's captured — streamed live over a
-              WebSocket. See exactly what your backup contains before you download a thing.
-            </p>
-            <ul className="mt-6 space-y-3">
-              {[
-                "Every asset listed as it's found — nothing hidden",
-                "Analyse for free; only pay when you download",
-                "Files auto-deleted 10 minutes after scraping",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2.5 text-sm">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                  <span className="text-muted-foreground">{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Reveal>
-
-        <Reveal delay={140}>
-          {/* Ink plate — depth from the plate, not from blur. Mono machine output. */}
-          <div className="ws-plate border-2 border-ws-ink p-5 text-[13px]">
-            <p className="ws-label mb-4 text-ws-steel">Crawling example.com</p>
-            <div className="space-y-1.5">
-              {PREVIEW_ROWS.map((row) => (
-                <div key={row.type} className="flex items-center justify-between text-ws-mist">
-                  <span>{row.type}</span>
-                  <span className="tabular-nums">{row.count}</span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 mb-2 h-1.5 w-full bg-ws-graphite">
-              <div className="h-full bg-ws-cyan" style={{ width: "40%" }} />
-            </div>
-            <p className="ws-label text-ws-steel">46.2 MB · 40%</p>
-          </div>
-        </Reveal>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Feature highlights — what makes the capture complete                        */
-/* -------------------------------------------------------------------------- */
-
-const FEATURES = [
-  {
-    icon: PlayCircle,
-    title: "Real headless browser",
-    body: "Puppeteer-driven Chromium renders JavaScript, lazy-loads, and dynamic content — not just the raw HTML.",
-  },
-  {
-    icon: ImageIcon,
-    title: "Images, fonts & media",
-    body: "Every image, icon, and font is downloaded and re-linked, including CDN and background images.",
-  },
-  {
-    icon: Code2,
-    title: "CSS & JS preserved",
-    body: "Stylesheets and scripts come down intact so the offline copy looks and behaves like the original.",
-  },
-  {
-    icon: Layers,
-    title: "Embeds kept intact",
-    body: "YouTube, Vimeo, Google Maps, Spotify and 25+ providers are preserved so nothing goes blank offline.",
-  },
-  {
-    icon: RefreshCw,
-    title: "Auto-resumes on refresh",
-    body: "Close the tab or lose connection mid-scrape and it picks right back up where it left off.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Polite & private",
-    body: "Rate-limited, respectful crawling. Your scrapes stay private and files are deleted after 10 minutes.",
-  },
-];
-
-export function FeatureHighlights() {
-  return (
-    <div className="py-20 px-4">
-      <div className="mx-auto max-w-5xl">
-        <Reveal>
-          <div className="mb-14 max-w-2xl text-center mx-auto">
-            <h2 className="text-3xl font-bold tracking-tight mb-3">
-              A complete capture, not a broken snapshot
-            </h2>
-            <p className="text-lg text-muted-foreground">
-              Old tools like wget and HTTrack choke on modern sites. Website Sucker renders the real
-              page first, so what you download actually works.
-            </p>
-          </div>
-        </Reveal>
-
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map((f, i) => (
-            <Reveal key={f.title} delay={(i % 3) * 100}>
-              <div className="group h-full rounded-2xl border-2 border-border bg-card p-6 transition-colors duration-200 hover:border-primary">
-                <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 transition-transform duration-300 group-hover:scale-110">
-                  <f.icon className="h-5 w-5 text-primary" />
-                </div>
-                <h3 className="mb-2 font-semibold">{f.title}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">{f.body}</p>
+        <div className="grid gap-0 border-2 border-ws-ink md:grid-cols-3 md:[&>*+*]:border-l-2 md:[&>*+*]:border-ws-ink [&>*+*]:border-t-2 md:[&>*+*]:border-t-0 [&>*+*]:border-ws-ink">
+          {STEPS.map((s, i) => (
+            <Reveal key={s.n} delay={i * 110}>
+              <div className="h-full p-7">
+                <div className="ws-label mb-6 text-ws-steel">Step {s.n}</div>
+                <h3 className="mb-2 text-xl font-bold tracking-tight">{s.title}</h3>
+                <p className="text-[15px] leading-relaxed text-ws-steel">{s.body}</p>
               </div>
             </Reveal>
           ))}
         </div>
-
-        <Reveal delay={120}>
-          <div className="mt-10 text-center">
-            <a
-              href="/features"
-              className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline underline-offset-4"
-            >
-              See all features and how we compare
-              <ArrowRight className="h-4 w-4" />
-            </a>
-          </div>
-        </Reveal>
       </div>
-    </div>
+    </section>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Featured guides — surface a few articles from the blog                       */
+/* 02 — What you get                                                           */
 /* -------------------------------------------------------------------------- */
 
-const FEATURED_SLUGS = [
-  "how-to-clone-a-website",
-  "how-to-export-your-website-from-squarespace",
-  "how-to-backup-your-website",
+const HEADLINE_STATS: [string, string][] = [
+  ["1,200+", "Assets, typical site"],
+  ["42 MB", "Average ZIP"],
+  ["~2 min", "Median run time"],
+  ["$1.99", "Per download"],
 ];
 
-export function FeaturedGuides() {
-  const featured = FEATURED_SLUGS.map((slug) => articles.find((a) => a.slug === slug)).filter(
-    (a): a is (typeof articles)[number] => Boolean(a)
-  );
-  if (featured.length === 0) return null;
+const ZIP_TREE: [string, string][] = [
+  ["index.html", "34 pages"],
+  ["/assets/css/", "12 files"],
+  ["/assets/js/", "28 files"],
+  ["/img/", "1,102 files"],
+  ["/fonts/", "8 files"],
+  ["manifest.json", "crawl report"],
+];
 
+const HANDLED = [
+  { n: "01", title: "JavaScript-rendered pages", body: "React, Vue and Wix sites render fully before capture." },
+  { n: "02", title: "Lazy-loaded media", body: "Images and fonts that only load on scroll are pulled in." },
+  { n: "03", title: "Embeds preserved", body: "YouTube, Vimeo, Maps and 25+ providers stay intact offline." },
+  { n: "04", title: "Links rewritten", body: "Every internal link points at local files, so it just works." },
+];
+
+export function WhatYouGet() {
   return (
-    <div className="border-t bg-muted/30 py-20 px-4">
-      <div className="mx-auto max-w-5xl">
+    <section className="ws-plate bg-ws-ink text-ws-paper py-20 px-4" style={{ fontFamily: "var(--font-sans)" }}>
+      <div className="mx-auto max-w-6xl">
         <Reveal>
-          <div className="mb-10 flex flex-col items-center justify-between gap-3 text-center sm:flex-row sm:text-left">
-            <div>
-              <h2 className="text-3xl font-bold tracking-tight">Guides to get you started</h2>
-              <p className="mt-2 text-muted-foreground">
-                Step-by-step help for cloning, exporting, and backing up any site.
-              </p>
-            </div>
-            <a
-              href="/blog"
-              className="inline-flex shrink-0 items-center gap-2 text-sm font-medium text-primary hover:underline underline-offset-4"
-            >
-              All guides
-              <ArrowRight className="h-4 w-4" />
-            </a>
+          <p className="ws-label mb-3 text-ws-cyan">02 — What you get</p>
+          <h2 className="mb-14 max-w-2xl text-3xl font-extrabold tracking-tight sm:text-4xl">
+            A folder that behaves exactly like the live site.
+          </h2>
+        </Reveal>
+
+        {/* headline stats */}
+        <Reveal>
+          <div className="grid grid-cols-2 divide-ws-graphite border-2 border-ws-graphite md:grid-cols-4 md:divide-x-2">
+            {HEADLINE_STATS.map(([value, label]) => (
+              <div key={label} className="border-t-2 border-ws-graphite p-5 md:border-t-0 [&:nth-child(-n+2)]:border-t-0 md:[&:nth-child(2)]:border-l-2">
+                <div className="font-mono text-2xl font-bold tabular-nums text-ws-paper">{value}</div>
+                <div className="ws-label mt-1 text-ws-steel">{label}</div>
+              </div>
+            ))}
           </div>
         </Reveal>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          {featured.map((article, i) => (
-            <Reveal key={article.slug} delay={i * 110}>
-              <a
-                href={`/blog/${article.slug}`}
-                className="group flex h-full flex-col rounded-2xl border-2 border-border bg-card p-6 transition-colors duration-200 hover:border-primary"
-                data-testid={`home-guide-${article.slug}`}
-              >
-                <div className="mb-3 flex items-center gap-3">
-                  <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-                    {article.category}
-                  </span>
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    {article.readingTime}
-                  </span>
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          {/* inside the zip */}
+          <Reveal>
+            <div className="h-full border-2 border-ws-graphite">
+              <div className="ws-label border-b border-ws-graphite px-5 py-3 text-ws-steel">Inside the ZIP</div>
+              <div className="p-2">
+                {ZIP_TREE.map(([name, meta]) => (
+                  <div key={name} className="flex items-center justify-between px-3 py-2 font-mono text-sm">
+                    <span className="text-ws-mist">{name}</span>
+                    <span className="text-ws-steel">{meta}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+
+          {/* handled for you */}
+          <Reveal delay={120}>
+            <div className="h-full border-2 border-ws-graphite">
+              <div className="ws-label border-b border-ws-graphite px-5 py-3 text-ws-steel">Handled for you</div>
+              <div className="divide-y divide-ws-graphite">
+                {HANDLED.map((h) => (
+                  <div key={h.n} className="flex gap-4 px-5 py-4">
+                    <span className="ws-label pt-0.5 text-ws-cyan">{h.n}</span>
+                    <div>
+                      <h3 className="font-semibold tracking-tight">{h.title}</h3>
+                      <p className="mt-0.5 text-sm leading-relaxed text-ws-steel">{h.body}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* 03 — Pricing                                                                */
+/* -------------------------------------------------------------------------- */
+
+const TIERS = [
+  {
+    label: "Analysis",
+    price: "Free",
+    unit: "",
+    body: "Full inventory and size estimate before you commit. Unlimited runs.",
+    features: ["Every asset listed", "Total size estimate", "No account required"],
+    highlight: false,
+  },
+  {
+    label: "Single download",
+    price: "$1.99",
+    unit: "/ site",
+    body: "One ZIP, no subscription. Card or Apple Pay.",
+    features: ["Complete offline copy", "All pages & assets", "Opens in any browser"],
+    highlight: true,
+  },
+  {
+    label: "Studio",
+    price: "$29",
+    unit: "/ month",
+    body: "25 sites a month, saved crawl history and re-runs. For agencies moving client work.",
+    features: ["25 downloads / month", "Saved crawl history", "Re-run any crawl"],
+    highlight: false,
+  },
+];
+
+export function Pricing({ onStart }: { onStart?: () => void }) {
+  return (
+    <section className="bg-ws-paper text-ws-ink py-20 px-4">
+      <div className="mx-auto max-w-6xl">
+        <Reveal>
+          <p className="ws-label mb-3 text-primary">03 — Pricing</p>
+          <h2 className="mb-14 max-w-2xl text-3xl font-extrabold tracking-tight sm:text-4xl">
+            Analyse for free. Pay per ZIP.
+          </h2>
+        </Reveal>
+        <div className="grid gap-0 border-2 border-ws-ink md:grid-cols-3 md:[&>*+*]:border-l-2 md:[&>*+*]:border-ws-ink [&>*+*]:border-t-2 md:[&>*+*]:border-t-0 [&>*+*]:border-ws-ink">
+          {TIERS.map((t, i) => (
+            <Reveal key={t.label} delay={i * 110}>
+              <div className={t.highlight ? "h-full bg-ws-ink p-7 text-ws-paper" : "h-full p-7"}>
+                <div className={`ws-label mb-6 ${t.highlight ? "text-ws-cyan" : "text-ws-steel"}`}>{t.label}</div>
+                <div className="mb-4 flex items-end gap-1.5">
+                  <span className="font-mono text-4xl font-bold tracking-tight">{t.price}</span>
+                  {t.unit && (
+                    <span className={`mb-1 font-mono text-sm ${t.highlight ? "text-ws-steel" : "text-ws-steel"}`}>
+                      {t.unit}
+                    </span>
+                  )}
                 </div>
-                <h3 className="mb-2 font-semibold leading-snug group-hover:text-primary transition-colors">
-                  {article.title}
-                </h3>
-                <p className="mb-4 line-clamp-3 flex-1 text-sm leading-relaxed text-muted-foreground">
-                  {article.intro}
+                <p className={`mb-6 text-sm leading-relaxed ${t.highlight ? "text-ws-mist" : "text-ws-steel"}`}>
+                  {t.body}
                 </p>
-                <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
-                  Read guide
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </a>
+                <ul className="space-y-2.5">
+                  {t.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm">
+                      <Check className={`mt-0.5 h-4 w-4 shrink-0 ${t.highlight ? "text-ws-cyan" : "text-primary"}`} />
+                      <span className={t.highlight ? "text-ws-mist" : "text-ws-steel"}>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </Reveal>
           ))}
         </div>
+        <Reveal>
+          <div className="mt-8">
+            <button
+              onClick={onStart}
+              className="bg-primary px-6 py-3 text-base font-semibold text-primary-foreground transition-colors hover:bg-ws-accent-pressed"
+              data-testid="button-pricing-start"
+            >
+              Start free analysis
+            </button>
+            <p className="ws-label mt-4 text-ws-steel">
+              Only download sites you own or have permission to copy.
+            </p>
+          </div>
+        </Reveal>
       </div>
-    </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Blue CTA band                                                               */
+/* -------------------------------------------------------------------------- */
+
+export function CtaBand({ onStart }: { onStart?: () => void }) {
+  return (
+    <section className="bg-primary text-primary-foreground py-20 px-4">
+      <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-8 md:flex-row md:items-end">
+        <h2 className="max-w-2xl text-3xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl">
+          Suck a site dry in about two minutes.
+        </h2>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            onClick={onStart}
+            className="border-2 border-primary-foreground bg-primary-foreground px-6 py-3 text-base font-semibold text-primary transition-opacity hover:opacity-90"
+            data-testid="button-cta-start"
+          >
+            Paste a URL
+          </button>
+          <a
+            href="/features"
+            className="border-2 border-primary-foreground/50 px-6 py-3 text-base font-semibold text-primary-foreground transition-colors hover:border-primary-foreground"
+          >
+            See how it works
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Footer                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export function SiteFooter() {
+  return (
+    <footer className="bg-ws-ink text-ws-steel py-8 px-4">
+      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 sm:flex-row">
+        <span className="ws-label">WebsiteSucker © 2026</span>
+        <div className="flex items-center gap-6">
+          <a href="/blog" className="ws-label transition-colors hover:text-ws-paper">Docs</a>
+          <a href="/faq" className="ws-label transition-colors hover:text-ws-paper">FAQ</a>
+          <a href="/terms" className="ws-label transition-colors hover:text-ws-paper">Terms</a>
+        </div>
+      </div>
+    </footer>
   );
 }

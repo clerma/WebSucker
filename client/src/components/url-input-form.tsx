@@ -15,9 +15,11 @@ import { startScrapeSchema, type StartScrapeInput } from "@shared/schema";
 interface UrlInputFormProps {
   onSubmit: (data: StartScrapeInput) => void;
   isLoading: boolean;
+  /** "dark" restyles for the ink hero; logic and structure are unchanged. */
+  tone?: "light" | "dark";
 }
 
-export function UrlInputForm({ onSubmit, isLoading }: UrlInputFormProps) {
+export function UrlInputForm({ onSubmit, isLoading, tone = "light" }: UrlInputFormProps) {
   const form = useForm<StartScrapeInput>({
     resolver: zodResolver(startScrapeSchema),
     defaultValues: {
@@ -25,11 +27,13 @@ export function UrlInputForm({ onSubmit, isLoading }: UrlInputFormProps) {
     },
   });
 
+  const dark = tone === "dark";
+
   return (
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit)}
-        className="w-full max-w-2xl mx-auto"
+        className="w-full max-w-2xl"
       >
         {/* Brand: the URL field is the hero — sharp, 2px ruled, one blue action */}
         <FormField
@@ -37,15 +41,31 @@ export function UrlInputForm({ onSubmit, isLoading }: UrlInputFormProps) {
           name="url"
           render={({ field }) => (
             <FormItem className="w-full">
-              <div className="flex items-stretch border-2 border-foreground bg-card focus-within:border-primary transition-colors">
-                <span className="flex items-center pl-4 pr-1 font-mono text-sm text-muted-foreground select-none">
+              <div
+                className={
+                  dark
+                    ? "flex items-stretch border-2 border-ws-graphite bg-ws-slate focus-within:border-primary transition-colors"
+                    : "flex items-stretch border-2 border-foreground bg-card focus-within:border-primary transition-colors"
+                }
+              >
+                <span
+                  className={
+                    dark
+                      ? "flex items-center pl-4 pr-1 font-mono text-sm text-ws-steel select-none"
+                      : "flex items-center pl-4 pr-1 font-mono text-sm text-muted-foreground select-none"
+                  }
+                >
                   https://
                 </span>
                 <FormControl>
                   <Input
                     {...field}
                     placeholder="example.com"
-                    className="h-14 flex-1 rounded-none border-0 bg-transparent px-1 font-mono text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                    className={
+                      dark
+                        ? "h-14 flex-1 rounded-none border-0 bg-transparent px-1 font-mono text-base text-ws-paper placeholder:text-ws-steel shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                        : "h-14 flex-1 rounded-none border-0 bg-transparent px-1 font-mono text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                    }
                     disabled={isLoading}
                     data-testid="input-url"
                   />

@@ -63,15 +63,23 @@ export function WsLogo({
   className,
   markClassName = "h-7 w-auto",
   flat = false,
+  invert = false,
 }: {
   className?: string;
   markClassName?: string;
   flat?: boolean;
+  /** invert = white wordmark, for dark/ink backgrounds. */
+  invert?: boolean;
 }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <WsMark className={markClassName} flat={flat} />
-      <span className="font-sans text-lg font-extrabold leading-none tracking-tight text-foreground">
+      <span
+        className={cn(
+          "font-sans text-lg font-extrabold leading-none tracking-tight",
+          invert ? "text-ws-paper" : "text-foreground"
+        )}
+      >
         WebsiteSucker
       </span>
     </span>
