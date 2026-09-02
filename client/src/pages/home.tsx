@@ -54,6 +54,15 @@ export default function Home() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
+  // A URL handed in from a landing page via ?url= — read once on mount.
+  const [incomingUrl] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("url") || "";
+    } catch {
+      return "";
+    }
+  });
+  const autoStartedRef = useRef(false);
 
   useSeo({
     title: "Website Sucker — Back Up, Archive & Transfer Any Website Online",
@@ -404,6 +413,21 @@ export default function Home() {
     }
   };
 
+  // Auto-start a scrape when a landing page handed in a URL (?url=). Runs once,
+  // after auth is known, then clears the query string. For signed-out visitors
+  // handleSubmit routes to sign-up, exactly like a manual submit.
+  useEffect(() => {
+    if (!incomingUrl || autoStartedRef.current || authLoading) return;
+    autoStartedRef.current = true;
+    try {
+      window.history.replaceState({}, "", "/");
+    } catch {
+      /* ignore */
+    }
+    handleSubmit({ url: incomingUrl });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingUrl, authLoading]);
+
   const handleDownload = async () => {
     if (!currentJob) return;
 
@@ -533,7 +557,7 @@ export default function Home() {
                   </Alert>
                 )}
 
-                <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} tone="dark" />
+                <UrlInputForm onSubmit={handleSubmit} isLoading={isLoading} tone="dark" defaultUrl={incomingUrl} />
 
                 <p className="ws-label mt-4 text-ws-steel">
                   No install · Any OS · ~2 min average · JS-rendered pages included
