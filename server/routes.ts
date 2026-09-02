@@ -275,9 +275,11 @@ export async function registerRoutes(
   // restarts and coordinates deletion with the cleanup lease.
   const cleanupSweep = async () => {
     try {
-      await storage.failAbandonedJobs();
-      for (const jobId of await storage.listExpiredJobIds()) {
-        if (!(await storage.claimCleanup(jobId, 60_000))) continue;
+      for (const claimed of await storage.claimAbandonedJobs()) {
+        console.warn(`Resuming abandoned scrape job ${claimed.job.id}`);
+        await runScrapeJob(claimed.job, claimed.token);
+      }
+      for (const jobId of await storage.claimExpiredJobIds()) {
         const expiredJob = await storage.getJob(jobId);
         await deleteArtifact(expiredJob?.downloadPath);
         await cleanupScrapeFiles(jobId);
@@ -361,9 +363,9 @@ export async function registerRoutes(
   // Runs the scrape pipeline for a job in the background: broadcasts progress,
   // completes/fails the job, persists analytics, schedules cleanup.
   async function runScrapeJob(job: ScrapeJob, preclaimedExecutionToken?: string): Promise<boolean> {
-      const executionToken = preclaimedExecutionToken ?? randomUUID();
-      if (!preclaimedExecutionToken && !(await storage.claimExecution(job.id, executionToken))) return false;
-    void (async () => {
+    const executionToken = preclaimedExecutionToken ?? randomUUID();
+    if (!preclaimedExecutionToken && !(await storage.claimExecution(job.id, executionToken))) return false;
+    void storage.runWithJobExecution(job.id, executionToken, async () => {
       let leaseLost = false;
       let uploadedReference: string | undefined;
       let committedJob: ScrapeJob | undefined;
@@ -406,19 +408,12 @@ export async function registerRoutes(
         console.error("Scrape error:", error);
         const errMsg = error instanceof Error ? error.message : "Scraping failed";
         if (uploadedReference) await deleteArtifact(uploadedReference).catch(console.error);
-        const failed = await storage.failExecution(job.id, executionToken, errMsg);
-        if (failed) await storage.refundFailedJob(job.id);
+        const failed = await storage.failJob(job.id, executionToken, errMsg, 2 * 60 * 1000);
 
         // Free the partial /tmp output immediately so failed jobs don't leak
         // disk. Keep the job record briefly so the client's reconnect poll can
         // still read the failure, then GC it.
         await cleanupScrapeFiles(job.id);
-        if (failed) {
-          await storage.scheduleExpiry(job.id, async () => {
-            await storage.deleteJob(job.id);
-          }, 2 * 60 * 1000);
-        }
-
         // Persist failure to DB
         db.insert(scrapeAnalytics).values({
           url: job.url,
@@ -483,7 +478,7 @@ export async function registerRoutes(
       } catch (error) {
         console.error("Committed scrape broadcast failed:", error);
       }
-    })();
+    }).catch((error) => console.error("Scrape worker failed:", error));
     return true;
   }
 
@@ -1161,7 +1156,9 @@ export async function registerRoutes(
       }
 
       // Cancel the 10-minute expiry timer so it doesn't delete files mid-download
-      storage.cancelExpiry(job.id);
+      if (!(await storage.cancelExpiry(job.id))) {
+        return res.status(409).json({ message: "This download has expired. Please recover it and try again." });
+      }
       storage.recordDownload();
       recordSecurityEvent(req, {
         action: "download",

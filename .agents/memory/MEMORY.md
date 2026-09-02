@@ -8,3 +8,4 @@
 - [Pushing to GitHub](github-push.md) — git push fails auth; use the GitHub connection's proxyFetch + Git Data API (blob→tree→commit→ref), then reset local main to origin.
 - [Host firewall block breaker](host-block-breaker.md) — sites can firewall our IP mid-crawl; per-host circuit breaker must fail fast + entry-page failure must fail the job, never "complete" an empty ZIP.
 - [Managed database migration](managed-database-migration.md) — remove legacy deployment DATABASE_URL only after backups; preserve newer production data and cross-schema Stripe triggers.
+- [Distributed job fencing](distributed-job-fencing.md) — durable leases must fence every worker mutation and refund; a lease alone does not stop a stale worker after takeover.
