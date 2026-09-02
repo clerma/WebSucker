@@ -1,6 +1,9 @@
 import { promises as dns } from "dns";
 import net from "net";
 import type { Request, Response, NextFunction } from "express";
+import { db } from "./db";
+import { rateLimitBuckets } from "@shared/schema";
+import { sql } from "drizzle-orm";
 
 /**
  * SSRF protection.
@@ -150,18 +153,58 @@ export async function assertPublicUrl(rawUrl: string): Promise<URL> {
   return parsed;
 }
 
-// --- Rate limiting ---------------------------------------------------------
+// --- Request-origin validation ---------------------------------------------
 
-interface Bucket {
-  count: number;
-  resetAt: number;
+export function configuredOrigins(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const origins = new Set<string>();
+  if (env.APP_BASE_URL) {
+    try { origins.add(new URL(env.APP_BASE_URL).origin); } catch { /* invalid config fails closed */ }
+  }
+  for (const domain of (env.REPLIT_DOMAINS || "").split(",").map(v => v.trim()).filter(Boolean)) {
+    try { origins.add(new URL(`https://${domain}`).origin); } catch { /* ignore malformed configured domain */ }
+  }
+  if (env.REPLIT_DEV_DOMAIN) {
+    try { origins.add(new URL(`https://${env.REPLIT_DEV_DOMAIN}`).origin); } catch { /* invalid config fails closed */ }
+  }
+  return origins;
 }
 
-/**
- * Minimal fixed-window, in-memory rate limiter. This matches the app's
- * existing single-instance, in-memory architecture (MemStorage). For a
- * multi-instance deployment this should be backed by a shared store.
- */
+export function isTrustedRequestOrigin(origin: string | undefined, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (!origin) return false;
+  try {
+    return configuredOrigins(env).has(new URL(origin).origin);
+  } catch {
+    return false;
+  }
+}
+
+/** CSRF protection for every state-changing application API. The Stripe
+ * webhook is registered before this middleware and remains signature-gated. */
+export function sameOriginProtection(req: Request, res: Response, next: NextFunction) {
+  if (!req.path.startsWith("/api/") || !["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  return requireTrustedOrigin(req, res, next);
+}
+
+export function requireTrustedOrigin(req: Request, res: Response, next: NextFunction) {
+  const origin = typeof req.headers.origin === "string"
+    ? req.headers.origin
+    : typeof req.headers.referer === "string" ? req.headers.referer : undefined;
+  if (!isTrustedRequestOrigin(origin)) {
+    return res.status(403).json({ message: "Request origin is not allowed" });
+  }
+  next();
+}
+
+// --- Distributed rate limiting --------------------------------------------
+
+const rateLimitCleanup = setInterval(() => {
+  db.execute(sql`
+    DELETE FROM rate_limit_buckets
+    WHERE reset_at < NOW() - INTERVAL '24 hours'
+  `).catch((error) => console.error("Rate-limit bucket cleanup failed:", error));
+}, 60 * 60_000);
+rateLimitCleanup.unref?.();
+
 export function rateLimit(opts: {
   windowMs: number;
   max: number;
@@ -169,34 +212,35 @@ export function rateLimit(opts: {
   message?: string;
 }) {
   const { windowMs, max, keyPrefix = "", message = "Too many requests. Please slow down and try again shortly." } = opts;
-  const buckets = new Map<string, Bucket>();
-
-  // Periodically evict stale buckets so the map can't grow without bound.
-  const sweep = setInterval(() => {
-    const now = Date.now();
-    for (const [key, bucket] of buckets) {
-      if (bucket.resetAt <= now) buckets.delete(key);
-    }
-  }, Math.max(windowMs, 60_000));
-  sweep.unref?.();
-
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown";
     const key = `${keyPrefix}:${ip}`;
-    const now = Date.now();
-
-    let bucket = buckets.get(key);
-    if (!bucket || bucket.resetAt <= now) {
-      bucket = { count: 0, resetAt: now + windowMs };
-      buckets.set(key, bucket);
+    try {
+      const result = await db.execute(sql`
+        INSERT INTO rate_limit_buckets ("key", "count", "reset_at", "audit_emitted")
+        VALUES (${key}, 1, NOW() + (${windowMs} * INTERVAL '1 millisecond'), false)
+        ON CONFLICT ("key") DO UPDATE SET
+          "count" = CASE WHEN rate_limit_buckets.reset_at <= NOW() THEN 1
+                         ELSE rate_limit_buckets.count + 1 END,
+          "reset_at" = CASE WHEN rate_limit_buckets.reset_at <= NOW()
+                            THEN NOW() + (${windowMs} * INTERVAL '1 millisecond')
+                            ELSE rate_limit_buckets.reset_at END,
+          "audit_emitted" = CASE WHEN rate_limit_buckets.reset_at <= NOW()
+                                 THEN false ELSE rate_limit_buckets.audit_emitted END
+        RETURNING "count", "reset_at"
+      `);
+      const bucket = result.rows[0] as { count: number; reset_at: Date | string };
+      if (Number(bucket.count) > max) {
+        const resetAt = new Date(bucket.reset_at).getTime();
+        res.setHeader("Retry-After", String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))));
+        return res.status(429).json({ message });
+      }
+      next();
+    } catch (error) {
+      console.error("Rate limiter database error:", error);
+      // Never silently turn a database outage into an abuse-control bypass.
+      res.setHeader("Retry-After", "5");
+      return res.status(503).json({ message: "Request protection is temporarily unavailable. Please try again." });
     }
-
-    bucket.count++;
-    if (bucket.count > max) {
-      const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
-      res.setHeader("Retry-After", String(retryAfter));
-      return res.status(429).json({ message });
-    }
-    next();
   };
 }
