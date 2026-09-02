@@ -87,7 +87,6 @@ export class WebhookHandlers {
     // Delayed payment methods complete the session before funds clear —
     // only record once actually paid (or a $0/no-payment subscription setup).
     if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') return;
-
     let validatedUserId: number | null = null;
     const metadataUserId = Number(session.metadata?.userId);
     if (session.metadata?.jobId) {

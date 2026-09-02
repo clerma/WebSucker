@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 import type { Asset, ScrapeJob, ScrapeStatus } from "@shared/schema";
 import { accessCodes as accessCodesTable, downloadEvents, scrapeJobs, users } from "@shared/schema";
 import { db } from "./db";
@@ -58,8 +59,20 @@ function toJob(row: typeof scrapeJobs.$inferSelect): ScrapeJob {
 export class DbStorage {
   // Timers are only an optimization. The durable expiry and cleanup lease are
   // authoritative, so losing these handles during restart does not grant access.
+  private executionContext = new AsyncLocalStorage<{ jobId: string; token: string }>();
   private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private totalDownloads = 0;
+
+  private mutationWhere(id: string) {
+    const context = this.executionContext.getStore();
+    return context?.jobId === id
+      ? and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, context.token))
+      : eq(scrapeJobs.id, id);
+  }
+
+  runWithJobExecution<T>(jobId: string, token: string, work: () => Promise<T>): Promise<T> {
+    return this.executionContext.run({ jobId, token }, work);
+  }
 
   async createJob(url: string, ownerId: number, fundingMethod: FundingMethod = "free"): Promise<ScrapeJob> {
     const id = randomUUID();
@@ -127,7 +140,7 @@ export class DbStorage {
   }
 
   async updateJobStatus(id: string, status: ScrapeStatus): Promise<void> {
-    await db.update(scrapeJobs).set({ status }).where(eq(scrapeJobs.id, id));
+    await db.update(scrapeJobs).set({ status }).where(this.mutationWhere(id));
   }
 
   async updateJobProgress(id: string, data: Partial<ScrapeJob>): Promise<void> {
@@ -136,7 +149,9 @@ export class DbStorage {
       if (data[key] !== undefined) values[key] = data[key];
     }
     if (data.assets !== undefined) values.assets = data.assets;
-    if (Object.keys(values).length) await db.update(scrapeJobs).set(values).where(eq(scrapeJobs.id, id));
+    if (Object.keys(values).length) {
+      await db.update(scrapeJobs).set(values).where(this.mutationWhere(id));
+    }
   }
 
   async addAsset(jobId: string, assetData: Omit<Asset, "id">): Promise<Asset> {
@@ -146,7 +161,9 @@ export class DbStorage {
       const row = rows.rows[0] as { assets: Asset[] } | undefined;
       if (!row) throw new Error("Job not found");
       const assets = [...row.assets, asset];
-      await tx.update(scrapeJobs).set({ assets, totalAssets: assets.length }).where(eq(scrapeJobs.id, jobId));
+      const updated = await tx.update(scrapeJobs).set({ assets, totalAssets: assets.length })
+        .where(this.mutationWhere(jobId)).returning({ id: scrapeJobs.id });
+      if (updated.length === 0) throw new Error("JOB_EXECUTION_LEASE_LOST");
     });
     return asset;
   }
@@ -161,12 +178,13 @@ export class DbStorage {
       const asset = { ...row.assets[index], ...data };
       const assets = [...row.assets];
       assets[index] = asset;
-      await tx.update(scrapeJobs).set({
+      const updated = await tx.update(scrapeJobs).set({
         assets,
         processedAssets: assets.filter(a => ["success", "failed", "skipped"].includes(a.status)).length,
         successfulAssets: assets.filter(a => a.status === "success").length,
         failedAssets: assets.filter(a => a.status === "failed").length,
-      }).where(eq(scrapeJobs.id, jobId));
+      }).where(this.mutationWhere(jobId)).returning({ id: scrapeJobs.id });
+      if (updated.length === 0) return undefined;
       return asset;
     });
   }
@@ -181,26 +199,54 @@ export class DbStorage {
   }
 
   async deleteJob(id: string): Promise<void> {
-    this.cancelExpiry(id);
+    await this.cancelExpiry(id);
     await db.delete(scrapeJobs).where(eq(scrapeJobs.id, id));
   }
 
   async scheduleExpiry(id: string, onExpire: () => void | Promise<void>, ttlMs: number): Promise<void> {
-    this.cancelExpiry(id);
+    await this.cancelExpiry(id);
     const expiresAt = new Date(Date.now() + ttlMs);
     await db.update(scrapeJobs).set({ expiresAt }).where(eq(scrapeJobs.id, id));
     const timer = setTimeout(async () => {
       this.expiryTimers.delete(id);
-      if (await this.claimCleanup(id, 60_000)) await onExpire();
+      if (await this.claimExpiredJob(id, 60_000)) await onExpire();
     }, ttlMs);
     timer.unref?.();
     this.expiryTimers.set(id, timer);
   }
 
-  cancelExpiry(id: string): void {
+  async cancelExpiry(id: string): Promise<boolean> {
     const timer = this.expiryTimers.get(id);
     if (timer) clearTimeout(timer);
     this.expiryTimers.delete(id);
+    const rows = await db.update(scrapeJobs).set({ expiresAt: null }).where(and(
+      eq(scrapeJobs.id, id),
+      isNull(scrapeJobs.cleanupLeaseUntil),
+    )).returning({ id: scrapeJobs.id });
+    return rows.length === 1;
+  }
+
+  private async claimExpiredJob(id: string, leaseMs: number): Promise<boolean> {
+    const now = new Date();
+    const rows = await db.update(scrapeJobs).set({
+      cleanupLeaseUntil: new Date(now.getTime() + leaseMs),
+    }).where(and(
+      eq(scrapeJobs.id, id),
+      lte(scrapeJobs.expiresAt, now),
+      or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now)),
+    )).returning({ id: scrapeJobs.id });
+    return rows.length === 1;
+  }
+
+  async claimExpiredJobIds(): Promise<string[]> {
+    const now = new Date();
+    const rows = await db.update(scrapeJobs).set({
+      cleanupLeaseUntil: new Date(now.getTime() + 60_000),
+    }).where(and(
+      lte(scrapeJobs.expiresAt, now),
+      or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now)),
+    )).returning({ id: scrapeJobs.id });
+    return rows.map(row => row.id);
   }
 
   async claimCleanup(id: string, leaseMs: number): Promise<boolean> {
@@ -229,14 +275,36 @@ export class DbStorage {
     return rows.length === 1;
   }
 
-  async failExecution(id: string, token: string, errorMessage: string): Promise<boolean> {
-    const rows = await db.update(scrapeJobs).set({
-      status: "failed", errorMessage, completedAt: new Date(),
-      executionLeaseUntil: null, executionToken: null,
-    }).where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, token),
-      eq(scrapeJobs.status, "scraping"), gt(scrapeJobs.executionLeaseUntil, new Date())))
-      .returning({ id: scrapeJobs.id });
-    return rows.length === 1;
+  async failJob(jobId: string, token: string, errorMessage: string, ttlMs: number): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      const rows = await tx.update(scrapeJobs).set({
+        status: "failed",
+        errorMessage,
+        completedAt: new Date(),
+        expiresAt: new Date(Date.now() + ttlMs),
+        executionLeaseUntil: null,
+        executionToken: null,
+        refundApplied: true,
+      }).where(and(
+        eq(scrapeJobs.id, jobId),
+        eq(scrapeJobs.status, "scraping"),
+        eq(scrapeJobs.executionToken, token),
+        eq(scrapeJobs.refundApplied, false),
+      )).returning({
+        ownerId: scrapeJobs.ownerId,
+        fundingMethod: scrapeJobs.fundingMethod,
+      });
+      if (rows.length === 0) return false;
+
+      const row = rows[0];
+      if (row.fundingMethod === "free") {
+        await tx.update(users).set({ freeScrapeUsed: false }).where(eq(users.id, row.ownerId));
+      } else if (row.fundingMethod === "credit") {
+        await tx.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, row.ownerId));
+      }
+      await tx.delete(downloadEvents).where(eq(downloadEvents.jobId, jobId));
+      return true;
+    });
   }
 
   async authorizeDownload(jobId: string, sessionId: string): Promise<boolean> {
@@ -300,54 +368,38 @@ export class DbStorage {
     });
   }
 
-  async failAbandonedJobs(limit = 50): Promise<string[]> {
-    return db.transaction(async (tx) => {
-      const stale = await tx.execute(sql`
-        select id, owner_id, funding_method, refund_applied
-        from scrape_jobs
-        where status = 'scraping'
-          and ((execution_lease_until is not null and execution_lease_until <= now())
-            or (execution_lease_until is null and created_at <= now() - interval '2 minutes'))
-        for update skip locked limit ${limit}
-      `);
-      const ids: string[] = [];
-      for (const raw of stale.rows) {
-        const job = raw as { id: string; owner_id: number; funding_method: FundingMethod; refund_applied: boolean };
-        if (!job.refund_applied) {
-          if (job.funding_method === "free") await tx.update(users).set({ freeScrapeUsed: false }).where(eq(users.id, job.owner_id));
-          if (job.funding_method === "credit") await tx.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, job.owner_id));
-          await tx.delete(downloadEvents).where(eq(downloadEvents.jobId, job.id));
-        }
-        await tx.update(scrapeJobs).set({
-          status: "failed", errorMessage: "Scrape interrupted before completion",
-          completedAt: new Date(), executionLeaseUntil: null, executionToken: null,
-          refundApplied: true, expiresAt: new Date(Date.now() + 2 * 60_000),
-        }).where(eq(scrapeJobs.id, job.id));
-        ids.push(job.id);
-      }
-      return ids;
-    });
-  }
-
-  // The entitlement restoration and durable marker commit together: a crash
-  // can neither lose a refund nor apply it twice.
-  async refundFailedJob(jobId: string): Promise<boolean> {
-    return db.transaction(async (tx) => {
-      const locked = await tx.execute(sql`
-        select owner_id, funding_method, refund_applied
-        from scrape_jobs where id = ${jobId} for update
-      `);
-      const job = locked.rows[0] as { owner_id: number; funding_method: FundingMethod; refund_applied: boolean } | undefined;
-      if (!job || job.refund_applied) return false;
-      if (job.funding_method === "free") {
-        await tx.update(users).set({ freeScrapeUsed: false }).where(eq(users.id, job.owner_id));
-      } else if (job.funding_method === "credit") {
-        await tx.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, job.owner_id));
-      }
-      await tx.delete(downloadEvents).where(eq(downloadEvents.jobId, jobId));
-      await tx.update(scrapeJobs).set({ refundApplied: true }).where(eq(scrapeJobs.id, jobId));
-      return true;
-    });
+  async claimAbandonedJobs(limit = 10): Promise<Array<{ job: ScrapeJob; token: string }>> {
+    const now = new Date();
+    const candidates = await db.select().from(scrapeJobs).where(and(
+      eq(scrapeJobs.status, "scraping"),
+      or(
+        lt(scrapeJobs.executionLeaseUntil, now),
+        and(isNull(scrapeJobs.executionLeaseUntil), lt(scrapeJobs.createdAt, new Date(now.getTime() - 120_000))),
+      ),
+    )).limit(limit);
+    const claimed: Array<{ job: ScrapeJob; token: string }> = [];
+    for (const candidate of candidates) {
+      const token = randomUUID();
+      const rows = await db.update(scrapeJobs).set({
+        executionToken: token,
+        executionLeaseUntil: new Date(now.getTime() + 45_000),
+        assets: [],
+        totalAssets: 0,
+        processedAssets: 0,
+        successfulAssets: 0,
+        failedAssets: 0,
+        errorMessage: null,
+      }).where(and(
+        eq(scrapeJobs.id, candidate.id),
+        eq(scrapeJobs.status, "scraping"),
+        or(
+          lt(scrapeJobs.executionLeaseUntil, now),
+          and(isNull(scrapeJobs.executionLeaseUntil), lt(scrapeJobs.createdAt, new Date(now.getTime() - 120_000))),
+        ),
+      )).returning();
+      if (rows.length === 1) claimed.push({ job: toJob(rows[0]), token });
+    }
+    return claimed;
   }
 
   recordDownload(): void { this.totalDownloads++; }

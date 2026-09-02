@@ -143,7 +143,7 @@ export const scrapeJobs = pgTable("scrape_jobs", {
   ownerId: integer("owner_id").notNull(),
   url: text("url").notNull(),
   status: text("status").notNull(),
-  assets: json("assets").notNull().default([]),
+  assets: json("assets").$type<Asset[]>().notNull().default([]),
   totalAssets: integer("total_assets").notNull().default(0),
   processedAssets: integer("processed_assets").notNull().default(0),
   successfulAssets: integer("successful_assets").notNull().default(0),
