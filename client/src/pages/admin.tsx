@@ -218,7 +218,7 @@ export default function Admin() {
       <div className="min-h-screen flex items-center justify-center px-4 bg-background">
         <Card className="w-full max-w-sm">
           <CardHeader className="text-center pb-4">
-            <div className="inline-flex items-center justify-center w-12 h-12 bg-primary/10 mx-auto mb-3">
+            <div className="inline-flex items-center justify-center mx-auto mb-3">
               <WsMark className="h-6 w-6" />
             </div>
             <CardTitle className="text-xl">Admin Access</CardTitle>
