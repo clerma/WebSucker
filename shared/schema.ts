@@ -216,6 +216,12 @@ export const scrapeJobs = pgTable("scrape_jobs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
   expiresAt: timestamp("expires_at"),
+  completionEmailSentAt: timestamp("completion_email_sent_at"),
+  completionEmailLastAttemptAt: timestamp("completion_email_last_attempt_at"),
+  completionEmailError: text("completion_email_error"),
+  completionEmailAttempts: integer("completion_email_attempts").notNull().default(0),
+  downloadLeaseUntil: timestamp("download_lease_until"),
+  downloadLeaseToken: text("download_lease_token"),
   executionLeaseUntil: timestamp("execution_lease_until"),
   executionToken: text("execution_token"),
   fundingMethod: text("funding_method").notNull().default("subscription"),
@@ -286,6 +292,9 @@ export interface CrawlState {
 export const ScrapeStatus = z.enum(["idle", "scraping", "completed", "failed"]);
 export type ScrapeStatus = z.infer<typeof ScrapeStatus>;
 
+export const CompletionEmailStatus = z.enum(["pending", "sent", "failed"]);
+export type CompletionEmailStatus = z.infer<typeof CompletionEmailStatus>;
+
 export const scrapeJobSchema = z.object({
   id: z.string(),
   url: z.string().url(),
@@ -293,6 +302,7 @@ export const scrapeJobSchema = z.object({
   createdAt: z.string(),
   completedAt: z.string().optional(),
   expiresAt: z.string().optional(),
+  completionEmailStatus: CompletionEmailStatus.optional(),
   assets: z.array(assetSchema),
   totalAssets: z.number(),
   processedAssets: z.number(),

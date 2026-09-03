@@ -9,9 +9,15 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useSeo } from "@/lib/seo";
 import { refreshAuth } from "@/hooks/use-auth";
+import { safeInternalReturnPath } from "@shared/navigation";
 
 export default function AuthPage() {
-  const [mode, setMode] = useState<"login" | "register">("register");
+  const [returnTo] = useState(() => safeInternalReturnPath(
+    new URLSearchParams(window.location.search).get("returnTo"),
+  ));
+  const [mode, setMode] = useState<"login" | "register">(
+    returnTo === "/" ? "register" : "login",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -56,7 +62,7 @@ export default function AuthPage() {
             ? "Your account is ready — your first scrape is free to preview."
             : "You're signed in.",
       });
-      navigate("/");
+      navigate(returnTo);
     } catch (err) {
       toast({
         title: mode === "register" ? "Couldn't create account" : "Couldn't sign in",

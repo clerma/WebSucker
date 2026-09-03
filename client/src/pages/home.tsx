@@ -6,6 +6,7 @@ import { CrawlPanel } from "@/components/crawl-panel";
 import { AccountMenu } from "@/components/account-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth, refreshAuth } from "@/hooks/use-auth";
+import { useBackupDownload } from "@/hooks/use-backup-download";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { UrlInputForm } from "@/components/url-input-form";
 import {
@@ -35,10 +36,14 @@ export default function Home() {
   const [viewState, setViewState] = useState<ViewState>("input");
   const [isLoading, setIsLoading] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [currentJob, setCurrentJob] = useState<ScrapeJob | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [showPricing, setShowPricing] = useState(false);
+  const {
+    handleDownload,
+    isDownloading,
+    showPricing,
+    setShowPricing,
+  } = useBackupDownload(currentJob);
   const [progress, setProgress] = useState<ScrapeProgress>({
     jobId: "",
     status: "idle",
@@ -453,56 +458,6 @@ export default function Home() {
     handleSubmit({ url: incomingUrl });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingUrl, authLoading]);
-
-  const handleDownload = async () => {
-    if (!currentJob) return;
-
-    // Credit and subscription scrapes include the download. Free scrapes
-    // don't — the server charges a credit at download time, and returns 402
-    // if the account has none.
-    setIsDownloading(true);
-    try {
-      const response = await fetch(`/api/scrape/${currentJob.id}/download`, {
-        method: "POST",
-      });
-      if (response.status === 402) {
-        toast({
-          title: "Download requires a credit",
-          description: "Your free scrape lets you preview the results. Buy a credit pack or subscribe to download the ZIP.",
-        });
-        setShowPricing(true);
-        return;
-      }
-      if (!response.ok) {
-        throw new Error("Download failed");
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `website-sucker-${new URL(currentJob.url).hostname}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      toast({
-        title: "Download Started",
-        description: "Your website backup is downloading.",
-      });
-      // A credit may have been spent at download time — refresh the balance.
-      refreshAuth();
-    } catch (err) {
-      toast({
-        title: "Download Failed",
-        description: "Could not download the backup. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsDownloading(false);
-    }
-  };
 
   const handleNewScrape = () => {
     localStorage.removeItem("websitesucker_active_job");

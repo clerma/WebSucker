@@ -3,7 +3,8 @@ import { AsyncLocalStorage } from "async_hooks";
 import type { Asset, CrawlState, ScrapeJob, ScrapeStatus } from "@shared/schema";
 import { accessCodes as accessCodesTable, downloadEvents, scrapeJobs, users } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, gt, isNull, lte, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, lt, or, sql } from "drizzle-orm";
+import { backupExpiresAt } from "@shared/backup-lifecycle";
 
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const generateAccessCode = () => {
@@ -46,6 +47,11 @@ function toJob(row: typeof scrapeJobs.$inferSelect): ScrapeJob {
     createdAt: row.createdAt.toISOString(),
     completedAt: row.completedAt?.toISOString(),
     expiresAt: row.expiresAt?.toISOString(),
+    completionEmailStatus: row.completionEmailSentAt
+      ? "sent"
+      : row.completionEmailError
+        ? "failed"
+        : "pending",
     assets: row.assets as Asset[],
     totalAssets: row.totalAssets,
     processedAssets: row.processedAssets,
@@ -141,7 +147,8 @@ export class DbStorage {
   async listExpiredJobIds(limit = 50): Promise<string[]> {
     const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs)
       .where(and(lte(scrapeJobs.expiresAt, new Date()),
-        or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, new Date()))))
+        or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, new Date())),
+        or(isNull(scrapeJobs.downloadLeaseUntil), lt(scrapeJobs.downloadLeaseUntil, new Date()))))
       .limit(limit);
     return rows.map(row => row.id);
   }
@@ -224,8 +231,9 @@ export class DbStorage {
     downloadPath?: string,
     result?: { truncated: boolean; truncationReasons: string[] },
   ): Promise<ScrapeJob | undefined> {
+    const completedAt = new Date();
     const [row] = await db.update(scrapeJobs).set({
-      status: "completed", completedAt: new Date(), downloadPath,
+      status: "completed", completedAt, expiresAt: backupExpiresAt(completedAt), downloadPath,
       truncated: result?.truncated ?? false,
       truncationReasons: result?.truncationReasons ?? [],
       crawlState: null,
@@ -236,14 +244,16 @@ export class DbStorage {
   }
 
   async deleteJob(id: string): Promise<void> {
-    await this.cancelExpiry(id);
+    const timer = this.expiryTimers.get(id);
+    if (timer) clearTimeout(timer);
+    this.expiryTimers.delete(id);
     await db.delete(scrapeJobs).where(eq(scrapeJobs.id, id));
   }
 
-  async scheduleExpiry(id: string, onExpire: () => void | Promise<void>, ttlMs: number): Promise<void> {
-    await this.cancelExpiry(id);
-    const expiresAt = new Date(Date.now() + ttlMs);
-    await db.update(scrapeJobs).set({ expiresAt }).where(eq(scrapeJobs.id, id));
+  async armExpiryTimer(id: string, expiresAt: string | Date, onExpire: () => void | Promise<void>): Promise<void> {
+    const existingTimer = this.expiryTimers.get(id);
+    if (existingTimer) clearTimeout(existingTimer);
+    const ttlMs = Math.max(0, new Date(expiresAt).getTime() - Date.now());
     const timer = setTimeout(async () => {
       this.expiryTimers.delete(id);
       if (await this.claimExpiredJob(id, 60_000)) await onExpire();
@@ -252,15 +262,104 @@ export class DbStorage {
     this.expiryTimers.set(id, timer);
   }
 
-  async cancelExpiry(id: string): Promise<boolean> {
-    const timer = this.expiryTimers.get(id);
-    if (timer) clearTimeout(timer);
-    this.expiryTimers.delete(id);
-    const rows = await db.update(scrapeJobs).set({ expiresAt: null }).where(and(
+  async isDownloadWindowOpen(id: string): Promise<boolean> {
+    const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs).where(and(
       eq(scrapeJobs.id, id),
-      isNull(scrapeJobs.cleanupLeaseUntil),
+      eq(scrapeJobs.status, "completed"),
+      gt(scrapeJobs.expiresAt, new Date()),
+    )).limit(1);
+    return rows.length === 1;
+  }
+
+  async claimDownloadStream(id: string, ownerId: number, leaseMs = 2 * 60_000): Promise<string | null> {
+    const now = new Date();
+    const token = randomUUID();
+    const rows = await db.update(scrapeJobs).set({
+      downloadLeaseToken: token,
+      downloadLeaseUntil: new Date(now.getTime() + leaseMs),
+    }).where(and(
+      eq(scrapeJobs.id, id),
+      eq(scrapeJobs.ownerId, ownerId),
+      eq(scrapeJobs.status, "completed"),
+      gt(scrapeJobs.expiresAt, now),
+      or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now)),
+      or(isNull(scrapeJobs.downloadLeaseUntil), lt(scrapeJobs.downloadLeaseUntil, now)),
+    )).returning({ id: scrapeJobs.id });
+    return rows.length === 1 ? token : null;
+  }
+
+  async renewDownloadStream(id: string, token: string, leaseMs = 2 * 60_000): Promise<boolean> {
+    const rows = await db.update(scrapeJobs).set({
+      downloadLeaseUntil: new Date(Date.now() + leaseMs),
+    }).where(and(
+      eq(scrapeJobs.id, id),
+      eq(scrapeJobs.downloadLeaseToken, token),
+      gt(scrapeJobs.downloadLeaseUntil, new Date()),
     )).returning({ id: scrapeJobs.id });
     return rows.length === 1;
+  }
+
+  async releaseDownloadStream(id: string, token: string): Promise<void> {
+    await db.update(scrapeJobs).set({
+      downloadLeaseToken: null,
+      downloadLeaseUntil: null,
+    }).where(and(
+      eq(scrapeJobs.id, id),
+      eq(scrapeJobs.downloadLeaseToken, token),
+    ));
+  }
+
+  async listPendingCompletionEmailJobIds(limit = 10): Promise<string[]> {
+    const now = new Date();
+    const retryBefore = new Date(now.getTime() - 5 * 60_000);
+    const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs).where(and(
+      eq(scrapeJobs.status, "completed"),
+      isNotNull(scrapeJobs.downloadPath),
+      gt(scrapeJobs.expiresAt, now),
+      isNull(scrapeJobs.completionEmailSentAt),
+      lt(scrapeJobs.completionEmailAttempts, 3),
+      or(
+        isNull(scrapeJobs.completionEmailLastAttemptAt),
+        lt(scrapeJobs.completionEmailLastAttemptAt, retryBefore),
+      ),
+    )).limit(limit);
+    return rows.map(row => row.id);
+  }
+
+  async claimCompletionEmail(
+    id: string,
+  ): Promise<{ job: ScrapeJob; ownerId: number } | undefined> {
+    const now = new Date();
+    const retryBefore = new Date(now.getTime() - 5 * 60_000);
+    const [row] = await db.update(scrapeJobs).set({
+      completionEmailLastAttemptAt: now,
+      completionEmailAttempts: sql`${scrapeJobs.completionEmailAttempts} + 1`,
+    }).where(and(
+      eq(scrapeJobs.id, id),
+      eq(scrapeJobs.status, "completed"),
+      isNotNull(scrapeJobs.downloadPath),
+      gt(scrapeJobs.expiresAt, now),
+      isNull(scrapeJobs.completionEmailSentAt),
+      lt(scrapeJobs.completionEmailAttempts, 3),
+      or(
+        isNull(scrapeJobs.completionEmailLastAttemptAt),
+        lt(scrapeJobs.completionEmailLastAttemptAt, retryBefore),
+      ),
+    )).returning();
+    return row ? { job: toJob(row), ownerId: row.ownerId } : undefined;
+  }
+
+  async recordCompletionEmailSent(id: string): Promise<void> {
+    await db.update(scrapeJobs).set({
+      completionEmailSentAt: new Date(),
+      completionEmailError: null,
+    }).where(eq(scrapeJobs.id, id));
+  }
+
+  async recordCompletionEmailFailure(id: string, errorMessage: string): Promise<void> {
+    await db.update(scrapeJobs).set({
+      completionEmailError: errorMessage.slice(0, 500),
+    }).where(and(eq(scrapeJobs.id, id), isNull(scrapeJobs.completionEmailSentAt)));
   }
 
   private async claimExpiredJob(id: string, leaseMs: number): Promise<boolean> {
@@ -271,6 +370,7 @@ export class DbStorage {
       eq(scrapeJobs.id, id),
       lte(scrapeJobs.expiresAt, now),
       or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now)),
+      or(isNull(scrapeJobs.downloadLeaseUntil), lt(scrapeJobs.downloadLeaseUntil, now)),
     )).returning({ id: scrapeJobs.id });
     return rows.length === 1;
   }
@@ -282,6 +382,7 @@ export class DbStorage {
     }).where(and(
       lte(scrapeJobs.expiresAt, now),
       or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now)),
+      or(isNull(scrapeJobs.downloadLeaseUntil), lt(scrapeJobs.downloadLeaseUntil, now)),
     )).returning({ id: scrapeJobs.id });
     return rows.map(row => row.id);
   }
@@ -289,7 +390,11 @@ export class DbStorage {
   async claimCleanup(id: string, leaseMs: number): Promise<boolean> {
     const now = new Date();
     const rows = await db.update(scrapeJobs).set({ cleanupLeaseUntil: new Date(now.getTime() + leaseMs) })
-      .where(and(eq(scrapeJobs.id, id), or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now))))
+      .where(and(
+        eq(scrapeJobs.id, id),
+        or(isNull(scrapeJobs.cleanupLeaseUntil), lt(scrapeJobs.cleanupLeaseUntil, now)),
+        or(isNull(scrapeJobs.downloadLeaseUntil), lt(scrapeJobs.downloadLeaseUntil, now)),
+      ))
       .returning({ id: scrapeJobs.id });
     return rows.length === 1;
   }
@@ -355,6 +460,20 @@ export class DbStorage {
     return this.isDownloadAuthorized(jobId);
   }
 
+  async authorizeCompletedDownload(jobId: string, sessionId: string): Promise<boolean> {
+    const rows = await db.update(scrapeJobs).set({
+      downloadAuthorized: true,
+      authorizationSessionId: sessionId,
+      chargingUntil: null,
+      chargingToken: null,
+    }).where(and(
+      eq(scrapeJobs.id, jobId),
+      eq(scrapeJobs.status, "completed"),
+      gt(scrapeJobs.expiresAt, new Date()),
+    )).returning({ id: scrapeJobs.id });
+    return rows.length === 1;
+  }
+
   async isDownloadAuthorized(jobId: string): Promise<boolean> {
     const rows = await db.select({ id: scrapeJobs.id }).from(scrapeJobs)
       .where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.downloadAuthorized, true))).limit(1);
@@ -372,6 +491,7 @@ export class DbStorage {
     const token = randomUUID();
     const rows = await db.update(scrapeJobs).set({ chargingUntil: new Date(now.getTime() + leaseMs), chargingToken: token })
       .where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.downloadAuthorized, false),
+        gt(scrapeJobs.expiresAt, now),
         or(isNull(scrapeJobs.chargingUntil), lt(scrapeJobs.chargingUntil, now))))
       .returning({ id: scrapeJobs.id });
     return rows.length === 1 ? token : null;
@@ -382,10 +502,10 @@ export class DbStorage {
       .where(and(eq(scrapeJobs.id, jobId), eq(scrapeJobs.chargingToken, token)));
   }
 
-  async chargeCreditAndAuthorize(jobId: string, ownerId: number, sessionId: string, chargingToken: string): Promise<"authorized" | "no_credit" | "not_claimed"> {
+  async chargeCreditAndAuthorize(jobId: string, ownerId: number, sessionId: string, chargingToken: string): Promise<"authorized" | "no_credit" | "not_claimed" | "expired"> {
     return db.transaction(async (tx) => {
       const locked = await tx.execute(sql`
-        select owner_id, download_authorized, charging_until, charging_token
+        select owner_id, download_authorized, charging_until, charging_token, expires_at
         from scrape_jobs where id = ${jobId} for update
       `);
       const job = locked.rows[0] as {
@@ -393,9 +513,11 @@ export class DbStorage {
         download_authorized: boolean;
         charging_until: Date | string | null;
         charging_token: string | null;
+        expires_at: Date | string | null;
       } | undefined;
       if (!job || job.owner_id !== ownerId || job.charging_token !== chargingToken ||
           !job.charging_until || new Date(job.charging_until).getTime() <= Date.now()) return "not_claimed";
+      if (!job.expires_at || new Date(job.expires_at).getTime() <= Date.now()) return "expired";
       if (job.download_authorized) return "authorized";
       const charged = await tx.update(users).set({ credits: sql`${users.credits} - 1` })
         .where(and(eq(users.id, ownerId), gt(users.credits, 0))).returning({ id: users.id });
@@ -459,6 +581,59 @@ export class DbStorage {
         or(isNull(accessCodesTable.maxUses), lt(accessCodesTable.uses, accessCodesTable.maxUses))))
       .returning({ code: accessCodesTable.code });
     return rows.length > 0;
+  }
+
+  async redeemAccessCodeForJob(
+    code: string,
+    jobId: string,
+    ownerId: number,
+  ): Promise<"authorized" | "expired" | "invalid_job" | "invalid_code"> {
+    return db.transaction(async (tx) => {
+      const now = new Date();
+      const locked = await tx.execute(sql`
+        select owner_id, status, expires_at, cleanup_lease_until
+        from scrape_jobs
+        where id = ${jobId}
+        for update
+      `);
+      const job = locked.rows[0] as {
+        owner_id: number;
+        status: string;
+        expires_at: Date | string | null;
+        cleanup_lease_until: Date | string | null;
+      } | undefined;
+
+      if (!job || job.owner_id !== ownerId || job.status !== "completed") {
+        return "invalid_job";
+      }
+      if (
+        !job.expires_at ||
+        new Date(job.expires_at).getTime() <= now.getTime() ||
+        (job.cleanup_lease_until && new Date(job.cleanup_lease_until).getTime() > now.getTime())
+      ) {
+        return "expired";
+      }
+
+      const redeemed = await tx.update(accessCodesTable)
+        .set({ uses: sql`${accessCodesTable.uses} + 1` })
+        .where(and(
+          eq(accessCodesTable.code, code.toUpperCase().trim()),
+          or(
+            isNull(accessCodesTable.maxUses),
+            lt(accessCodesTable.uses, accessCodesTable.maxUses),
+          ),
+        ))
+        .returning({ code: accessCodesTable.code });
+      if (redeemed.length === 0) return "invalid_code";
+
+      await tx.update(scrapeJobs).set({
+        downloadAuthorized: true,
+        authorizationSessionId: `code:${code.toUpperCase().trim()}:${jobId}`,
+        chargingUntil: null,
+        chargingToken: null,
+      }).where(eq(scrapeJobs.id, jobId));
+      return "authorized";
+    });
   }
 }
 

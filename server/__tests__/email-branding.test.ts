@@ -6,6 +6,7 @@ import {
   buildPasswordResetEmail,
   buildReviewRequestEmail,
   buildReviewSubmissionEmail,
+  buildBackupReadyEmail,
 } from "../email";
 
 const ORIGINAL_APP_BASE_URL = process.env.APP_BASE_URL;
@@ -34,6 +35,13 @@ test("all transactional templates use the shared branded header and HTTPS logo",
       rating: 5,
       review: "Website Sucker worked perfectly.",
     }),
+    buildBackupReadyEmail({
+      to: "customer@example.com",
+      resultUrl: "https://www.websitesucker.com/backup/job-123",
+      siteUrl: "https://docs.example.com/start",
+      expiresAt: new Date("2026-09-04T20:00:00.000Z"),
+      truncated: false,
+    }),
   ];
 
   for (const message of messages) {
@@ -44,6 +52,26 @@ test("all transactional templates use the shared branded header and HTTPS logo",
     assert.match(message.html, /Website Sucker &middot; Reliable offline website backups/);
     assert.equal(message.from, "Website Sucker <noreply@websitesucker.com>");
   }
+});
+
+test("backup-ready email identifies the site, expiry window, and protected result link", () => {
+  const message = buildBackupReadyEmail({
+    to: "owner@example.com",
+    resultUrl: "https://www.websitesucker.com/backup/job-123?from=email&safe=true",
+    siteUrl: "https://docs.example.com/start",
+    expiresAt: new Date("2026-09-04T20:00:00.000Z"),
+    truncated: true,
+  });
+
+  assert.deepEqual(message.to, ["owner@example.com"]);
+  assert.equal(message.subject, "Your docs.example.com backup is ready");
+  assert.match(message.html, /partial backup/i);
+  assert.match(message.html, /next 8 hours/);
+  assert.match(message.html, /Sep 4, 2026/);
+  assert.match(message.html, /8:00 PM UTC/);
+  assert.match(message.html, /Open saved result/);
+  assert.match(message.html, /\/backup\/job-123\?from=email&amp;safe=true/);
+  assert.match(message.html, /does not bypass account ownership or download payment requirements/);
 });
 
 test("account emails retain recipients, action links, and expiry copy", () => {

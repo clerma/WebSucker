@@ -18,7 +18,8 @@ import { requireAuth, registerAuthRoutes, getUserById } from "./auth";
 import {
   artifactExists, deleteArtifact, downloadArtifact, parseObjectReference, uploadArtifact,
 } from "./artifact-storage";
-import { sendReviewSubmissionEmail } from "./email";
+import { sendBackupReadyEmail, sendReviewSubmissionEmail } from "./email";
+import { isBackupExpired } from "@shared/backup-lifecycle";
 
 // Send a notification to a configurable webhook URL (Discord, Slack, Make, etc.)
 async function sendNotification(payload: { title: string; message: string; url: string; status: "completed" | "failed" }) {
@@ -330,6 +331,9 @@ export async function registerRoutes(
         console.warn(`Resuming abandoned scrape job ${claimed.job.id}`);
         await runScrapeJob(claimed.job, claimed.token);
       }
+      for (const jobId of await storage.listPendingCompletionEmailJobIds()) {
+        await sendBackupReadyNotification(jobId);
+      }
       for (const jobId of await storage.claimExpiredJobIds()) {
         const expiredJob = await storage.getJob(jobId);
         const expiredCrawlState = await storage.getCrawlState(jobId);
@@ -411,6 +415,35 @@ export async function registerRoutes(
     } catch (err) {
       console.error("Subscription check failed:", err);
       return false;
+    }
+  }
+
+  async function sendBackupReadyNotification(jobId: string): Promise<void> {
+    const claimed = await storage.claimCompletionEmail(jobId);
+    if (!claimed) return;
+
+    const owner = await getUserById(claimed.ownerId);
+    if (!owner?.emailVerified) {
+      await storage.recordCompletionEmailFailure(jobId, "Verified account email is unavailable");
+      return;
+    }
+
+    try {
+      await sendBackupReadyEmail({
+        to: owner.email,
+        resultUrl: `${applicationBaseUrl()}/backup/${claimed.job.id}`,
+        siteUrl: claimed.job.url,
+        expiresAt: new Date(claimed.job.expiresAt!),
+        truncated: claimed.job.truncated,
+        jobId: claimed.job.id,
+      });
+      await storage.recordCompletionEmailSent(jobId);
+    } catch (error) {
+      console.error(`Backup-ready email failed for job ${jobId}:`, error);
+      await storage.recordCompletionEmailFailure(
+        jobId,
+        error instanceof Error ? error.message : "Email delivery failed",
+      );
     }
   }
 
@@ -548,14 +581,20 @@ export async function registerRoutes(
       }).catch((error: unknown) => console.error("Analytics insert failed:", error));
 
       try {
-        await storage.scheduleExpiry(job.id, async () => {
+        await storage.armExpiryTimer(job.id, committedJob.expiresAt!, async () => {
           const expiringJob = await storage.getJob(job.id);
           await deleteArtifact(expiringJob?.downloadPath);
           await cleanupScrapeFiles(job.id);
           await storage.deleteJob(job.id);
-        }, 10 * 60 * 1000);
+        });
       } catch (error) {
         console.error("Committed scrape expiry scheduling failed:", error);
+      }
+
+      try {
+        await sendBackupReadyNotification(job.id);
+      } catch (error) {
+        console.error("Committed scrape email notification setup failed:", error);
       }
 
       try {
@@ -727,6 +766,12 @@ export async function registerRoutes(
       if (!job) {
         return res.status(404).json({ message: "Job not found" });
       }
+      if (job.status === "completed" && isBackupExpired(job.expiresAt)) {
+        return res.status(410).json({
+          message: "This saved backup has expired.",
+          code: "BACKUP_EXPIRED",
+        });
+      }
       res.json(publicJobSnapshot(job));
     } catch (error) {
       res.status(500).json({ message: "Failed to get job" });
@@ -793,6 +838,19 @@ export async function registerRoutes(
       if (!job || job.status !== "completed") {
         return res.status(400).json({ message: "Job not found or not completed" });
       }
+      if (isBackupExpired(job.expiresAt)) {
+        return res.status(410).json({
+          message: "This saved backup has expired.",
+          code: "BACKUP_EXPIRED",
+        });
+      }
+      const checkoutExpiresAt = Math.floor(new Date(job.expiresAt!).getTime() / 1000);
+      if (checkoutExpiresAt < Math.floor(Date.now() / 1000) + 30 * 60) {
+        return res.status(409).json({
+          message: "There is not enough time left to complete checkout for this backup. Buy account credits instead, then download before it expires.",
+          code: "BACKUP_CHECKOUT_WINDOW_TOO_SHORT",
+        });
+      }
 
       const stripe = await getUncachableStripeClient();
       const price = await stripe.prices.retrieve(priceId, { expand: ["product"] });
@@ -830,6 +888,7 @@ export async function registerRoutes(
         payment_method_types: ["card"],
         line_items: [{ price: priceId, quantity: 1 }],
         mode,
+        expires_at: checkoutExpiresAt,
         success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&job_id=${jobId}`,
         cancel_url: `${baseUrl}/checkout/cancel?job_id=${jobId}`,
         metadata: {
@@ -974,8 +1033,10 @@ export async function registerRoutes(
         .where(eq(payments.jobId, jobId))
         .limit(1);
       if (rows.length === 0) return false;
-      await storage.authorizeDownload(jobId, rows[0].sessionId ?? `payment_${rows[0].id}_${jobId}`);
-      return true;
+      return storage.authorizeCompletedDownload(
+        jobId,
+        rows[0].sessionId ?? `payment_${rows[0].id}_${jobId}`,
+      );
     } catch (e) {
       console.error("Persisted payment lookup failed:", e);
       return false;
@@ -1009,7 +1070,13 @@ export async function registerRoutes(
           await db.update(payments).set({ userId: req.session.userId! })
             .where(and(eq(payments.id, p.id), isNull(payments.userId)));
         }
-        await storage.authorizeDownload(p.jobId!, session_id);
+        if (!(await storage.authorizeCompletedDownload(p.jobId!, session_id))) {
+          return res.status(410).json({
+            paid: true,
+            message: "Payment was recorded, but this saved backup has expired.",
+            code: "BACKUP_EXPIRED",
+          });
+        }
         return res.json({
           paid: true,
           jobId: p.jobId,
@@ -1031,8 +1098,6 @@ export async function registerRoutes(
         if (!(await storage.isOwner(jobId, req.session.userId!))) {
           return res.status(404).json({ paid: false, message: "Job not found" });
         }
-
-        await storage.authorizeDownload(jobId, session_id);
 
         // Persist payment record to DB (survives key changes)
         try {
@@ -1058,6 +1123,15 @@ export async function registerRoutes(
           });
         } catch (e) {
           console.error("Failed to persist payment record:", e);
+        }
+
+        if (!(await storage.authorizeCompletedDownload(jobId, session_id))) {
+          return res.status(410).json({
+            paid: true,
+            jobId,
+            message: "Payment was recorded, but this saved backup has expired.",
+            code: "BACKUP_EXPIRED",
+          });
         }
 
         return res.json({
@@ -1117,19 +1191,6 @@ export async function registerRoutes(
         });
         return res.status(404).json({ message: "Job not found" });
       }
-      if (job.status !== "completed" || !job.downloadPath) {
-        recordSecurityEvent(req, {
-          action: "download",
-          outcome: "denied",
-          reason: "download_not_ready",
-          userId: req.session.userId,
-          userEmail: requestUser?.email,
-          jobId,
-          websiteUrl: job.url,
-        });
-        return res.status(400).json({ message: "Download not ready" });
-      }
-
       const ownerMatches = await storage.isOwner(jobId, req.session.userId!);
       if (!ownerMatches) {
         recordSecurityEvent(req, {
@@ -1142,6 +1203,33 @@ export async function registerRoutes(
           websiteUrl: job.url,
         });
         return res.status(404).json({ message: "Job not found" });
+      }
+      if (job.status !== "completed" || !job.downloadPath) {
+        recordSecurityEvent(req, {
+          action: "download",
+          outcome: "denied",
+          reason: "download_not_ready",
+          userId: req.session.userId,
+          userEmail: requestUser?.email,
+          jobId,
+          websiteUrl: job.url,
+        });
+        return res.status(400).json({ message: "Download not ready" });
+      }
+      if (isBackupExpired(job.expiresAt)) {
+        recordSecurityEvent(req, {
+          action: "download",
+          outcome: "denied",
+          reason: "backup_expired",
+          userId: req.session.userId,
+          userEmail: requestUser?.email,
+          jobId,
+          websiteUrl: job.url,
+        });
+        return res.status(410).json({
+          message: "This saved backup has expired.",
+          code: "BACKUP_EXPIRED",
+        });
       }
 
       // Verify the artifact exists BEFORE any charging, so a user is never
@@ -1165,143 +1253,168 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Download file not found" });
       }
 
-      let authorized = await storage.isDownloadAuthorized(job.id);
-      let authorizationMethod = authorized ? "preauthorized" : null;
-      // Webhook-recorded payments authorize the download even if the buyer
-      // never returned to the success page (paid, closed the tab).
-      if (!authorized) {
-        await authorizeFromPersistedPayment(job.id);
-        authorized = await storage.isDownloadAuthorized(job.id);
-        if (authorized) authorizationMethod = "payment";
+      // This owner-bound lease is the atomic stream-admission point. Cleanup
+      // cannot claim the expired job while an admitted stream is active.
+      const downloadLeaseToken = await storage.claimDownloadStream(job.id, req.session.userId!);
+      if (!downloadLeaseToken) {
+        if (!(await storage.isDownloadWindowOpen(job.id))) {
+          return res.status(410).json({
+            message: "This saved backup has expired.",
+            code: "BACKUP_EXPIRED",
+          });
+        }
+        return res.status(409).json({
+          message: "This backup is already downloading. Try again when the current download finishes.",
+        });
       }
 
-      if (!authorized) {
-        // Free scrapes don't include the download — try to pay for it now
-        // with a subscription or a credit. A per-job in-flight lock makes the
-        // charge single-consumer so concurrent requests can't double-charge.
-        const chargingToken = await storage.claimCharging(job.id);
-        if (!chargingToken) {
-          recordSecurityEvent(req, {
-            action: "download",
-            outcome: "denied",
-            reason: "authorization_in_progress",
-            userId: requestUser?.id,
-            userEmail: requestUser?.email,
-            jobId,
-            websiteUrl: job.url,
-          });
-          return res.status(409).json({ message: "Download is already being prepared — try again in a moment." });
+      let streamStarted = false;
+      try {
+        let authorized = await storage.isDownloadAuthorized(job.id);
+        let authorizationMethod = authorized ? "preauthorized" : null;
+        // Webhook-recorded payments authorize the download even if the buyer
+        // never returned to the success page (paid, closed the tab).
+        if (!authorized) {
+          await authorizeFromPersistedPayment(job.id);
+          authorized = await storage.isDownloadAuthorized(job.id);
+          if (authorized) authorizationMethod = "payment";
         }
-        try {
-          const user = requestUser;
-          if (!user || !ownerMatches) {
+
+        if (!authorized) {
+          // Free scrapes don't include the download — try to pay for it now
+          // with a subscription or a credit. A per-job in-flight lock makes the
+          // charge single-consumer so concurrent requests can't double-charge.
+          const chargingToken = await storage.claimCharging(job.id);
+          if (!chargingToken) {
+            if (!(await storage.isDownloadWindowOpen(job.id))) {
+              return res.status(410).json({
+                message: "This saved backup has expired.",
+                code: "BACKUP_EXPIRED",
+              });
+            }
             recordSecurityEvent(req, {
               action: "download",
               outcome: "denied",
-              reason: "payment_required",
-              userId: req.session.userId,
-              userEmail: user?.email,
+              reason: "authorization_in_progress",
+              userId: requestUser?.id,
+              userEmail: requestUser?.email,
               jobId,
               websiteUrl: job.url,
             });
-            return res.status(402).json({ message: "Payment required" });
+            return res.status(409).json({ message: "Download is already being prepared — try again in a moment." });
           }
-          // Re-check after acquiring the lock — another request may have
-          // authorized the job while we were waiting.
-          if (!(await storage.isDownloadAuthorized(job.id))) {
-            if (await userHasActiveSubscription(user)) {
-              await storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
-              authorizationMethod = "subscription";
-              recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "subscription" });
-            } else {
-              const charge = await storage.chargeCreditAndAuthorize(
-                job.id, user.id, `user_${user.id}_${job.id}`, chargingToken,
-              );
-              if (charge === "no_credit") {
-                recordSecurityEvent(req, {
-                  action: "download",
-                  outcome: "denied",
-                  reason: "no_credits",
-                  userId: user.id,
-                  userEmail: user.email,
-                  jobId,
-                  websiteUrl: job.url,
-                });
-                return res.status(402).json({
-                  message: "Downloading requires a credit. Buy a credit pack or subscribe for unlimited scrapes.",
-                  code: "NO_CREDITS",
-                });
-              }
-              if (charge !== "authorized") {
-                return res.status(409).json({ message: "Download authorization expired. Please try again." });
-              }
-              authorizationMethod = "credit";
-              recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "credit" });
+          try {
+            const user = requestUser;
+            if (!user || !ownerMatches) {
+              recordSecurityEvent(req, {
+                action: "download",
+                outcome: "denied",
+                reason: "payment_required",
+                userId: req.session.userId,
+                userEmail: user?.email,
+                jobId,
+                websiteUrl: job.url,
+              });
+              return res.status(402).json({ message: "Payment required" });
             }
+            // Re-check after acquiring the lock — another request may have
+            // authorized the job while we were waiting.
+            if (!(await storage.isDownloadAuthorized(job.id))) {
+              if (await userHasActiveSubscription(user)) {
+                await storage.authorizeDownload(job.id, `user_${user.id}_${job.id}`);
+                authorizationMethod = "subscription";
+                recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "subscription" });
+              } else {
+                const charge = await storage.chargeCreditAndAuthorize(
+                  job.id, user.id, `user_${user.id}_${job.id}`, chargingToken,
+                );
+                if (charge === "no_credit") {
+                  recordSecurityEvent(req, {
+                    action: "download",
+                    outcome: "denied",
+                    reason: "no_credits",
+                    userId: user.id,
+                    userEmail: user.email,
+                    jobId,
+                    websiteUrl: job.url,
+                  });
+                  return res.status(402).json({
+                    message: "Downloading requires a credit. Buy a credit pack or subscribe for unlimited scrapes.",
+                    code: "NO_CREDITS",
+                  });
+                }
+                if (charge === "expired") {
+                  return res.status(410).json({
+                    message: "This saved backup has expired.",
+                    code: "BACKUP_EXPIRED",
+                  });
+                }
+                if (charge !== "authorized") {
+                  return res.status(409).json({ message: "Download authorization expired. Please try again." });
+                }
+                authorizationMethod = "credit";
+                recordDownloadEvent({ userId: user.id, userEmail: user.email, jobId: job.id, websiteUrl: job.url, method: "credit" });
+              }
+            }
+          } finally {
+            await storage.releaseCharging(job.id, chargingToken);
           }
-        } finally {
-          await storage.releaseCharging(job.id, chargingToken);
+        }
+
+        storage.recordDownload();
+        recordSecurityEvent(req, {
+          action: "download",
+          outcome: "allowed",
+          reason: "authorized_stream_started",
+          userId: requestUser?.id,
+          userEmail: requestUser?.email,
+          jobId,
+          websiteUrl: job.url,
+          method: authorizationMethod ?? "authorized",
+        });
+
+        const hostname = new URL(job.url).hostname.replace(/[^a-zA-Z0-9.-]/g, "_");
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="website-sucker-${hostname}.zip"`
+        );
+
+        const fileStream = downloadArtifact(job.downloadPath) ?? fs.createReadStream(job.downloadPath);
+        let streamFinalized = false;
+        const renewal = setInterval(() => {
+          void storage.renewDownloadStream(job.id, downloadLeaseToken).catch(error =>
+            console.error("Download lease renewal failed:", error));
+        }, 30_000);
+        renewal.unref?.();
+        const finalizeStream = () => {
+          if (streamFinalized) return;
+          streamFinalized = true;
+          clearInterval(renewal);
+          void storage.releaseDownloadStream(job.id, downloadLeaseToken).catch(error =>
+            console.error("Download lease release failed:", error));
+        };
+
+        fileStream.on("error", (err: Error) => {
+          console.error("Download stream error:", err);
+          finalizeStream();
+          if (!res.headersSent) res.status(500).end();
+          else res.destroy();
+        });
+        fileStream.on("end", finalizeStream);
+        res.on("finish", finalizeStream);
+        res.on("close", () => {
+          if (!res.writableFinished) fileStream.destroy();
+          finalizeStream();
+        });
+
+        streamStarted = true;
+        fileStream.pipe(res);
+      } finally {
+        if (!streamStarted) {
+          await storage.releaseDownloadStream(job.id, downloadLeaseToken);
         }
       }
-
-      // Cancel the 10-minute expiry timer so it doesn't delete files mid-download
-      if (!(await storage.cancelExpiry(job.id))) {
-        return res.status(409).json({ message: "This download has expired. Please recover it and try again." });
-      }
-      storage.recordDownload();
-      recordSecurityEvent(req, {
-        action: "download",
-        outcome: "allowed",
-        reason: "authorized_stream_started",
-        userId: requestUser?.id,
-        userEmail: requestUser?.email,
-        jobId,
-        websiteUrl: job.url,
-        method: authorizationMethod ?? "authorized",
-      });
-      
-      const hostname = new URL(job.url).hostname.replace(/[^a-zA-Z0-9.-]/g, "_");
-      res.setHeader("Content-Type", "application/zip");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="website-sucker-${hostname}.zip"`
-      );
-      
-      const fileStream = downloadArtifact(job.downloadPath) ?? fs.createReadStream(job.downloadPath);
-
-      // Clean up exactly once, whether the download finishes, errors, or the
-      // client aborts mid-stream. Previously only "end" was handled, so an
-      // aborted download (with the expiry timer already cancelled above) leaked
-      // the temp files and job until process restart.
-      let cleanedUp = false;
-      const finalizeDownload = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        setTimeout(async () => {
-          if (await storage.claimCleanup(job.id, 60_000)) {
-            await deleteArtifact(job.downloadPath);
-            await cleanupScrapeFiles(job.id);
-            await storage.deleteJob(job.id);
-          }
-        }, 5000);
-      };
-
-      fileStream.on("error", (err: Error) => {
-        console.error("Download stream error:", err);
-        finalizeDownload();
-        if (!res.headersSent) res.status(500).end();
-        else res.destroy();
-      });
-      fileStream.on("end", finalizeDownload);
-      res.on("close", () => {
-        // Fired if the client disconnects before the stream finishes.
-        if (!res.writableFinished) {
-          fileStream.destroy();
-          finalizeDownload();
-        }
-      });
-
-      fileStream.pipe(res);
 
     } catch (error) {
       console.error("Download error:", error);
@@ -1458,27 +1571,43 @@ export async function registerRoutes(
     if (!code || typeof code !== "string") {
       return res.status(400).json({ success: false, message: "Code is required" });
     }
-    // Validate the job BEFORE consuming the code so an invalid job never
-    // burns a redemption.
     if (jobId) {
-      const job = await storage.getJob(jobId);
-      const ownerMatches = await storage.isOwner(jobId, req.session.userId!);
-      if (!job || job.status !== "completed" || !ownerMatches) {
+      const result = await storage.redeemAccessCodeForJob(
+        code,
+        String(jobId),
+        req.session.userId!,
+      );
+      if (result === "expired") {
+        return res.status(410).json({
+          success: false,
+          message: "This saved backup has expired.",
+          code: "BACKUP_EXPIRED",
+        });
+      }
+      if (result === "invalid_job") {
         return res.status(400).json({ success: false, message: "This code can't be applied to that download" });
       }
+      if (result === "invalid_code") {
+        return res.status(400).json({ success: false, message: "Invalid or expired access code" });
+      }
+
+      const job = await storage.getJob(String(jobId));
+      const user = await getUserById(req.session.userId!);
+      if (job) {
+        recordDownloadEvent({
+          userId: req.session.userId,
+          userEmail: user?.email,
+          jobId: String(jobId),
+          websiteUrl: job.url,
+          method: "access_code",
+        });
+      }
+      return res.json({ success: true, granted: "download" });
     }
+
     const valid = await storage.redeemAccessCode(code);
     if (!valid) {
       return res.status(400).json({ success: false, message: "Invalid or expired access code" });
-    }
-    if (jobId) {
-      await storage.authorizeDownload(jobId, `code:${code}:${jobId}`);
-      const job = await storage.getJob(jobId);
-      const user = await getUserById(req.session.userId!);
-      if (job) {
-        recordDownloadEvent({ userId: req.session.userId, userEmail: user?.email, jobId, websiteUrl: job.url, method: "access_code" });
-      }
-      return res.json({ success: true, granted: "download" });
     }
     await db
       .update(users)

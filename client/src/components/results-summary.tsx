@@ -14,6 +14,9 @@ import {
   RefreshCw,
   Lock,
   Clock,
+  MailCheck,
+  MailWarning,
+  Mail,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Asset, AssetType, ScrapeJob } from "@shared/schema";
+import { formatBackupCountdown } from "@shared/backup-lifecycle";
 
 const assetTypeIcons: Record<AssetType, typeof FileCode> = {
   html: FileText,
@@ -63,12 +67,6 @@ function useCountdown(expiresAt: string | undefined) {
   }, [expiresAt]);
 
   return secondsLeft;
-}
-
-function formatCountdown(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 interface ResultsSummaryProps {
@@ -140,7 +138,7 @@ export function ResultsSummary({
               {secondsLeft !== null && secondsLeft > 0 && (
                 <p className={`text-xs flex items-center gap-1 ${timerColor}`} data-testid="text-expiry-countdown">
                   <Clock className="h-3 w-3" />
-                  Files expire in {formatCountdown(secondsLeft)} — download before they're gone
+                  Files expire in {formatBackupCountdown(secondsLeft)} — download before they're gone
                 </p>
               )}
             </div>
@@ -178,6 +176,30 @@ export function ResultsSummary({
           </div>
         </CardHeader>
         <CardContent>
+          {job.completionEmailStatus === "sent" && (
+            <div className="mb-6 flex items-start gap-3 rounded-lg border border-green-500/30 bg-green-500/10 p-4" data-testid="alert-completion-email-sent">
+              <MailCheck className="mt-0.5 h-5 w-5 flex-none text-green-600 dark:text-green-400" />
+              <p className="text-sm text-muted-foreground">
+                We emailed you a link to this saved result. You can return and download it again during the eight-hour window.
+              </p>
+            </div>
+          )}
+          {job.completionEmailStatus === "failed" && (
+            <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4" data-testid="alert-completion-email-failed">
+              <MailWarning className="mt-0.5 h-5 w-5 flex-none text-amber-600 dark:text-amber-400" />
+              <p className="text-sm text-muted-foreground">
+                We couldn't send the ready email, but your backup is safe and remains downloadable here until it expires.
+              </p>
+            </div>
+          )}
+          {job.completionEmailStatus === "pending" && (
+            <div className="mb-6 flex items-start gap-3 rounded-lg border bg-muted/40 p-4" data-testid="alert-completion-email-pending">
+              <Mail className="mt-0.5 h-5 w-5 flex-none text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Your backup is ready. We're sending the saved-result link to your account email now.
+              </p>
+            </div>
+          )}
           {job.truncated && (
             <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4" data-testid="alert-results-truncated">
               <div className="mb-2 flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300">

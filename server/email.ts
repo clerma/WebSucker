@@ -2,11 +2,13 @@ import { ReplitConnectors } from "@replit/connectors-sdk";
 
 // Send transactional email through the Resend connection.
 // Never cache the connectors client across requests — tokens refresh.
-async function resendRequest(path: string, init: { method: string; body?: string }) {
+async function resendRequest(path: string, init: { method: string; body?: string; idempotencyKey?: string }) {
   const connectors = new ReplitConnectors();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (init.idempotencyKey) headers["Idempotency-Key"] = init.idempotencyKey;
   const res = await connectors.proxy("resend", path, {
     method: init.method,
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: init.body,
   });
   return res;
@@ -166,6 +168,53 @@ export async function sendEmailVerificationEmail(to: string, verificationUrl: st
   const res = await resendRequest("/emails", {
     method: "POST",
     body: JSON.stringify(buildEmailVerificationEmail(to, verificationUrl)),
+  });
+  await requireSuccessfulSend(res);
+}
+
+type BackupReadyEmailInput = {
+  to: string;
+  resultUrl: string;
+  siteUrl: string;
+  expiresAt: Date;
+  truncated: boolean;
+};
+
+export function buildBackupReadyEmail(input: BackupReadyEmailInput): EmailPayload {
+  const hostname = new URL(input.siteUrl).hostname;
+  const safeResultUrl = escapeHtml(input.resultUrl);
+  const expiry = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(input.expiresAt);
+  const backupKind = input.truncated ? "partial backup" : "backup";
+
+  return {
+    from: FROM_ADDRESS,
+    to: [input.to],
+    subject: `Your ${hostname} backup is ready`,
+    html: brandedEmail({
+      title: input.truncated ? "Your partial backup is ready" : "Your backup is ready",
+      preheader: `Your ${hostname} ${backupKind} is ready to download.`,
+      assetOrigin: trustedEmailOrigin(input.resultUrl),
+      body: `
+        <p style="margin:0 0 16px;color:#3f4b5f;font-size:15px;line-height:1.65;">Your ${escapeHtml(backupKind)} of <strong>${escapeHtml(hostname)}</strong> is ready. You can download it more than once for the next 8 hours.</p>
+        <p style="margin:0 0 16px;color:#3f4b5f;font-size:15px;line-height:1.65;">It expires at <strong>${escapeHtml(expiry)} UTC</strong>.</p>
+        ${actionButton(input.resultUrl, "Open saved result")}
+        <p style="margin:0 0 14px;color:#718096;font-size:13px;line-height:1.55;">Sign in with this email address to open the result. This link does not bypass account ownership or download payment requirements.</p>
+        <p style="margin:0;color:#718096;font-size:13px;line-height:1.55;">If the button doesn't work, copy this link into your browser:<br><a href="${safeResultUrl}" style="color:#265eff;word-break:break-all;">${safeResultUrl}</a></p>`,
+    }),
+  };
+}
+
+export async function sendBackupReadyEmail(
+  input: BackupReadyEmailInput & { jobId: string },
+): Promise<void> {
+  const res = await resendRequest("/emails", {
+    method: "POST",
+    body: JSON.stringify(buildBackupReadyEmail(input)),
+    idempotencyKey: `website-sucker-backup-${input.jobId}`,
   });
   await requireSuccessfulSend(res);
 }

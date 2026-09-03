@@ -20,6 +20,7 @@ import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
 import VerifyEmailPage from "@/pages/verify-email";
 import ReviewPage from "@/pages/review";
+import SavedBackupPage from "@/pages/saved-backup";
 import LandingPage from "@/pages/landing-page";
 import { AccountMenu } from "@/components/account-menu";
 import { LANDING_SLUGS } from "@/data/landing-pages";
@@ -37,6 +38,9 @@ function Router() {
       <Route path="/reset-password" component={ResetPasswordPage} />
       <Route path="/verify-email" component={VerifyEmailPage} />
       <Route path="/review" component={ReviewPage} />
+      <Route path="/backup/:jobId">
+        {(params) => <SavedBackupPage jobId={params.jobId} />}
+      </Route>
       <Route path="/terms" component={Terms} />
       <Route path="/admin" component={Admin} />
       <Route path="/checkout/success" component={CheckoutSuccess} />

@@ -12,3 +12,4 @@
 - [Resumable crawl checkpoints](resumable-crawl-checkpoints.md) — DB-accepted checkpoints belong to the job, not their creator; stale workers must never delete them after takeover.
 - [Verified-email free tier](verified-email-free-tier.md) — existing users are grandfathered; new users stay signed out until a one-hour single-use link is consumed.
 - [Review request scheduling](review-request-scheduling.md) — schedule 24-hour review emails with Resend at checkout webhook time; do not rely on sleeping autoscale timers.
+- [Expiring artifact delivery](expiring-artifact-delivery.md) — persist expiry with completion; stream under renewable DB leases; send claimed, idempotent post-commit notifications.
