@@ -2,7 +2,7 @@ import * as cheerio from "cheerio";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { execSync } from "child_process";
+import { execFile, execSync } from "child_process";
 import archiver from "archiver";
 import puppeteerVanilla from "puppeteer";
 import puppeteerExtra from "puppeteer-extra";
@@ -15,13 +15,19 @@ puppeteerExtra.use(StealthPlugin());
 const puppeteer: typeof puppeteerVanilla = puppeteerExtra as any;
 import { storage } from "./storage";
 import { assertPublicUrl, isHostPublic, SsrfError } from "./security";
-import type { Asset, AssetType, AssetStatus, ScrapeProgress } from "@shared/schema";
+import type {
+  Asset, AssetType, AssetStatus, CrawlQueueItem, CrawlState, ScrapePhase, ScrapeProgress,
+} from "@shared/schema";
+import {
+  checkpointReferenceForJob, deleteArtifact, downloadArtifactToFile, uploadCheckpoint,
+} from "./artifact-storage";
 
 type ProgressCallback = (progress: ScrapeProgress, asset?: Asset) => void;
 
 interface ScrapeOptions {
   jobId: string;
   url: string;
+  executionToken: string;
   onProgress: ProgressCallback;
 }
 
@@ -35,6 +41,7 @@ const MAX_ASSETS = positiveLimit(process.env.SCRAPE_MAX_ASSETS, 1500);
 const MAX_HTML_PAGES = positiveLimit(process.env.SCRAPE_MAX_PAGES, 100);
 const MAX_ASSET_SIZE = 20 * 1024 * 1024; // 20MB per asset
 const REQUEST_DELAY = 150; // ms between requests
+const CHECKPOINT_BATCH_SIZE = positiveLimit(process.env.SCRAPE_CHECKPOINT_BATCH_SIZE, 50);
 
 const ALLOWED_EXTENSIONS = new Set([
   ".html", ".htm", ".css", ".js", ".mjs", ".json",
@@ -186,7 +193,7 @@ function parseSrcset(srcset: string): Array<{ url: string; descriptor: string }>
 function enqueueWixDataImageUrls(
   $: cheerio.CheerioAPI,
   discoveredUrls: Set<string>,
-  urlQueue: Array<{ url: string; referrer: string }>,
+  target: CrawlQueueItem[] | ((url: string, referrer: string) => void),
   currentUrl: string,
 ): void {
   $("[data-image-info]").each((_, el) => {
@@ -196,8 +203,12 @@ function enqueueWixDataImageUrls(
       const cdnUrl = resolveWixUri(String(info.uri));
       const normalized = cdnUrl ? normalizeUrl(cdnUrl, currentUrl) : null;
       if (normalized && !discoveredUrls.has(normalized)) {
-        discoveredUrls.add(normalized);
-        urlQueue.push({ url: normalized, referrer: currentUrl });
+        if (typeof target === "function") {
+          target(normalized, currentUrl);
+        } else {
+          discoveredUrls.add(normalized);
+          target.push({ url: normalized, referrer: currentUrl });
+        }
       }
     } catch {}
   });
@@ -249,6 +260,65 @@ function getAssetType(url: string): AssetType {
   if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif"].includes(ext)) return "image";
   if ([".woff", ".woff2", ".ttf", ".eot", ".otf"].includes(ext)) return "font";
   return "other";
+}
+
+interface CrawlQueues {
+  html: CrawlQueueItem[];
+  code: CrawlQueueItem[];
+  media: CrawlQueueItem[];
+}
+
+export function crawlPhaseForUrl(url: string): Exclude<ScrapePhase, "finalizing"> {
+  const type = getAssetType(url);
+  if (type === "html") return "pages";
+  if (type === "css" || type === "js" || type === "font") return "code";
+  return "media";
+}
+
+export function enqueueCrawlCandidate(
+  queues: CrawlQueues,
+  discoveredUrls: Set<string>,
+  item: CrawlQueueItem,
+): boolean {
+  if (discoveredUrls.has(item.url)) return false;
+  discoveredUrls.add(item.url);
+  const phase = crawlPhaseForUrl(item.url);
+  queues[phase === "pages" ? "html" : phase].push(item);
+  return true;
+}
+
+export function selectNextCrawlQueue(
+  queues: CrawlQueues,
+): { phase: Exclude<ScrapePhase, "finalizing">; queue: CrawlQueueItem[] } | undefined {
+  if (queues.html.length > 0) return { phase: "pages", queue: queues.html };
+  if (queues.code.length > 0) return { phase: "code", queue: queues.code };
+  if (queues.media.length > 0) return { phase: "media", queue: queues.media };
+  return undefined;
+}
+
+export function buildResumeQueueItems(
+  assets: Asset[],
+  fileExists: (localPath: string) => boolean,
+  defaultReferrer: string,
+): CrawlQueueItem[] {
+  return assets.flatMap(asset => {
+    const needsRetry =
+      asset.status === "downloading" ||
+      asset.status === "pending" ||
+      (asset.status === "success" && !fileExists(asset.localPath));
+    return needsRetry
+      ? [{ url: asset.originalUrl, referrer: asset.referencedFrom ?? defaultReferrer }]
+      : [];
+  });
+}
+
+export async function extractZipArchive(zipPath: string, outputDir: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile("unzip", ["-oq", zipPath, "-d", outputDir], error => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
 
 function normalizeUrl(href: string, baseUrl: string): string | null {
@@ -1801,10 +1871,11 @@ export interface ScrapeResult {
   zipPath: string;
   truncated: boolean;
   truncationReasons: string[];
+  checkpointReference?: string;
 }
 
 export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResult> {
-  const { jobId, url, onProgress } = options;
+  const { jobId, url, executionToken, onProgress } = options;
   // SSRF protection — resolve the entry host and reject private/reserved IPs,
   // non-HTTP(S) schemes, and hosts that fail to resolve.
   const baseUrl = await assertPublicUrl(url);
@@ -1815,61 +1886,217 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
   // temporary rate limits that lift after a few minutes).
   resetHostBreaker(url);
 
-  const discoveredUrls = new Set<string>();
-  const processedUrls = new Set<string>();
-  const urlQueue: Array<{ url: string; referrer: string }> = [{ url, referrer: "Entry point" }];
-  const assetMap = new Map<string, Asset>();
-  let htmlPagesProcessed = 0;
-  const truncationReasons = new Set<string>();
-  const omittedUrlSamples: string[] = [];
-  const pageDiscoverySkippedUrls: string[] = [];
-  
-  const outputDir = `/tmp/scrape-${jobId}`;
+  // Execution-scoped local paths prevent a stale worker from deleting or
+  // rewriting the replacement worker's files after lease takeover.
+  const outputDir = `/tmp/scrape-${jobId}-${executionToken}`;
   await fs.promises.mkdir(outputDir, { recursive: true });
 
-  // Probe the entry URL once to decide whether Puppeteer is needed at all.
-  // Static HTML sites (templates, docs, etc.) skip Puppeteer entirely,
-  // reducing per-page render time from ~15s to ~300ms.
-  const usePuppeteer = await probeNeedsPuppeteer(url);
-  console.log(`[${jobId}] Site probe: ${usePuppeteer ? "dynamic (Puppeteer ON)" : "static (Puppeteer OFF)"} — ${url}`);
+  const savedState = await storage.getCrawlState(jobId);
+  let checkpointReference = savedState?.checkpointReference;
+  let pendingCheckpointReference = savedState?.pendingCheckpointReference;
+  if (pendingCheckpointReference) {
+    // A prior worker published this intent before upload. Whether it crashed
+    // before or after upload, the object was never accepted as authoritative.
+    await deleteArtifact(pendingCheckpointReference);
+    pendingCheckpointReference = undefined;
+  }
+  if (checkpointReference) {
+    const checkpointFile = `/tmp/scrape-${jobId}-${executionToken}-restore.zip`;
+    try {
+      if (await downloadArtifactToFile(checkpointReference, checkpointFile)) {
+        // Keep extraction off the Node event loop so the execution-lease
+        // renewal timer can continue while restoring a large checkpoint.
+        await extractZipArchive(checkpointFile, outputDir);
+      }
+    } catch (error) {
+      // The manifest remains authoritative. Missing files are detected below
+      // and requeued rather than silently treated as downloaded.
+      console.warn(`[${jobId}] Could not restore crawl checkpoint; missing files will be re-downloaded:`, error);
+    } finally {
+      await fs.promises.unlink(checkpointFile).catch(() => {});
+    }
+  }
 
-  const sendProgress = () => {
-    const job = {
+  const existingJob = await storage.getJob(jobId);
+  const assetMap = new Map<string, Asset>();
+  for (const asset of existingJob?.assets ?? []) assetMap.set(asset.originalUrl, asset);
+
+  const htmlQueue: CrawlQueueItem[] = savedState ? [...savedState.htmlQueue] : [];
+  const codeQueue: CrawlQueueItem[] = savedState ? [...savedState.codeQueue] : [];
+  const mediaQueue: CrawlQueueItem[] = savedState ? [...savedState.mediaQueue] : [];
+  const discoveredUrls = new Set<string>(savedState?.discoveredUrls ?? []);
+  const processedUrls = new Set<string>(savedState?.processedUrls ?? []);
+  let htmlPagesProcessed = savedState?.htmlPagesProcessed ?? 0;
+  const truncationReasons = new Set<string>(savedState?.truncationReasons ?? []);
+  const unfinishedPhases = new Set<ScrapePhase>(savedState?.unfinishedPhases ?? []);
+  const omittedUrlSamples: string[] = [...(savedState?.omittedUrlSamples ?? [])];
+  const pageDiscoverySkippedUrls: string[] = [...(savedState?.pageDiscoverySkippedUrls ?? [])];
+  let batchNumber = savedState?.batchNumber ?? 1;
+  let checkpointGeneration = savedState?.checkpointGeneration ?? 0;
+  let itemsSinceCheckpoint = savedState?.itemsSinceCheckpoint ?? 0;
+  let inFlight = savedState?.inFlight;
+  let activePhase: ScrapePhase = savedState?.phase ?? "pages";
+
+  const queueForType = (assetType: AssetType): CrawlQueueItem[] => {
+    if (assetType === "html") return htmlQueue;
+    if (assetType === "css" || assetType === "js" || assetType === "font") return codeQueue;
+    return mediaQueue;
+  };
+  const phasedQueues: CrawlQueues = { html: htmlQueue, code: codeQueue, media: mediaQueue };
+  const enqueue = (candidateUrl: string, referrer: string): void => {
+    enqueueCrawlCandidate(phasedQueues, discoveredUrls, { url: candidateUrl, referrer });
+  };
+  const enqueueForRetry = (item: CrawlQueueItem): void => {
+    const queue = queueForType(getAssetType(item.url));
+    if (!queue.some(queued => queued.url === item.url)) queue.unshift(item);
+  };
+
+  if (!savedState) enqueue(url, "Entry point");
+  if (inFlight) {
+    processedUrls.delete(inFlight.url);
+    enqueueForRetry(inFlight);
+    inFlight = undefined;
+  }
+
+  // DB progress can be ahead of the latest file checkpoint. Requeue only the
+  // successful files absent from the restored checkpoint; existing asset rows
+  // are reused, so recovery cannot duplicate records or counts.
+  for (const item of buildResumeQueueItems(
+    existingJob?.assets ?? [],
+    localPath => fs.existsSync(path.join(outputDir, localPath)),
+    url,
+  )) {
+    processedUrls.delete(item.url);
+    enqueueForRetry(item);
+  }
+
+  // Probe only on a fresh crawl. A resumed crawl uses the renderer decision
+  // captured in its durable manifest so behavior stays consistent.
+  const usePuppeteer = savedState?.usePuppeteer ?? await probeNeedsPuppeteer(url);
+  console.log(`[${jobId}] ${savedState ? "Resuming" : "Starting"} ${usePuppeteer ? "dynamic" : "static"} phased crawl — ${url}`);
+
+  const uniqueAssets = () => Array.from(new Map(
+    Array.from(assetMap.values()).map(asset => [asset.id, asset]),
+  ).values());
+  const currentProgress = (message?: string, currentAsset?: Asset): ScrapeProgress => {
+    const assets = uniqueAssets();
+    return {
       jobId,
       status: "scraping" as const,
-      totalAssets: assetMap.size,
-      processedAssets: Array.from(assetMap.values()).filter(
+      currentAsset,
+      totalAssets: assets.length,
+      processedAssets: assets.filter(
         a => a.status === "success" || a.status === "failed" || a.status === "skipped"
       ).length,
-      successfulAssets: Array.from(assetMap.values()).filter(a => a.status === "success").length,
-      failedAssets: Array.from(assetMap.values()).filter(a => a.status === "failed").length,
+      successfulAssets: assets.filter(a => a.status === "success").length,
+      failedAssets: assets.filter(a => a.status === "failed").length,
+      truncated: truncationReasons.size > 0,
+      truncationReasons: Array.from(truncationReasons),
+      phase: activePhase,
+      batchNumber,
+      pagesProcessed: htmlPagesProcessed,
+      pendingAssets: htmlQueue.length + codeQueue.length + mediaQueue.length,
+      message,
     };
-    onProgress(job);
+  };
+  const crawlState = (): CrawlState => ({
+    version: 1,
+    usePuppeteer,
+    phase: activePhase,
+    batchNumber,
+    htmlQueue,
+    codeQueue,
+    mediaQueue,
+    discoveredUrls: Array.from(discoveredUrls),
+    processedUrls: Array.from(processedUrls),
+    htmlPagesProcessed,
+    truncationReasons: Array.from(truncationReasons),
+    unfinishedPhases: Array.from(unfinishedPhases),
+    omittedUrlSamples,
+    pageDiscoverySkippedUrls,
+    checkpointReference,
+    pendingCheckpointReference,
+    checkpointGeneration,
+    itemsSinceCheckpoint,
+    inFlight,
+  });
+  const saveState = async () => {
+    if (!(await storage.saveCrawlState(jobId, crawlState()))) {
+      throw new Error("JOB_EXECUTION_LEASE_LOST");
+    }
+  };
+  const saveFileCheckpoint = async () => {
+    const generation = checkpointGeneration + 1;
+    const checkpointFile = `/tmp/scrape-${jobId}-${executionToken}-checkpoint-${generation}.zip`;
+    await createZipArchive(outputDir, checkpointFile);
+    // Persist the deterministic object key before upload so recovery can clean
+    // up a crash between object creation and publishing the manifest pointer.
+    pendingCheckpointReference = checkpointReferenceForJob(jobId, executionToken, generation);
+    await saveState();
+    const nextReference = await uploadCheckpoint(jobId, executionToken, generation, checkpointFile);
+    if (nextReference !== checkpointFile) {
+      await fs.promises.unlink(checkpointFile).catch(() => {});
+    }
+    const previousReference = checkpointReference;
+    checkpointGeneration = generation;
+    checkpointReference = nextReference;
+    pendingCheckpointReference = undefined;
+    itemsSinceCheckpoint = 0;
+    if (!(await storage.saveCrawlState(jobId, crawlState()))) {
+      await deleteArtifact(nextReference).catch(() => {});
+      throw new Error("JOB_EXECUTION_LEASE_LOST");
+    }
+    if (previousReference && previousReference !== nextReference) {
+      await deleteArtifact(previousReference).catch(error =>
+        console.warn(`[${jobId}] Old checkpoint cleanup failed:`, error));
+    }
+  };
+  const finishItem = async () => {
+    inFlight = undefined;
+    itemsSinceCheckpoint++;
+    if (itemsSinceCheckpoint >= CHECKPOINT_BATCH_SIZE) {
+      batchNumber++;
+      await saveFileCheckpoint();
+    } else {
+      await saveState();
+    }
   };
 
   // Track Wix CDN base URLs already downloaded so we don't re-download every
   // transformation variant (1x, 2x, different sizes) of the same image.
   const wixBaseDownloaded = new Map<string, Asset>(); // baseUrl -> asset
 
-  // Process HTML pages first, then other assets
-  while (urlQueue.length > 0) {
+  let announcedPhase: ScrapePhase | undefined;
+  // Always drain newly discovered HTML first, then shared code, then images/media.
+  while (htmlQueue.length > 0 || codeQueue.length > 0 || mediaQueue.length > 0) {
+    const selection = selectNextCrawlQueue(phasedQueues)!;
+    const selectedQueue = selection.queue;
+    activePhase = selection.phase;
+    if (announcedPhase !== activePhase) {
+      announcedPhase = activePhase;
+      const phaseLabel = activePhase === "pages"
+        ? "Discovering and saving pages first"
+        : activePhase === "code"
+          ? "Downloading shared styles, scripts, and fonts"
+          : "Downloading images and other media";
+      onProgress(currentProgress(`${phaseLabel} — batch ${batchNumber}`));
+      await saveState();
+    }
     // Enforce asset limit
-    if (assetMap.size >= MAX_ASSETS) {
+    if (uniqueAssets().length >= MAX_ASSETS) {
       const reason = `Asset limit reached (${MAX_ASSETS.toLocaleString()}). The archive contains everything downloaded before the limit; additional discovered items were omitted.`;
       truncationReasons.add(reason);
-      for (const item of urlQueue) {
+      if (htmlQueue.length > 0) unfinishedPhases.add("pages");
+      if (codeQueue.length > 0) unfinishedPhases.add("code");
+      if (mediaQueue.length > 0) unfinishedPhases.add("media");
+      for (const item of [...htmlQueue, ...codeQueue, ...mediaQueue]) {
         if (omittedUrlSamples.length >= 100) break;
         if (!processedUrls.has(item.url) && !omittedUrlSamples.includes(item.url)) {
           omittedUrlSamples.push(item.url);
         }
       }
       onProgress({
-        jobId,
-        status: "scraping",
-        totalAssets: assetMap.size,
-        processedAssets: assetMap.size,
-        successfulAssets: Array.from(assetMap.values()).filter(a => a.status === "success").length,
-        failedAssets: Array.from(assetMap.values()).filter(a => a.status === "failed").length,
+        ...currentProgress(),
         truncated: true,
         truncationReasons: Array.from(truncationReasons),
         message: `Large site: ${MAX_ASSETS.toLocaleString()}-asset limit reached. Finishing the partial backup with everything captured so far…`,
@@ -1877,20 +2104,32 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
       break;
     }
     
-    const queueItem = urlQueue.shift()!;
+    const queueItem = selectedQueue.shift()!;
     const currentUrl = queueItem.url;
     const currentReferrer = queueItem.referrer;
     
-    if (processedUrls.has(currentUrl)) continue;
+    if (processedUrls.has(currentUrl)) {
+      await saveState();
+      continue;
+    }
     processedUrls.add(currentUrl);
+    inFlight = queueItem;
+    await saveState();
     
     // SSRF: resolve each discovered URL's host and skip anything that isn't a
     // public http(s) address (blocks redirect / DNS-rebind pivots to internal IPs).
     try {
       const parsedUrl = new URL(currentUrl);
-      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") continue;
-      if (!(await isHostPublic(parsedUrl.hostname))) continue;
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        await finishItem();
+        continue;
+      }
+      if (!(await isHostPublic(parsedUrl.hostname))) {
+        await finishItem();
+        continue;
+      }
     } catch {
+      await finishItem();
       continue;
     }
     
@@ -1909,6 +2148,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
           // Already downloaded this image under another transformation variant.
           // Alias this URL to the existing asset so rewriteUrls can find it directly.
           assetMap.set(currentUrl, existingAsset);
+          await finishItem();
           continue;
         }
         // Not yet downloaded — redirect the download to the base (non-transformed) URL.
@@ -1920,32 +2160,34 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
     const localPath = urlToLocalPath(downloadUrl, url);
     const isExternal = isExternalUrl(downloadUrl, baseHost);
     
-    // Create asset record with referrer tracking
-    let asset = await storage.addAsset(jobId, {
-      type: assetType,
-      originalUrl: downloadUrl,
-      localPath,
-      status: "downloading",
-      referencedFrom: currentReferrer,
-    });
+    // Reuse a durable asset row after recovery; only fresh discoveries create
+    // a new row. This keeps counts and activity history idempotent.
+    let asset = assetMap.get(downloadUrl) ?? assetMap.get(currentUrl);
+    if (asset) {
+      asset = (await storage.updateAsset(jobId, asset.id, {
+        status: "downloading",
+        error: undefined,
+        referencedFrom: asset.referencedFrom ?? currentReferrer,
+      }))!;
+    } else {
+      asset = await storage.addAsset(jobId, {
+        type: assetType,
+        originalUrl: downloadUrl,
+        localPath,
+        status: "downloading",
+        referencedFrom: currentReferrer,
+      });
+    }
     assetMap.set(currentUrl, asset);
     // For Wix CDN normalised URLs, also index by the base URL
     if (downloadUrl !== currentUrl) {
       assetMap.set(downloadUrl, asset);
     }
     
-    onProgress({
-      jobId,
-      status: "scraping",
-      currentAsset: asset,
-      totalAssets: assetMap.size,
-      processedAssets: Array.from(assetMap.values()).filter(
-        a => a.status === "success" || a.status === "failed" || a.status === "skipped"
-      ).length,
-      successfulAssets: Array.from(assetMap.values()).filter(a => a.status === "success").length,
-      failedAssets: Array.from(assetMap.values()).filter(a => a.status === "failed").length,
-      message: `Downloading: ${currentUrl}`,
-    }, asset);
+    onProgress(currentProgress(
+      `${activePhase === "pages" ? "Saving page" : activePhase === "code" ? "Downloading shared code" : "Downloading media"}: ${currentUrl}`,
+      asset,
+    ), asset);
     
     // Skip analytics/tracking scripts and feed URLs
     const skipCheck = shouldSkipUrl(downloadUrl);
@@ -1967,6 +2209,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
         failedAssets: Array.from(assetMap.values()).filter(a => a.status === "failed").length,
         message: `Skipped: ${currentUrl}`,
       }, asset);
+      await finishItem();
       continue;
     }
 
@@ -2062,8 +2305,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
               for (const extra of rendered.extraAssetUrls) {
                 const normalized = normalizeUrl(extra, currentUrl);
                 if (normalized && !discoveredUrls.has(normalized)) {
-                  discoveredUrls.add(normalized);
-                  urlQueue.push({ url: normalized, referrer: currentUrl });
+                  enqueue(normalized, currentUrl);
                 }
               }
             }
@@ -2146,6 +2388,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
               error: "RSS/XML feed content (not HTML)",
             }))!;
             assetMap.set(currentUrl, asset);
+            await finishItem();
             continue;
           }
         }
@@ -2177,6 +2420,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
         if (htmlPagesProcessed > MAX_HTML_PAGES) {
           const reason = `Page discovery limit reached (${MAX_HTML_PAGES.toLocaleString()}). The scraper stopped following links from additional pages but kept downloading already queued content.`;
           truncationReasons.add(reason);
+          unfinishedPhases.add("pages");
           if (pageDiscoverySkippedUrls.length < 100) pageDiscoverySkippedUrls.push(currentUrl);
           onProgress({
             jobId,
@@ -2192,6 +2436,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
             truncationReasons: Array.from(truncationReasons),
             message: `Large site: ${MAX_HTML_PAGES.toLocaleString()}-page discovery limit reached. Downloading everything already queued…`,
           }, asset);
+          await finishItem();
           continue;
         }
         
@@ -2231,8 +2476,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
               if (src) {
                 const normalized = normalizeUrl(src, currentUrl);
                 if (normalized && !discoveredUrls.has(normalized)) {
-                  discoveredUrls.add(normalized);
-                  urlQueue.push({ url: normalized, referrer: currentUrl });
+                  enqueue(normalized, currentUrl);
                 }
               }
             });
@@ -2249,10 +2493,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
               parseSrcset(value).forEach(entry => {
                 const normalized = normalizeUrl(entry.url, currentUrl);
                 if (normalized && !discoveredUrls.has(normalized)) {
-                  discoveredUrls.add(normalized);
                   const type = getAssetType(normalized);
                   if (type !== "html" || !isExternalUrl(normalized, baseHost)) {
-                    urlQueue.push({ url: normalized, referrer: currentUrl });
+                    enqueue(normalized, currentUrl);
                   }
                 }
               });
@@ -2268,8 +2511,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
                   if (urlMatch && urlMatch[1]) {
                     const normalized = normalizeUrl(urlMatch[1], currentUrl);
                     if (normalized && !discoveredUrls.has(normalized)) {
-                      discoveredUrls.add(normalized);
-                      urlQueue.push({ url: normalized, referrer: currentUrl });
+                      enqueue(normalized, currentUrl);
                     }
                   }
                 });
@@ -2305,9 +2547,10 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
                 } catch {}
               }
               if (!discoveredUrls.has(dedupeKey)) {
-                discoveredUrls.add(dedupeKey);
                 if (type !== "html" || !isExternalUrl(normalized, baseHost)) {
-                  urlQueue.push({ url: queueUrl, referrer: currentUrl });
+                  enqueue(queueUrl, currentUrl);
+                } else {
+                  discoveredUrls.add(dedupeKey);
                 }
               }
             }
@@ -2317,7 +2560,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
         // Wix-specific: images may exist only in data-image-info. Queue their
         // canonical CDN URL now, before the crawl drains, so offline rewriting
         // has a downloaded local asset rather than falling back to a placeholder.
-        enqueueWixDataImageUrls($, discoveredUrls, urlQueue, currentUrl);
+        enqueueWixDataImageUrls($, discoveredUrls, enqueue, currentUrl);
 
         // Wix-specific: resolve wix:image:// URIs in src / data-src to real CDN URLs
         $("img[src^='wix:image://'], img[data-src^='wix:image://']").each((_, el) => {
@@ -2326,8 +2569,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
             if (wixUri?.startsWith("wix:image://")) {
               const cdnUrl = resolveWixUri(wixUri);
               if (cdnUrl && !discoveredUrls.has(cdnUrl)) {
-                discoveredUrls.add(cdnUrl);
-                urlQueue.push({ url: cdnUrl, referrer: currentUrl });
+                enqueue(cdnUrl, currentUrl);
               }
             }
           }
@@ -2339,8 +2581,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
           if (cssContent) {
             extractUrlsFromCss(cssContent, currentUrl).forEach(cssUrl => {
               if (!discoveredUrls.has(cssUrl)) {
-                discoveredUrls.add(cssUrl);
-                urlQueue.push({ url: cssUrl, referrer: currentUrl });
+                enqueue(cssUrl, currentUrl);
               }
             });
           }
@@ -2352,8 +2593,7 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
         const cssContent = content.toString("utf-8");
         extractUrlsFromCss(cssContent, currentUrl).forEach(cssUrl => {
           if (!discoveredUrls.has(cssUrl)) {
-            discoveredUrls.add(cssUrl);
-            urlQueue.push({ url: cssUrl, referrer: currentUrl });
+            enqueue(cssUrl, currentUrl);
           }
         });
       }
@@ -2416,8 +2656,15 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
     
     // Small delay to avoid overwhelming servers
     await new Promise(resolve => setTimeout(resolve, REQUEST_DELAY));
+    await finishItem();
   }
-  
+
+  activePhase = "finalizing";
+  onProgress(currentProgress("Finalizing offline pages and building one ZIP…"));
+  // Capture the last partial batch before destructive transforms/rewrite so a
+  // restart during finalization can resume from downloaded source files.
+  if (itemsSinceCheckpoint > 0) await saveFileCheckpoint();
+
   // Transform HTML for offline viewing (handle lazy loading, noscript, etc.)
   await transformForOffline(outputDir);
   
@@ -2431,16 +2678,18 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResul
     truncationReasons: Array.from(truncationReasons),
     omittedUrlSamples,
     pageDiscoverySkippedUrls,
+    unfinishedPhases: Array.from(unfinishedPhases),
   });
   
   // Create ZIP archive
-  const zipPath = `/tmp/scrape-${jobId}.zip`;
+  const zipPath = `/tmp/scrape-${jobId}-${executionToken}.zip`;
   await createZipArchive(outputDir, zipPath);
   
   return {
     zipPath,
     truncated: truncationReasons.size > 0,
     truncationReasons: Array.from(truncationReasons),
+    checkpointReference,
   };
 }
 
@@ -2452,6 +2701,7 @@ async function generateScrapeReport(
     truncationReasons: string[];
     omittedUrlSamples: string[];
     pageDiscoverySkippedUrls: string[];
+    unfinishedPhases: ScrapePhase[];
   },
 ): Promise<void> {
   const failedAssets = Array.from(assetMap.values()).filter(a => a.status === "failed");
@@ -2479,6 +2729,12 @@ async function generateScrapeReport(
     lines.push("");
     for (const reason of truncation.truncationReasons) lines.push(`- ${reason}`);
     lines.push("");
+    if (truncation.unfinishedPhases.length > 0) {
+      lines.push(`UNFINISHED PHASES: ${truncation.unfinishedPhases.map(phase =>
+        phase === "pages" ? "page discovery" : phase === "code" ? "shared code/fonts" : "images/media"
+      ).join(", ")}`);
+      lines.push("");
+    }
     if (truncation.omittedUrlSamples.length > 0) {
       lines.push("SAMPLE OF QUEUED URLS NOT DOWNLOADED");
       lines.push("-".repeat(80));
@@ -3355,7 +3611,7 @@ async function findFiles(dir: string, extensions: string[]): Promise<string[]> {
   return files;
 }
 
-async function createZipArchive(sourceDir: string, outputPath: string): Promise<void> {
+export async function createZipArchive(sourceDir: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const output = fs.createWriteStream(outputPath);
     const archive = archiver("zip", { zlib: { level: 9 } });
@@ -3370,13 +3626,23 @@ async function createZipArchive(sourceDir: string, outputPath: string): Promise<
   });
 }
 
-export async function cleanupScrapeFiles(jobId: string): Promise<void> {
-  const outputDir = `/tmp/scrape-${jobId}`;
-  const zipPath = `/tmp/scrape-${jobId}.zip`;
-  
+export async function cleanupScrapeFiles(jobId: string, executionToken?: string): Promise<void> {
   try {
-    await fs.promises.rm(outputDir, { recursive: true, force: true });
-    await fs.promises.rm(zipPath, { force: true });
+    if (executionToken) {
+      const prefix = `/tmp/scrape-${jobId}-${executionToken}`;
+      await fs.promises.rm(prefix, { recursive: true, force: true });
+      await fs.promises.rm(`${prefix}.zip`, { force: true });
+      const entries = await fs.promises.readdir("/tmp");
+      await Promise.all(entries
+        .filter(name => name.startsWith(`scrape-${jobId}-${executionToken}-`))
+        .map(name => fs.promises.rm(path.join("/tmp", name), { recursive: true, force: true })));
+    } else {
+      const entries = await fs.promises.readdir("/tmp");
+      await Promise.all(entries
+        .filter(name => name === `scrape-${jobId}` || name.startsWith(`scrape-${jobId}-`))
+        .map(name => fs.promises.rm(path.join("/tmp", name), { recursive: true, force: true })));
+      await fs.promises.rm(`/tmp/scrape-${jobId}.zip`, { force: true });
+    }
   } catch {
     // Ignore cleanup errors
   }

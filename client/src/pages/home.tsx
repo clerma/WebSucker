@@ -306,6 +306,22 @@ export default function Home() {
               setViewState("input");
               return;
             }
+            setProgress((prev) => ({
+              ...prev,
+              jobId: job.id,
+              status: job.status,
+              totalAssets: job.totalAssets,
+              processedAssets: job.processedAssets,
+              successfulAssets: job.successfulAssets,
+              failedAssets: job.failedAssets,
+              truncated: job.truncated,
+              truncationReasons: job.truncationReasons,
+              phase: job.phase,
+              batchNumber: job.batchNumber,
+              pagesProcessed: job.pagesProcessed,
+              pendingAssets: job.pendingAssets,
+              message: "Reconnecting to the active scrape…",
+            }));
             // Job still running — attempt to reconnect with exponential backoff.
             if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
               const attempt = ++reconnectAttemptsRef.current;

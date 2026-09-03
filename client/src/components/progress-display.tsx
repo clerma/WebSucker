@@ -52,6 +52,13 @@ const statusColors: Record<AssetStatus, string> = {
   skipped: "text-yellow-500",
 };
 
+const phaseLabels = {
+  pages: "Pages first",
+  code: "Shared code",
+  media: "Images & media",
+  finalizing: "Finalizing ZIP",
+} as const;
+
 interface ProgressDisplayProps {
   progress: ScrapeProgress;
   assets: Asset[];
@@ -115,6 +122,30 @@ export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
               <p className="text-muted-foreground">
                 A crawl safety limit was reached. We are keeping everything captured so far and downloading all remaining queued files.
               </p>
+            </div>
+          )}
+          {progress.phase && (
+            <div
+              className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+              data-testid="scrape-phase-summary"
+              aria-live="polite"
+            >
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">Current phase</p>
+                <p className="mt-1 text-sm font-medium">{phaseLabels[progress.phase]}</p>
+              </div>
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">Batch</p>
+                <p className="mt-1 text-sm font-medium">{progress.batchNumber ?? 1}</p>
+              </div>
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">Pages saved</p>
+                <p className="mt-1 text-sm font-medium">{progress.pagesProcessed ?? 0}</p>
+              </div>
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="text-xs text-muted-foreground">Waiting</p>
+                <p className="mt-1 text-sm font-medium">{progress.pendingAssets ?? 0}</p>
+              </div>
             </div>
           )}
           {isTakingLonger && !progress.truncated && (

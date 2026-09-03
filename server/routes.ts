@@ -270,6 +270,12 @@ export async function registerRoutes(
                   processedAssets: job.processedAssets,
                   successfulAssets: job.successfulAssets,
                   failedAssets: job.failedAssets,
+                   truncated: job.truncated,
+                   truncationReasons: job.truncationReasons,
+                   phase: job.phase,
+                   batchNumber: job.batchNumber,
+                   pagesProcessed: job.pagesProcessed,
+                   pendingAssets: job.pendingAssets,
                   message: "Reconnected — catching up…",
                 },
               }));
@@ -326,7 +332,10 @@ export async function registerRoutes(
       }
       for (const jobId of await storage.claimExpiredJobIds()) {
         const expiredJob = await storage.getJob(jobId);
+        const expiredCrawlState = await storage.getCrawlState(jobId);
         await deleteArtifact(expiredJob?.downloadPath);
+        await deleteArtifact(expiredCrawlState?.checkpointReference);
+        await deleteArtifact(expiredCrawlState?.pendingCheckpointReference);
         await cleanupScrapeFiles(jobId);
         await storage.deleteJob(jobId);
       }
@@ -413,6 +422,7 @@ export async function registerRoutes(
     void storage.runWithJobExecution(job.id, executionToken, async () => {
       let leaseLost = false;
       let uploadedReference: string | undefined;
+      let checkpointReference: string | undefined;
       let committedJob: ScrapeJob | undefined;
       let committed = false;
       const renewal = setInterval(async () => {
@@ -430,6 +440,7 @@ export async function registerRoutes(
         const scrapeResult = await scrapeWebsite({
           jobId: job.id,
           url: job.url,
+          executionToken,
           onProgress: (progress: ScrapeProgress, asset?: Asset) => {
             broadcast(job.id, { type: "progress", progress });
             if (asset) {
@@ -437,6 +448,7 @@ export async function registerRoutes(
             }
           },
         });
+        checkpointReference = scrapeResult.checkpointReference;
 
         if (leaseLost) throw new Error("Scrape execution lease was lost");
         uploadedReference = await uploadArtifact(job.id, executionToken, scrapeResult.zipPath);
@@ -445,20 +457,52 @@ export async function registerRoutes(
           // This worker owns only its execution-token-scoped object.
           await deleteArtifact(uploadedReference);
           uploadedReference = undefined;
-          await cleanupScrapeFiles(job.id);
+          // Never delete crawl-state checkpoints from a rejected worker. Once
+          // accepted into the manifest, even a checkpoint created by this token
+          // belongs to the replacement worker until it replaces/completes it.
+          await cleanupScrapeFiles(job.id, executionToken);
           return;
         }
         committed = true;
+        if (checkpointReference) {
+          await deleteArtifact(checkpointReference).catch(error =>
+            console.warn(`Checkpoint cleanup failed for completed job ${job.id}:`, error));
+          checkpointReference = undefined;
+        }
       } catch (error) {
         console.error("Scrape error:", error);
         const errMsg = error instanceof Error ? error.message : "Scraping failed";
         if (uploadedReference) await deleteArtifact(uploadedReference).catch(console.error);
+        const executionWasLost =
+          leaseLost ||
+          errMsg === "JOB_EXECUTION_LEASE_LOST" ||
+          errMsg === "Scrape execution lease was lost";
+        if (executionWasLost) {
+          // Leave the crawl manifest and accepted checkpoint untouched. The
+          // abandoned-job sweep can safely claim and resume them.
+          await cleanupScrapeFiles(job.id, executionToken);
+          return;
+        }
+        const failedState = await storage.getCrawlState(job.id);
         const failed = await storage.failJob(job.id, executionToken, errMsg, 2 * 60 * 1000);
+        if (!failed) {
+          // A replacement worker owns the job now. This stale worker may only
+          // remove its own token-scoped local files and must not broadcast a
+          // failure or alter credits/analytics.
+          await cleanupScrapeFiles(job.id, executionToken);
+          return;
+        }
+        if (failed && failedState?.checkpointReference) {
+          await deleteArtifact(failedState.checkpointReference).catch(console.error);
+        }
+        if (failed && failedState?.pendingCheckpointReference) {
+          await deleteArtifact(failedState.pendingCheckpointReference).catch(console.error);
+        }
 
         // Free the partial /tmp output immediately so failed jobs don't leak
         // disk. Keep the job record briefly so the client's reconnect poll can
         // still read the failure, then GC it.
-        await cleanupScrapeFiles(job.id);
+        await cleanupScrapeFiles(job.id, executionToken);
         // Persist failure to DB
         db.insert(scrapeAnalytics).values({
           url: job.url,
@@ -489,7 +533,7 @@ export async function registerRoutes(
       // best effort and must never roll back/fail/delete that committed object.
       if (parseObjectReference(committedJob.downloadPath || "")) {
         try {
-          await cleanupScrapeFiles(job.id);
+          await cleanupScrapeFiles(job.id, executionToken);
         } catch (error) {
           console.error("Committed scrape local cleanup failed:", error);
         }

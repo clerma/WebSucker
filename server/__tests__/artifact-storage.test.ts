@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  APP_STORAGE_PREFIX, objectKeyForJob, objectReference, parseObjectReference,
+  APP_STORAGE_PREFIX, checkpointKeyForJob, checkpointReferenceForJob,
+  objectKeyForJob, objectReference, parseObjectReference,
 } from "../artifact-storage";
 
 test("artifact references are deterministic and distinguish shared objects from legacy paths", () => {
@@ -19,4 +20,17 @@ test("artifact references are deterministic and distinguish shared objects from 
 test("different execution tokens cannot address each other's artifacts", () => {
   const jobId = "123e4567-e89b-12d3-a456-426614174000";
   assert.notEqual(objectKeyForJob(jobId, "worker-a"), objectKeyForJob(jobId, "worker-b"));
+  assert.notEqual(
+    checkpointKeyForJob(jobId, "worker-a", 1),
+    checkpointKeyForJob(jobId, "worker-b", 1),
+  );
+  assert.notEqual(
+    checkpointKeyForJob(jobId, "worker-a", 1),
+    checkpointKeyForJob(jobId, "worker-a", 2),
+  );
+  const workerA = checkpointReferenceForJob(jobId, "worker-a", 1);
+  assert.equal(
+    workerA,
+    `${APP_STORAGE_PREFIX}website-sucker/jobs/${jobId}/checkpoints/worker-a-1.zip`,
+  );
 });

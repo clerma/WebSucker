@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "crypto";
 import { AsyncLocalStorage } from "async_hooks";
-import type { Asset, ScrapeJob, ScrapeStatus } from "@shared/schema";
+import type { Asset, CrawlState, ScrapeJob, ScrapeStatus } from "@shared/schema";
 import { accessCodes as accessCodesTable, downloadEvents, scrapeJobs, users } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, gt, isNull, lte, lt, or, sql } from "drizzle-orm";
@@ -53,6 +53,12 @@ function toJob(row: typeof scrapeJobs.$inferSelect): ScrapeJob {
     failedAssets: row.failedAssets,
     truncated: row.truncated,
     truncationReasons: row.truncationReasons,
+    phase: row.crawlState?.phase,
+    batchNumber: row.crawlState?.batchNumber,
+    pagesProcessed: row.crawlState?.htmlPagesProcessed,
+    pendingAssets: row.crawlState
+      ? row.crawlState.htmlQueue.length + row.crawlState.codeQueue.length + row.crawlState.mediaQueue.length
+      : undefined,
     downloadPath: row.downloadPath ?? undefined,
     errorMessage: row.errorMessage ?? undefined,
   };
@@ -68,7 +74,12 @@ export class DbStorage {
   private mutationWhere(id: string) {
     const context = this.executionContext.getStore();
     return context?.jobId === id
-      ? and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, context.token))
+      ? and(
+          eq(scrapeJobs.id, id),
+          eq(scrapeJobs.executionToken, context.token),
+          eq(scrapeJobs.status, "scraping"),
+          gt(scrapeJobs.executionLeaseUntil, new Date()),
+        )
       : eq(scrapeJobs.id, id);
   }
 
@@ -156,6 +167,22 @@ export class DbStorage {
     }
   }
 
+  async getCrawlState(id: string): Promise<CrawlState | null> {
+    const [row] = await db.select({ crawlState: scrapeJobs.crawlState })
+      .from(scrapeJobs).where(eq(scrapeJobs.id, id)).limit(1);
+    return row?.crawlState ?? null;
+  }
+
+  async saveCrawlState(id: string, state: CrawlState): Promise<boolean> {
+    const rows = await db.update(scrapeJobs).set({ crawlState: state })
+      .where(this.mutationWhere(id)).returning({ id: scrapeJobs.id });
+    return rows.length === 1;
+  }
+
+  async clearCrawlState(id: string): Promise<void> {
+    await db.update(scrapeJobs).set({ crawlState: null }).where(this.mutationWhere(id));
+  }
+
   async addAsset(jobId: string, assetData: Omit<Asset, "id">): Promise<Asset> {
     const asset = { id: randomUUID(), ...assetData };
     await db.transaction(async (tx) => {
@@ -201,6 +228,7 @@ export class DbStorage {
       status: "completed", completedAt: new Date(), downloadPath,
       truncated: result?.truncated ?? false,
       truncationReasons: result?.truncationReasons ?? [],
+      crawlState: null,
       executionLeaseUntil: null, executionToken: null,
     }).where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, executionToken),
       gt(scrapeJobs.executionLeaseUntil, new Date()), eq(scrapeJobs.status, "scraping"))).returning();
@@ -293,11 +321,13 @@ export class DbStorage {
         expiresAt: new Date(Date.now() + ttlMs),
         executionLeaseUntil: null,
         executionToken: null,
+        crawlState: null,
         refundApplied: true,
       }).where(and(
         eq(scrapeJobs.id, jobId),
         eq(scrapeJobs.status, "scraping"),
         eq(scrapeJobs.executionToken, token),
+        gt(scrapeJobs.executionLeaseUntil, new Date()),
         eq(scrapeJobs.refundApplied, false),
       )).returning({
         ownerId: scrapeJobs.ownerId,
@@ -392,11 +422,6 @@ export class DbStorage {
       const rows = await db.update(scrapeJobs).set({
         executionToken: token,
         executionLeaseUntil: new Date(now.getTime() + 45_000),
-        assets: [],
-        totalAssets: 0,
-        processedAssets: 0,
-        successfulAssets: 0,
-        failedAssets: 0,
         errorMessage: null,
       }).where(and(
         eq(scrapeJobs.id, candidate.id),

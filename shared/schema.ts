@@ -205,6 +205,7 @@ export const scrapeJobs = pgTable("scrape_jobs", {
   failedAssets: integer("failed_assets").notNull().default(0),
   truncated: boolean("truncated").notNull().default(false),
   truncationReasons: json("truncation_reasons").$type<string[]>().notNull().default([]),
+  crawlState: json("crawl_state").$type<CrawlState | null>(),
   downloadPath: text("download_path"),
   errorMessage: text("error_message"),
   downloadAuthorized: boolean("download_authorized").notNull().default(false),
@@ -252,6 +253,36 @@ export const assetSchema = z.object({
 });
 export type Asset = z.infer<typeof assetSchema>;
 
+export const ScrapePhase = z.enum(["pages", "code", "media", "finalizing"]);
+export type ScrapePhase = z.infer<typeof ScrapePhase>;
+
+export interface CrawlQueueItem {
+  url: string;
+  referrer: string;
+}
+
+export interface CrawlState {
+  version: 1;
+  usePuppeteer: boolean;
+  phase: ScrapePhase;
+  batchNumber: number;
+  htmlQueue: CrawlQueueItem[];
+  codeQueue: CrawlQueueItem[];
+  mediaQueue: CrawlQueueItem[];
+  discoveredUrls: string[];
+  processedUrls: string[];
+  htmlPagesProcessed: number;
+  truncationReasons: string[];
+  unfinishedPhases: ScrapePhase[];
+  omittedUrlSamples: string[];
+  pageDiscoverySkippedUrls: string[];
+  checkpointReference?: string;
+  pendingCheckpointReference?: string;
+  checkpointGeneration: number;
+  itemsSinceCheckpoint: number;
+  inFlight?: CrawlQueueItem;
+}
+
 export const ScrapeStatus = z.enum(["idle", "scraping", "completed", "failed"]);
 export type ScrapeStatus = z.infer<typeof ScrapeStatus>;
 
@@ -269,6 +300,10 @@ export const scrapeJobSchema = z.object({
   failedAssets: z.number(),
   truncated: z.boolean().default(false),
   truncationReasons: z.array(z.string()).default([]),
+  phase: ScrapePhase.optional(),
+  batchNumber: z.number().optional(),
+  pagesProcessed: z.number().optional(),
+  pendingAssets: z.number().optional(),
   downloadPath: z.string().optional(),
   errorMessage: z.string().optional(),
 });
@@ -289,6 +324,10 @@ export const scrapeProgressSchema = z.object({
   failedAssets: z.number(),
   truncated: z.boolean().optional(),
   truncationReasons: z.array(z.string()).optional(),
+  phase: ScrapePhase.optional(),
+  batchNumber: z.number().optional(),
+  pagesProcessed: z.number().optional(),
+  pendingAssets: z.number().optional(),
   message: z.string().optional(),
 });
 export type ScrapeProgress = z.infer<typeof scrapeProgressSchema>;

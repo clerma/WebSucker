@@ -1,5 +1,8 @@
 import { Client } from "@replit/object-storage";
 import type { Readable } from "stream";
+import { copyFile, createWriteStream } from "fs";
+import { unlink } from "fs/promises";
+import { pipeline } from "stream/promises";
 
 export const APP_STORAGE_PREFIX = "app-storage:";
 const OBJECT_ROOT = "website-sucker/jobs";
@@ -17,6 +20,21 @@ export function objectKeyForJob(jobId: string, executionToken: string): string {
 
 export function objectReference(jobId: string, executionToken: string): string {
   return `${APP_STORAGE_PREFIX}${objectKeyForJob(jobId, executionToken)}`;
+}
+
+export function checkpointKeyForJob(jobId: string, executionToken: string, generation: number): string {
+  if (!safeIdentifier(jobId) || !safeIdentifier(executionToken) || !Number.isSafeInteger(generation) || generation < 1) {
+    throw new Error("Invalid checkpoint identifier");
+  }
+  return `${OBJECT_ROOT}/${jobId}/checkpoints/${executionToken}-${generation}.zip`;
+}
+
+export function checkpointReferenceForJob(
+  jobId: string,
+  executionToken: string,
+  generation: number,
+): string {
+  return `${APP_STORAGE_PREFIX}${checkpointKeyForJob(jobId, executionToken, generation)}`;
 }
 
 export function parseObjectReference(reference: string): string | null {
@@ -41,6 +59,40 @@ export async function uploadArtifact(jobId: string, executionToken: string, file
   }
 }
 
+export async function uploadCheckpoint(
+  jobId: string,
+  executionToken: string,
+  generation: number,
+  filename: string,
+): Promise<string> {
+  const key = checkpointKeyForJob(jobId, executionToken, generation);
+  try {
+    const result = await storageClient().uploadFromFilename(key, filename, { compress: false });
+    if (!result.ok) throw new Error(`Checkpoint upload failed: ${result.error.message}`);
+    return `${APP_STORAGE_PREFIX}${key}`;
+  } catch (error) {
+    if (process.env.NODE_ENV === "production") throw error;
+    console.warn(
+      `[artifact-storage] App Storage unavailable in development; retaining local checkpoint for job ${jobId}:`,
+      error instanceof Error ? error.message : error,
+    );
+    return filename;
+  }
+}
+
+export async function downloadArtifactToFile(reference: string, filename: string): Promise<boolean> {
+  const key = parseObjectReference(reference);
+  if (!key) {
+    if (process.env.NODE_ENV === "production") return false;
+    await new Promise<void>((resolve, reject) =>
+      copyFile(reference, filename, error => error ? reject(error) : resolve()));
+    return true;
+  }
+  const stream = storageClient().downloadAsStream(key, { decompress: false });
+  await pipeline(stream, createWriteStream(filename));
+  return true;
+}
+
 export async function artifactExists(reference: string): Promise<boolean> {
   const key = parseObjectReference(reference);
   if (!key) return process.env.NODE_ENV !== "production";
@@ -57,7 +109,10 @@ export function downloadArtifact(reference: string): Readable | null {
 export async function deleteArtifact(reference: string | undefined): Promise<void> {
   if (!reference) return;
   const key = parseObjectReference(reference);
-  if (!key) return;
+  if (!key) {
+    if (process.env.NODE_ENV !== "production") await unlink(reference).catch(() => {});
+    return;
+  }
   const result = await storageClient().delete(key, { ignoreNotFound: true });
   if (!result.ok) throw new Error(`Artifact deletion failed: ${result.error.message}`);
 }
