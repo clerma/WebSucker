@@ -106,7 +106,7 @@ const faqs: QA[] = [
   {
     q: "How fast is it?",
     a: [
-      "Static sites (plain HTML, like documentation portals) typically finish in under a minute. Modern JavaScript-heavy sites take longer because we wait for each page to fully render — usually 2–5 minutes for a typical small business site. You'll see live progress the entire time.",
+      "Static sites typically finish in under a minute. Large sites, image-heavy catalogs, and modern JavaScript sites can take several minutes because we render pages, reveal lazy-loaded content, and download each image and file without overwhelming the source website. If a scrape runs longer than a minute, the progress screen explains that it is still working and there is no need to refresh.",
     ],
   },
   {

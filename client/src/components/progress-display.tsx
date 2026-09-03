@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FileCode,
   FileText,
@@ -59,6 +59,7 @@ interface ProgressDisplayProps {
 
 export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isTakingLonger, setIsTakingLonger] = useState(false);
   const progressPercent =
     progress.totalAssets > 0
       ? Math.round((progress.processedAssets / progress.totalAssets) * 100)
@@ -69,6 +70,11 @@ export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [assets]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsTakingLonger(true), 60_000);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -108,6 +114,22 @@ export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
               </div>
               <p className="text-muted-foreground">
                 A crawl safety limit was reached. We are keeping everything captured so far and downloading all remaining queued files.
+              </p>
+            </div>
+          )}
+          {isTakingLonger && !progress.truncated && (
+            <div
+              className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4 text-sm"
+              data-testid="notice-scrape-taking-longer"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="mb-1 flex items-center gap-2 font-medium text-sky-700 dark:text-sky-300">
+                <Clock className="h-4 w-4" />
+                This site is taking longer than average
+              </div>
+              <p className="text-muted-foreground">
+                Large sites and sites with many pages, high-resolution images, or JavaScript-loaded content can take several minutes. The scrape is still running—there is no need to refresh this page.
               </p>
             </div>
           )}
