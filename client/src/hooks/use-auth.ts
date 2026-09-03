@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 export interface AuthUser {
   id: number;
   email: string;
+  emailVerified: boolean;
   credits: number;
   freeScrapeUsed: boolean;
 }

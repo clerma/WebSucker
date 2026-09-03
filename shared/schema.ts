@@ -7,6 +7,9 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  // Existing accounts are grandfathered when this additive column is applied.
+  // Registration explicitly writes false for every new account.
+  emailVerified: boolean("email_verified").notNull().default(true),
   credits: integer("credits").notNull().default(0),
   freeScrapeUsed: boolean("free_scrape_used").notNull().default(false),
   stripeCustomerId: text("stripe_customer_id"),
@@ -43,6 +46,19 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Single-use email ownership proof. Only the token digest is stored.
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("email_verification_tokens_user_id_idx").on(table.userId),
+  index("email_verification_tokens_expires_at_idx").on(table.expiresAt),
+]);
+
 export const forgotPasswordSchema = z.object({
   email: z.string().email("Please enter a valid email"),
 });
@@ -50,6 +66,14 @@ export const forgotPasswordSchema = z.object({
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, "Missing reset token"),
   password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+export const verifyEmailSchema = z.object({
+  token: z.string().min(1, "Missing verification token"),
+});
+
+export const resendVerificationSchema = z.object({
+  email: z.string().email("Please enter a valid email"),
 });
 
 // Persistent access codes table — survives server restarts

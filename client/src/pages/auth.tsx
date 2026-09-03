@@ -15,6 +15,7 @@ export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -36,7 +37,16 @@ export default function AuthPage() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.code === "EMAIL_NOT_VERIFIED") setVerificationSent(true);
         throw new Error(data.message || "Something went wrong");
+      }
+      if (mode === "register" && data.verificationRequired) {
+        setVerificationSent(true);
+        toast({
+          title: "Check your inbox",
+          description: data.message || "We sent you an email verification link.",
+        });
+        return;
       }
       refreshAuth();
       toast({
@@ -51,6 +61,28 @@ export default function AuthPage() {
       toast({
         title: mode === "register" ? "Couldn't create account" : "Couldn't sign in",
         description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Couldn't resend the verification email.");
+      toast({ title: "Verification email sent", description: data.message });
+    } catch (error) {
+      toast({
+        title: "Couldn't send verification email",
+        description: error instanceof Error ? error.message : "Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -75,6 +107,28 @@ export default function AuthPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {verificationSent ? (
+            <div className="space-y-4 text-center">
+              <p className="text-sm text-muted-foreground">
+                We sent a verification link to <span className="font-medium text-foreground">{email}</span>.
+                Verify that address before signing in or starting a scrape.
+              </p>
+              <Button type="button" className="w-full" onClick={handleResend} disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Resend verification email
+              </Button>
+              <button
+                type="button"
+                className="text-sm underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setVerificationSent(false);
+                  setMode("login");
+                }}
+              >
+                Back to sign in
+              </button>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -119,8 +173,9 @@ export default function AuthPage() {
               {mode === "register" ? "Create Account — Get 1 Free Scrape" : "Sign In"}
             </Button>
           </form>
+          )}
 
-          <p className="text-sm text-muted-foreground text-center mt-4">
+          {!verificationSent && <p className="text-sm text-muted-foreground text-center mt-4">
             {mode === "register" ? (
               <>
                 Already have an account?{" "}
@@ -146,7 +201,7 @@ export default function AuthPage() {
                 </button>
               </>
             )}
-          </p>
+          </p>}
         </CardContent>
       </Card>
     </div>

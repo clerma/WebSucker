@@ -18,6 +18,7 @@ import Faq from "@/pages/faq";
 import AuthPage from "@/pages/auth";
 import ForgotPasswordPage from "@/pages/forgot-password";
 import ResetPasswordPage from "@/pages/reset-password";
+import VerifyEmailPage from "@/pages/verify-email";
 import LandingPage from "@/pages/landing-page";
 import { AccountMenu } from "@/components/account-menu";
 import { LANDING_SLUGS } from "@/data/landing-pages";
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <Route path="/forgot-password" component={ForgotPasswordPage} />
       <Route path="/reset-password" component={ResetPasswordPage} />
+      <Route path="/verify-email" component={VerifyEmailPage} />
       <Route path="/terms" component={Terms} />
       <Route path="/admin" component={Admin} />
       <Route path="/checkout/success" component={CheckoutSuccess} />

@@ -12,31 +12,12 @@ async function resendRequest(path: string, init: { method: string; body?: string
   return res;
 }
 
-let cachedFrom: string | null = null;
-
-// Pick a "from" address: use the first verified domain on the Resend account,
-// falling back to Resend's shared onboarding sender (delivers only to the
-// account owner's own email — fine for testing, not production).
-async function getFromAddress(): Promise<string> {
-  if (cachedFrom) return cachedFrom;
-  try {
-    const res = await resendRequest("/domains", { method: "GET" });
-    const data: any = await res.json();
-    const verified = (data?.data || []).find((d: any) => d.status === "verified");
-    if (verified) {
-      cachedFrom = `Website Sucker <noreply@${verified.name}>`;
-      return cachedFrom;
-    }
-  } catch (err) {
-    console.error("Resend domain lookup failed:", err);
-  }
-  // Don't cache the fallback — once the user verifies a domain in Resend,
-  // the next send should pick it up without needing a server restart.
-  return "Website Sucker <onboarding@resend.dev>";
-}
+// This sender was verified against Resend during rollout. The connected API
+// key is intentionally send-only, so it cannot enumerate account domains.
+const FROM_ADDRESS = "Website Sucker <noreply@websitesucker.com>";
 
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-  const from = await getFromAddress();
+  const from = FROM_ADDRESS;
   const res = await resendRequest("/emails", {
     method: "POST",
     body: JSON.stringify({
@@ -52,6 +33,33 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string): Prom
           </p>
           <p style="color: #888; font-size: 13px; line-height: 1.5;">If the button doesn't work, copy this link into your browser:<br><a href="${resetUrl}" style="color: #555; word-break: break-all;">${resetUrl}</a></p>
           <p style="color: #888; font-size: 13px;">If you didn't request this, you can safely ignore this email — your password won't change.</p>
+        </div>
+      `,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Resend send failed (${res.status}): ${text}`);
+  }
+}
+
+export async function sendEmailVerificationEmail(to: string, verificationUrl: string): Promise<void> {
+  const from = FROM_ADDRESS;
+  const res = await resendRequest("/emails", {
+    method: "POST",
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject: "Verify your Website Sucker email",
+      html: `
+        <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <h2 style="margin: 0 0 16px;">Verify your email</h2>
+          <p style="color: #444; line-height: 1.5;">Confirm this email address to activate your Website Sucker account and use your free scrape. This link expires in 1 hour.</p>
+          <p style="margin: 24px 0;">
+            <a href="${verificationUrl}" style="background: #18181b; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; display: inline-block;">Verify email</a>
+          </p>
+          <p style="color: #888; font-size: 13px; line-height: 1.5;">If the button doesn't work, copy this link into your browser:<br><a href="${verificationUrl}" style="color: #555; word-break: break-all;">${verificationUrl}</a></p>
+          <p style="color: #888; font-size: 13px;">If you didn't create this account, you can safely ignore this email.</p>
         </div>
       `,
     }),
