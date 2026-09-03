@@ -427,7 +427,7 @@ export async function registerRoutes(
       // Phase 1: crawl, publish the worker-scoped object, and atomically commit
       // its exact reference under the execution fence.
       try {
-        const zipPath = await scrapeWebsite({
+        const scrapeResult = await scrapeWebsite({
           jobId: job.id,
           url: job.url,
           onProgress: (progress: ScrapeProgress, asset?: Asset) => {
@@ -439,8 +439,8 @@ export async function registerRoutes(
         });
 
         if (leaseLost) throw new Error("Scrape execution lease was lost");
-        uploadedReference = await uploadArtifact(job.id, executionToken, zipPath);
-        committedJob = await storage.completeJob(job.id, executionToken, uploadedReference);
+        uploadedReference = await uploadArtifact(job.id, executionToken, scrapeResult.zipPath);
+        committedJob = await storage.completeJob(job.id, executionToken, uploadedReference, scrapeResult);
         if (!committedJob) {
           // This worker owns only its execution-token-scoped object.
           await deleteArtifact(uploadedReference);

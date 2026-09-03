@@ -173,6 +173,8 @@ export default function Home() {
                 processedAssets: job.processedAssets,
                 successfulAssets: job.successfulAssets,
                 failedAssets: job.failedAssets,
+                truncated: job.truncated,
+                truncationReasons: job.truncationReasons,
                 message: "Resuming…",
               });
               setAssets(job.assets);
@@ -220,7 +222,15 @@ export default function Home() {
           const data = JSON.parse(event.data);
 
           if (data.type === "progress") {
-            setProgress(data.progress);
+            setProgress((previous) => ({
+              ...previous,
+              ...data.progress,
+              truncated: previous.truncated || data.progress.truncated,
+              truncationReasons: Array.from(new Set([
+                ...(previous.truncationReasons || []),
+                ...(data.progress.truncationReasons || []),
+              ])),
+            }));
           }
 
           if (data.type === "asset") {

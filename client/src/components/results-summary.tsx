@@ -129,8 +129,10 @@ export function ResultsSummary({
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="space-y-1">
               <CardTitle className="text-xl font-semibold flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-green-500" />
-                Scrape Complete
+                {job.truncated
+                  ? <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  : <CheckCircle2 className="h-5 w-5 text-green-500" />}
+                {job.truncated ? "Partial Backup Ready" : "Scrape Complete"}
               </CardTitle>
               <p className="text-sm text-muted-foreground font-mono">
                 {job.url}
@@ -176,6 +178,23 @@ export function ResultsSummary({
           </div>
         </CardHeader>
         <CardContent>
+          {job.truncated && (
+            <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4" data-testid="alert-results-truncated">
+              <div className="mb-2 flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="h-4 w-4" />
+                This site was larger than the crawl limits
+              </div>
+              <p className="mb-2 text-sm text-muted-foreground">
+                Your ZIP contains everything successfully captured before the limit. Some additional pages or files were left out rather than failing the entire backup.
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {job.truncationReasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+              <p className="mt-2 text-xs text-muted-foreground">
+                See README_WEBSITE_SUCKER.txt inside the ZIP for details and sample omitted URLs.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <StatCard
               label="Total Assets"

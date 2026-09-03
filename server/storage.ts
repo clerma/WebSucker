@@ -51,6 +51,8 @@ function toJob(row: typeof scrapeJobs.$inferSelect): ScrapeJob {
     processedAssets: row.processedAssets,
     successfulAssets: row.successfulAssets,
     failedAssets: row.failedAssets,
+    truncated: row.truncated,
+    truncationReasons: row.truncationReasons,
     downloadPath: row.downloadPath ?? undefined,
     errorMessage: row.errorMessage ?? undefined,
   };
@@ -189,9 +191,16 @@ export class DbStorage {
     });
   }
 
-  async completeJob(id: string, executionToken: string, downloadPath?: string): Promise<ScrapeJob | undefined> {
+  async completeJob(
+    id: string,
+    executionToken: string,
+    downloadPath?: string,
+    result?: { truncated: boolean; truncationReasons: string[] },
+  ): Promise<ScrapeJob | undefined> {
     const [row] = await db.update(scrapeJobs).set({
       status: "completed", completedAt: new Date(), downloadPath,
+      truncated: result?.truncated ?? false,
+      truncationReasons: result?.truncationReasons ?? [],
       executionLeaseUntil: null, executionToken: null,
     }).where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.executionToken, executionToken),
       gt(scrapeJobs.executionLeaseUntil, new Date()), eq(scrapeJobs.status, "scraping"))).returning();

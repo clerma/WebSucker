@@ -25,9 +25,14 @@ interface ScrapeOptions {
   onProgress: ProgressCallback;
 }
 
-// Safety limits to prevent runaway crawling
-const MAX_ASSETS = 750;
-const MAX_HTML_PAGES = 50;
+// Safety limits to prevent runaway crawling. Large sites still get a usable
+// partial archive plus explicit truncation notes when either ceiling is hit.
+const positiveLimit = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+const MAX_ASSETS = positiveLimit(process.env.SCRAPE_MAX_ASSETS, 1500);
+const MAX_HTML_PAGES = positiveLimit(process.env.SCRAPE_MAX_PAGES, 100);
 const MAX_ASSET_SIZE = 20 * 1024 * 1024; // 20MB per asset
 const REQUEST_DELAY = 150; // ms between requests
 
@@ -1792,7 +1797,13 @@ async function fetchRenderedHtml(url: string, timeout = 45000, jobId?: string): 
   }
 }
 
-export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
+export interface ScrapeResult {
+  zipPath: string;
+  truncated: boolean;
+  truncationReasons: string[];
+}
+
+export async function scrapeWebsite(options: ScrapeOptions): Promise<ScrapeResult> {
   const { jobId, url, onProgress } = options;
   // SSRF protection — resolve the entry host and reject private/reserved IPs,
   // non-HTTP(S) schemes, and hosts that fail to resolve.
@@ -1809,6 +1820,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   const urlQueue: Array<{ url: string; referrer: string }> = [{ url, referrer: "Entry point" }];
   const assetMap = new Map<string, Asset>();
   let htmlPagesProcessed = 0;
+  const truncationReasons = new Set<string>();
+  const omittedUrlSamples: string[] = [];
+  const pageDiscoverySkippedUrls: string[] = [];
   
   const outputDir = `/tmp/scrape-${jobId}`;
   await fs.promises.mkdir(outputDir, { recursive: true });
@@ -1841,6 +1855,14 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   while (urlQueue.length > 0) {
     // Enforce asset limit
     if (assetMap.size >= MAX_ASSETS) {
+      const reason = `Asset limit reached (${MAX_ASSETS.toLocaleString()}). The archive contains everything downloaded before the limit; additional discovered items were omitted.`;
+      truncationReasons.add(reason);
+      for (const item of urlQueue) {
+        if (omittedUrlSamples.length >= 100) break;
+        if (!processedUrls.has(item.url) && !omittedUrlSamples.includes(item.url)) {
+          omittedUrlSamples.push(item.url);
+        }
+      }
       onProgress({
         jobId,
         status: "scraping",
@@ -1848,7 +1870,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
         processedAssets: assetMap.size,
         successfulAssets: Array.from(assetMap.values()).filter(a => a.status === "success").length,
         failedAssets: Array.from(assetMap.values()).filter(a => a.status === "failed").length,
-        message: `Asset limit reached (${MAX_ASSETS}). Finishing up...`,
+        truncated: true,
+        truncationReasons: Array.from(truncationReasons),
+        message: `Large site: ${MAX_ASSETS.toLocaleString()}-asset limit reached. Finishing the partial backup with everything captured so far…`,
       });
       break;
     }
@@ -2151,6 +2175,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
         
         // Skip further HTML link discovery if we've hit the page limit
         if (htmlPagesProcessed > MAX_HTML_PAGES) {
+          const reason = `Page discovery limit reached (${MAX_HTML_PAGES.toLocaleString()}). The scraper stopped following links from additional pages but kept downloading already queued content.`;
+          truncationReasons.add(reason);
+          if (pageDiscoverySkippedUrls.length < 100) pageDiscoverySkippedUrls.push(currentUrl);
           onProgress({
             jobId,
             status: "scraping",
@@ -2161,7 +2188,9 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
             ).length,
             successfulAssets: Array.from(assetMap.values()).filter(a => a.status === "success").length,
             failedAssets: Array.from(assetMap.values()).filter(a => a.status === "failed").length,
-            message: `Page limit reached (${MAX_HTML_PAGES}). Downloading remaining assets...`,
+            truncated: true,
+            truncationReasons: Array.from(truncationReasons),
+            message: `Large site: ${MAX_HTML_PAGES.toLocaleString()}-page discovery limit reached. Downloading everything already queued…`,
           }, asset);
           continue;
         }
@@ -2397,31 +2426,77 @@ export async function scrapeWebsite(options: ScrapeOptions): Promise<string> {
   
   await rewriteUrls(outputDir, url, assetMap);
   
-  // Generate failure log for failed/skipped assets
-  await generateFailureLog(outputDir, assetMap, url);
+  // Generate a prominent report for completeness, limits, and failed/skipped assets.
+  await generateScrapeReport(outputDir, assetMap, url, {
+    truncationReasons: Array.from(truncationReasons),
+    omittedUrlSamples,
+    pageDiscoverySkippedUrls,
+  });
   
   // Create ZIP archive
   const zipPath = `/tmp/scrape-${jobId}.zip`;
   await createZipArchive(outputDir, zipPath);
   
-  return zipPath;
+  return {
+    zipPath,
+    truncated: truncationReasons.size > 0,
+    truncationReasons: Array.from(truncationReasons),
+  };
 }
 
-async function generateFailureLog(outputDir: string, assetMap: Map<string, Asset>, baseUrl: string): Promise<void> {
+async function generateScrapeReport(
+  outputDir: string,
+  assetMap: Map<string, Asset>,
+  baseUrl: string,
+  truncation: {
+    truncationReasons: string[];
+    omittedUrlSamples: string[];
+    pageDiscoverySkippedUrls: string[];
+  },
+): Promise<void> {
   const failedAssets = Array.from(assetMap.values()).filter(a => a.status === "failed");
   const skippedAssets = Array.from(assetMap.values()).filter(a => a.status === "skipped");
-  
-  if (failedAssets.length === 0 && skippedAssets.length === 0) {
-    return; // No failures to log
-  }
+  const successfulAssets = Array.from(assetMap.values()).filter(a => a.status === "success");
   
   const lines: string[] = [];
   lines.push("=" .repeat(80));
-  lines.push("WEBSUCKER SCRAPE REPORT - MISSING/FAILED ASSETS");
+  lines.push("WEBSITE SUCKER SCRAPE REPORT");
   lines.push("=" .repeat(80));
   lines.push(`Source URL: ${baseUrl}`);
   lines.push(`Generated: ${new Date().toISOString()}`);
+  lines.push(`Successfully downloaded: ${successfulAssets.length}`);
+  lines.push(`Failed: ${failedAssets.length}`);
+  lines.push(`Intentionally skipped: ${skippedAssets.length}`);
+  lines.push(`Configured limits: ${MAX_HTML_PAGES.toLocaleString()} page discoveries, ${MAX_ASSETS.toLocaleString()} assets`);
   lines.push("");
+
+  if (truncation.truncationReasons.length > 0) {
+    lines.push("!".repeat(80));
+    lines.push("PARTIAL BACKUP - CRAWL LIMIT REACHED");
+    lines.push("!".repeat(80));
+    lines.push("Website Sucker kept every item downloaded before the safety limit.");
+    lines.push("The following limit(s) prevented discovery or download of the entire site:");
+    lines.push("");
+    for (const reason of truncation.truncationReasons) lines.push(`- ${reason}`);
+    lines.push("");
+    if (truncation.omittedUrlSamples.length > 0) {
+      lines.push("SAMPLE OF QUEUED URLS NOT DOWNLOADED");
+      lines.push("-".repeat(80));
+      lines.push(...truncation.omittedUrlSamples);
+      lines.push("");
+    }
+    if (truncation.pageDiscoverySkippedUrls.length > 0) {
+      lines.push("SAMPLE OF PAGES WHERE FURTHER LINK DISCOVERY WAS SKIPPED");
+      lines.push("-".repeat(80));
+      lines.push(...truncation.pageDiscoverySkippedUrls);
+      lines.push("");
+    }
+  } else {
+    lines.push("COMPLETENESS");
+    lines.push("-".repeat(80));
+    lines.push("No page or asset safety limit was reached.");
+    lines.push("");
+  }
   
   if (failedAssets.length > 0) {
     lines.push("-".repeat(80));
@@ -2463,7 +2538,7 @@ async function generateFailureLog(outputDir: string, assetMap: Map<string, Asset
   lines.push("END OF REPORT");
   lines.push("=".repeat(80));
   
-  const logPath = path.join(outputDir, "_MISSING_ASSETS_LOG.txt");
+  const logPath = path.join(outputDir, "README_WEBSITE_SUCKER.txt");
   await fs.promises.writeFile(logPath, lines.join("\n"), "utf-8");
 }
 

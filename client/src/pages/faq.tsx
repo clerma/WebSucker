@@ -40,7 +40,7 @@ const faqs: QA[] = [
   {
     q: "How big a site can I download?",
     a: [
-      "Each scrape captures up to 50 HTML pages and 750 total assets (images, CSS, JS, fonts, etc.) per session. That covers the vast majority of small business and personal sites. Very large sites (a 5,000-page documentation portal) would need multiple scrapes targeted at different sections.",
+      "Each scrape captures up to 100 HTML page discoveries and 1,500 total assets (images, CSS, JS, fonts, etc.) per session. If a larger site reaches either safety limit, Website Sucker keeps everything captured so far, clearly marks the result as a partial backup, and includes a detailed report in the ZIP.",
     ],
   },
   {

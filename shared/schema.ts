@@ -203,6 +203,8 @@ export const scrapeJobs = pgTable("scrape_jobs", {
   processedAssets: integer("processed_assets").notNull().default(0),
   successfulAssets: integer("successful_assets").notNull().default(0),
   failedAssets: integer("failed_assets").notNull().default(0),
+  truncated: boolean("truncated").notNull().default(false),
+  truncationReasons: json("truncation_reasons").$type<string[]>().notNull().default([]),
   downloadPath: text("download_path"),
   errorMessage: text("error_message"),
   downloadAuthorized: boolean("download_authorized").notNull().default(false),
@@ -265,6 +267,8 @@ export const scrapeJobSchema = z.object({
   processedAssets: z.number(),
   successfulAssets: z.number(),
   failedAssets: z.number(),
+  truncated: z.boolean().default(false),
+  truncationReasons: z.array(z.string()).default([]),
   downloadPath: z.string().optional(),
   errorMessage: z.string().optional(),
 });
@@ -283,6 +287,8 @@ export const scrapeProgressSchema = z.object({
   processedAssets: z.number(),
   successfulAssets: z.number(),
   failedAssets: z.number(),
+  truncated: z.boolean().optional(),
+  truncationReasons: z.array(z.string()).optional(),
   message: z.string().optional(),
 });
 export type ScrapeProgress = z.infer<typeof scrapeProgressSchema>;

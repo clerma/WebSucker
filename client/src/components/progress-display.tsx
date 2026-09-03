@@ -10,6 +10,7 @@ import {
   Loader2,
   Clock,
   SkipForward,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -99,6 +100,17 @@ export function ProgressDisplay({ progress, assets }: ProgressDisplayProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {progress.truncated && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm" data-testid="alert-scrape-truncated">
+              <div className="mb-1 flex items-center gap-2 font-medium text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="h-4 w-4" />
+                Large site — preparing a partial backup
+              </div>
+              <p className="text-muted-foreground">
+                A crawl safety limit was reached. We are keeping everything captured so far and downloading all remaining queued files.
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground flex items-center gap-1.5">
