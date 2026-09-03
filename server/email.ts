@@ -34,58 +34,162 @@ async function requireSuccessfulSend(res: Response): Promise<{ id?: string }> {
 // key is intentionally send-only, so it cannot enumerate account domains.
 const FROM_ADDRESS = "Website Sucker <noreply@websitesucker.com>";
 
+type EmailPayload = {
+  from: string;
+  to: string[];
+  subject: string;
+  html: string;
+  scheduled_at?: string;
+  reply_to?: string;
+};
+
+function trustedEmailOrigin(actionUrl?: string): string {
+  const configured = process.env.APP_BASE_URL
+    || actionUrl
+    || (process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : null);
+  if (!configured) throw new Error("No trusted origin is configured for email assets");
+  const origin = new URL(configured).origin;
+  if (!origin.startsWith("https://")) {
+    throw new Error("Email assets require a trusted HTTPS origin");
+  }
+  return origin;
+}
+
+function brandedEmail(input: {
+  title: string;
+  preheader: string;
+  body: string;
+  assetOrigin: string;
+}): string {
+  const logoUrl = `${input.assetOrigin}/website-sucker-email-logo.png`;
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${escapeHtml(input.title)}</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f4f7fb;color:#172033;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(input.preheader)}</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background-color:#f4f7fb;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:560px;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;">
+            <tr>
+              <td style="padding:26px 32px 22px;border-bottom:1px solid #e8edf4;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td style="width:42px;vertical-align:middle;">
+                      <img src="${escapeHtml(logoUrl)}" width="38" height="35" alt="Website Sucker logo" style="display:block;width:38px;height:35px;border:0;">
+                    </td>
+                    <td style="padding-left:10px;vertical-align:middle;font-size:21px;font-weight:800;line-height:1.1;letter-spacing:-0.5px;color:#172033;">WebsiteSucker</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:30px 32px 32px;">
+                <h1 style="margin:0 0 16px;font-size:25px;line-height:1.25;color:#172033;">${escapeHtml(input.title)}</h1>
+                ${input.body}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 32px;border-top:1px solid #e8edf4;color:#718096;font-size:12px;line-height:1.5;">
+                Website Sucker &middot; Reliable offline website backups
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+function actionButton(url: string, label: string): string {
+  return `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:24px 0;">
+    <tr>
+      <td bgcolor="#172033" style="border-radius:8px;">
+        <a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 20px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">${escapeHtml(label)}</a>
+      </td>
+    </tr>
+  </table>`;
+}
+
+export function buildPasswordResetEmail(to: string, resetUrl: string): EmailPayload {
+  const safeUrl = escapeHtml(resetUrl);
+  return {
+    from: FROM_ADDRESS,
+    to: [to],
+    subject: "Reset your Website Sucker password",
+    html: brandedEmail({
+      title: "Reset your password",
+      preheader: "Choose a new password for your Website Sucker account.",
+      assetOrigin: trustedEmailOrigin(resetUrl),
+      body: `
+        <p style="margin:0 0 16px;color:#3f4b5f;font-size:15px;line-height:1.65;">Someone (hopefully you) requested a password reset for your Website Sucker account. Click the button below to choose a new password. This link expires in 1 hour.</p>
+        ${actionButton(resetUrl, "Reset password")}
+        <p style="margin:0 0 14px;color:#718096;font-size:13px;line-height:1.55;">If the button doesn't work, copy this link into your browser:<br><a href="${safeUrl}" style="color:#265eff;word-break:break-all;">${safeUrl}</a></p>
+        <p style="margin:0;color:#718096;font-size:13px;line-height:1.55;">If you didn't request this, you can safely ignore this email — your password won't change.</p>`,
+    }),
+  };
+}
+
 export async function sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-  const from = FROM_ADDRESS;
   const res = await resendRequest("/emails", {
     method: "POST",
-    body: JSON.stringify({
-      from,
-      to: [to],
-      subject: "Reset your Website Sucker password",
-      html: `
-        <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-          <h2 style="margin: 0 0 16px;">Reset your password</h2>
-          <p style="color: #444; line-height: 1.5;">Someone (hopefully you) requested a password reset for your Website Sucker account. Click the button below to choose a new password. This link expires in 1 hour.</p>
-          <p style="margin: 24px 0;">
-            <a href="${resetUrl}" style="background: #18181b; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; display: inline-block;">Reset password</a>
-          </p>
-          <p style="color: #888; font-size: 13px; line-height: 1.5;">If the button doesn't work, copy this link into your browser:<br><a href="${resetUrl}" style="color: #555; word-break: break-all;">${resetUrl}</a></p>
-          <p style="color: #888; font-size: 13px;">If you didn't request this, you can safely ignore this email — your password won't change.</p>
-        </div>
-      `,
-    }),
+    body: JSON.stringify(buildPasswordResetEmail(to, resetUrl)),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Resend send failed (${res.status}): ${text}`);
-  }
+  await requireSuccessfulSend(res);
+}
+
+export function buildEmailVerificationEmail(to: string, verificationUrl: string): EmailPayload {
+  const safeUrl = escapeHtml(verificationUrl);
+  return {
+    from: FROM_ADDRESS,
+    to: [to],
+    subject: "Verify your Website Sucker email",
+    html: brandedEmail({
+      title: "Verify your email",
+      preheader: "Confirm your email address to activate your Website Sucker account.",
+      assetOrigin: trustedEmailOrigin(verificationUrl),
+      body: `
+        <p style="margin:0 0 16px;color:#3f4b5f;font-size:15px;line-height:1.65;">Confirm this email address to activate your Website Sucker account and use your free scrape. This link expires in 1 hour.</p>
+        ${actionButton(verificationUrl, "Verify email")}
+        <p style="margin:0 0 14px;color:#718096;font-size:13px;line-height:1.55;">If the button doesn't work, copy this link into your browser:<br><a href="${safeUrl}" style="color:#265eff;word-break:break-all;">${safeUrl}</a></p>
+        <p style="margin:0;color:#718096;font-size:13px;line-height:1.55;">If you didn't create this account, you can safely ignore this email.</p>`,
+    }),
+  };
 }
 
 export async function sendEmailVerificationEmail(to: string, verificationUrl: string): Promise<void> {
-  const from = FROM_ADDRESS;
   const res = await resendRequest("/emails", {
     method: "POST",
-    body: JSON.stringify({
-      from,
-      to: [to],
-      subject: "Verify your Website Sucker email",
-      html: `
-        <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-          <h2 style="margin: 0 0 16px;">Verify your email</h2>
-          <p style="color: #444; line-height: 1.5;">Confirm this email address to activate your Website Sucker account and use your free scrape. This link expires in 1 hour.</p>
-          <p style="margin: 24px 0;">
-            <a href="${verificationUrl}" style="background: #18181b; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; display: inline-block;">Verify email</a>
-          </p>
-          <p style="color: #888; font-size: 13px; line-height: 1.5;">If the button doesn't work, copy this link into your browser:<br><a href="${verificationUrl}" style="color: #555; word-break: break-all;">${verificationUrl}</a></p>
-          <p style="color: #888; font-size: 13px;">If you didn't create this account, you can safely ignore this email.</p>
-        </div>
-      `,
-    }),
+    body: JSON.stringify(buildEmailVerificationEmail(to, verificationUrl)),
   });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Resend send failed (${res.status}): ${text}`);
-  }
+  await requireSuccessfulSend(res);
+}
+
+export function buildReviewRequestEmail(
+  to: string,
+  reviewUrl: string,
+  scheduledAt: Date,
+): EmailPayload {
+  return {
+    from: FROM_ADDRESS,
+    to: [to],
+    subject: "How did Website Sucker work for you?",
+    scheduled_at: scheduledAt.toISOString(),
+    html: brandedEmail({
+      title: "How did your website backup go?",
+      preheader: "Tell us how Website Sucker worked for you.",
+      assetOrigin: trustedEmailOrigin(reviewUrl),
+      body: `
+        <p style="margin:0 0 16px;color:#3f4b5f;font-size:15px;line-height:1.65;">Thanks for choosing Website Sucker. We'd love to hear whether it helped and what we could improve.</p>
+        ${actionButton(reviewUrl, "Share your review")}
+        <p style="margin:0;color:#718096;font-size:13px;line-height:1.55;">It only takes a minute. Your feedback helps us make Website Sucker better.</p>`,
+    }),
+  };
 }
 
 export async function scheduleReviewRequestEmail(
@@ -93,53 +197,44 @@ export async function scheduleReviewRequestEmail(
   reviewUrl: string,
   scheduledAt: Date,
 ): Promise<string | null> {
-  const safeReviewUrl = escapeHtml(reviewUrl);
   const res = await resendRequest("/emails", {
     method: "POST",
-    body: JSON.stringify({
-      from: FROM_ADDRESS,
-      to: [to],
-      subject: "How did Website Sucker work for you?",
-      scheduled_at: scheduledAt.toISOString(),
-      html: `
-        <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
-          <h2 style="margin: 0 0 16px;">How did your website backup go?</h2>
-          <p style="color: #444; line-height: 1.6;">Thanks for choosing Website Sucker. We'd love to hear whether it helped and what we could improve.</p>
-          <p style="margin: 26px 0;">
-            <a href="${safeReviewUrl}" style="background: #18181b; color: #fff; padding: 12px 20px; border-radius: 8px; text-decoration: none; display: inline-block;">Share your review</a>
-          </p>
-          <p style="color: #888; font-size: 13px;">It only takes a minute. Your feedback helps us make Website Sucker better.</p>
-        </div>
-      `,
-    }),
+    body: JSON.stringify(buildReviewRequestEmail(to, reviewUrl, scheduledAt)),
   });
   const result = await requireSuccessfulSend(res);
   return typeof result.id === "string" ? result.id : null;
 }
 
-export async function sendReviewSubmissionEmail(input: {
+type ReviewSubmission = {
   name: string;
   email: string;
   rating: number;
   review: string;
-}): Promise<void> {
+};
+
+export function buildReviewSubmissionEmail(input: ReviewSubmission): EmailPayload {
   const stars = "★".repeat(input.rating) + "☆".repeat(5 - input.rating);
+  return {
+    from: FROM_ADDRESS,
+    to: ["hello@websitesucker.com"],
+    reply_to: input.email,
+    subject: `New ${input.rating}-star Website Sucker review`,
+    html: brandedEmail({
+      title: "New customer review",
+      preheader: `A customer left a ${input.rating}-star Website Sucker review.`,
+      assetOrigin: trustedEmailOrigin(),
+      body: `
+        <p style="margin:0 0 20px;font-size:24px;color:#f59e0b;letter-spacing:2px;">${stars}</p>
+        <blockquote style="margin:0 0 20px;padding:16px;background-color:#f4f7fb;border-left:4px solid #265eff;white-space:pre-wrap;color:#3f4b5f;font-size:15px;line-height:1.6;">${escapeHtml(input.review)}</blockquote>
+        <p style="margin:0;color:#3f4b5f;font-size:15px;line-height:1.55;"><strong>${escapeHtml(input.name)}</strong><br><a href="mailto:${escapeHtml(input.email)}" style="color:#265eff;">${escapeHtml(input.email)}</a></p>`,
+    }),
+  };
+}
+
+export async function sendReviewSubmissionEmail(input: ReviewSubmission): Promise<void> {
   const res = await resendRequest("/emails", {
     method: "POST",
-    body: JSON.stringify({
-      from: FROM_ADDRESS,
-      to: ["hello@websitesucker.com"],
-      reply_to: input.email,
-      subject: `New ${input.rating}-star Website Sucker review`,
-      html: `
-        <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px;">
-          <h2 style="margin: 0 0 16px;">New customer review</h2>
-          <p style="font-size: 24px; color: #f59e0b; letter-spacing: 2px; margin: 0 0 20px;">${stars}</p>
-          <blockquote style="margin: 0 0 20px; padding: 16px; background: #f4f4f5; border-left: 4px solid #18181b; white-space: pre-wrap; line-height: 1.6;">${escapeHtml(input.review)}</blockquote>
-          <p style="color: #444; line-height: 1.5;"><strong>${escapeHtml(input.name)}</strong><br><a href="mailto:${escapeHtml(input.email)}">${escapeHtml(input.email)}</a></p>
-        </div>
-      `,
-    }),
+    body: JSON.stringify(buildReviewSubmissionEmail(input)),
   });
   await requireSuccessfulSend(res);
 }
