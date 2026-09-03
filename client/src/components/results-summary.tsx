@@ -17,6 +17,7 @@ import {
   MailCheck,
   MailWarning,
   Mail,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,8 @@ interface ResultsSummaryProps {
   onNewScrape: () => void;
   onExpired: () => void;
   isDownloading: boolean;
+  onRetryEmail?: () => void;
+  isRetryingEmail?: boolean;
 }
 
 export function ResultsSummary({
@@ -83,6 +86,8 @@ export function ResultsSummary({
   onNewScrape,
   onExpired,
   isDownloading,
+  onRetryEmail,
+  isRetryingEmail = false,
 }: ResultsSummaryProps) {
   const successAssets = job.assets.filter((a) => a.status === "success");
   const failedAssets = job.assets.filter((a) => a.status === "failed");
@@ -187,9 +192,24 @@ export function ResultsSummary({
           {job.completionEmailStatus === "failed" && (
             <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4" data-testid="alert-completion-email-failed">
               <MailWarning className="mt-0.5 h-5 w-5 flex-none text-amber-600 dark:text-amber-400" />
-              <p className="text-sm text-muted-foreground">
-                We couldn't send the ready email, but your backup is safe and remains downloadable here until it expires.
-              </p>
+              <div className="flex flex-1 flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  We couldn't send the ready email, but your backup is safe and remains downloadable here until it expires.
+                </p>
+                {onRetryEmail && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={onRetryEmail}
+                    disabled={isRetryingEmail}
+                    data-testid="button-retry-completion-email"
+                  >
+                    {isRetryingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {isRetryingEmail ? "Retrying…" : "Retry email"}
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           {job.completionEmailStatus === "pending" && (

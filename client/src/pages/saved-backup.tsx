@@ -16,6 +16,7 @@ type PageState = "loading" | "ready" | "expired" | "unavailable" | "failed";
 export default function SavedBackupPage({ jobId }: { jobId: string }) {
   const [job, setJob] = useState<ScrapeJob | null>(null);
   const [pageState, setPageState] = useState<PageState>("loading");
+  const [isRetryingEmail, setIsRetryingEmail] = useState(false);
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -74,6 +75,37 @@ export default function SavedBackupPage({ jobId }: { jobId: string }) {
     }
   }, [jobId, navigate, toast]);
 
+  const retryEmail = useCallback(async () => {
+    if (isRetryingEmail) return;
+    setIsRetryingEmail(true);
+    try {
+      const response = await fetch(`/api/scrape/${encodeURIComponent(jobId)}/retry-email`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => null);
+      if (payload?.job) setJob(payload.job as ScrapeJob);
+      if (response.status === 410) {
+        setPageState("expired");
+      }
+      if (!response.ok) {
+        throw new Error(payload?.message || "We couldn't retry the backup email.");
+      }
+      toast({
+        title: "Backup email sent",
+        description: "Check your verified account email for the saved-result link.",
+      });
+    } catch (error) {
+      toast({
+        title: "Couldn't send backup email",
+        description: error instanceof Error ? error.message : "We couldn't retry the backup email.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRetryingEmail(false);
+    }
+  }, [isRetryingEmail, jobId, toast]);
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -102,6 +134,8 @@ export default function SavedBackupPage({ jobId }: { jobId: string }) {
           onNewScrape={() => navigate("/")}
           isDownloading={isDownloading}
           onExpired={() => setPageState("expired")}
+          onRetryEmail={retryEmail}
+          isRetryingEmail={isRetryingEmail}
         />
         <PricingDialog
           open={showPricing}

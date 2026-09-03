@@ -418,14 +418,14 @@ export async function registerRoutes(
     }
   }
 
-  async function sendBackupReadyNotification(jobId: string): Promise<void> {
+  async function sendBackupReadyNotification(jobId: string): Promise<"sent" | "failed" | "not_claimed"> {
     const claimed = await storage.claimCompletionEmail(jobId);
-    if (!claimed) return;
+    if (!claimed) return "not_claimed";
 
     const owner = await getUserById(claimed.ownerId);
     if (!owner?.emailVerified) {
       await storage.recordCompletionEmailFailure(jobId, "Verified account email is unavailable");
-      return;
+      return "failed";
     }
 
     try {
@@ -438,12 +438,14 @@ export async function registerRoutes(
         jobId: claimed.job.id,
       });
       await storage.recordCompletionEmailSent(jobId);
+      return "sent";
     } catch (error) {
       console.error(`Backup-ready email failed for job ${jobId}:`, error);
       await storage.recordCompletionEmailFailure(
         jobId,
         error instanceof Error ? error.message : "Email delivery failed",
       );
+      return "failed";
     }
   }
 
@@ -775,6 +777,64 @@ export async function registerRoutes(
       res.json(publicJobSnapshot(job));
     } catch (error) {
       res.status(500).json({ message: "Failed to get job" });
+    }
+  });
+
+  app.post("/api/scrape/:id/retry-email", statusLimiter, requireAuth, async (req, res) => {
+    try {
+      const jobId = String(req.params.id);
+      const userId = req.session.userId!;
+      const [job, user] = await Promise.all([
+        storage.getOwnedJob(jobId, userId),
+        getUserById(userId),
+      ]);
+      if (!job) {
+        return res.status(404).json({ message: "Backup not found." });
+      }
+      if (!user?.emailVerified) {
+        return res.status(403).json({ message: "Verify your account email before retrying delivery." });
+      }
+      if (job.status !== "completed" || !job.downloadPath) {
+        return res.status(409).json({ message: "This backup is not ready for email delivery." });
+      }
+      if (isBackupExpired(job.expiresAt)) {
+        return res.status(410).json({
+          message: "This saved backup has expired.",
+          code: "BACKUP_EXPIRED",
+        });
+      }
+      if (job.completionEmailStatus !== "failed") {
+        return res.status(409).json({
+          message: job.completionEmailStatus === "sent"
+            ? "The backup email has already been sent."
+            : "Email delivery is already pending.",
+          job: publicJobSnapshot(job),
+        });
+      }
+
+      const result = await sendBackupReadyNotification(jobId);
+      const persistedJob = await storage.getOwnedJob(jobId, userId);
+      if (!persistedJob) {
+        return res.status(404).json({ message: "Backup not found." });
+      }
+      const snapshot = publicJobSnapshot(persistedJob);
+
+      if (result === "sent") {
+        return res.json({ message: "Backup email sent.", job: snapshot });
+      }
+      if (result === "failed") {
+        return res.status(502).json({
+          message: "We couldn't send the backup email. Your backup is still safe here.",
+          job: snapshot,
+        });
+      }
+      return res.status(429).json({
+        message: "Email retry is not available yet or has reached its attempt limit.",
+        job: snapshot,
+      });
+    } catch (error) {
+      console.error("Backup email retry failed:", error);
+      return res.status(500).json({ message: "We couldn't retry the backup email." });
     }
   });
 
