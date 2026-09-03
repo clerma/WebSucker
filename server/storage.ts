@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from "crypto";
 import { AsyncLocalStorage } from "async_hooks";
-import type { Asset, CrawlState, ScrapeJob, ScrapeStatus } from "@shared/schema";
+import type { Asset, CrawlState, RecentBackup, ScrapeJob, ScrapeStatus } from "@shared/schema";
 import { accessCodes as accessCodesTable, downloadEvents, scrapeJobs, users } from "@shared/schema";
 import { db } from "./db";
-import { and, eq, gt, isNotNull, isNull, lte, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, lte, lt, or, sql } from "drizzle-orm";
 import { backupExpiresAt } from "@shared/backup-lifecycle";
 
 const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -142,6 +142,49 @@ export class DbStorage {
     const [row] = await db.select().from(scrapeJobs)
       .where(and(eq(scrapeJobs.id, id), eq(scrapeJobs.ownerId, ownerId))).limit(1);
     return row ? toJob(row) : undefined;
+  }
+
+  async listRecentBackups(ownerId: number): Promise<RecentBackup[]> {
+    const now = new Date();
+    const rows = await db.select({
+      id: scrapeJobs.id,
+      url: scrapeJobs.url,
+      completedAt: scrapeJobs.completedAt,
+      expiresAt: scrapeJobs.expiresAt,
+      completionEmailSentAt: scrapeJobs.completionEmailSentAt,
+      completionEmailError: scrapeJobs.completionEmailError,
+    }).from(scrapeJobs)
+      .where(and(
+        eq(scrapeJobs.ownerId, ownerId),
+        eq(scrapeJobs.status, "completed"),
+        isNotNull(scrapeJobs.downloadPath),
+        isNotNull(scrapeJobs.completedAt),
+        isNotNull(scrapeJobs.expiresAt),
+        gt(scrapeJobs.expiresAt, now),
+        or(isNull(scrapeJobs.cleanupLeaseUntil), lte(scrapeJobs.cleanupLeaseUntil, now)),
+      ))
+      .orderBy(desc(scrapeJobs.completedAt))
+      .limit(50);
+
+    return rows.map((row) => {
+      let hostname = row.url;
+      try {
+        hostname = new URL(row.url).hostname;
+      } catch {
+        // Older records may contain a non-standard URL; show the stored value.
+      }
+      return {
+        id: row.id,
+        hostname,
+        completedAt: row.completedAt!.toISOString(),
+        expiresAt: row.expiresAt!.toISOString(),
+        completionEmailStatus: row.completionEmailSentAt
+          ? "sent"
+          : row.completionEmailError
+            ? "failed"
+            : "pending",
+      };
+    });
   }
 
   async listExpiredJobIds(limit = 50): Promise<string[]> {

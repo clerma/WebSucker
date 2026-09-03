@@ -295,6 +295,15 @@ export type ScrapeStatus = z.infer<typeof ScrapeStatus>;
 export const CompletionEmailStatus = z.enum(["pending", "sent", "failed"]);
 export type CompletionEmailStatus = z.infer<typeof CompletionEmailStatus>;
 
+export const recentBackupSchema = z.object({
+  id: z.string(),
+  hostname: z.string(),
+  completedAt: z.string(),
+  expiresAt: z.string(),
+  completionEmailStatus: CompletionEmailStatus,
+});
+export type RecentBackup = z.infer<typeof recentBackupSchema>;
+
 export const scrapeJobSchema = z.object({
   id: z.string(),
   url: z.string().url(),

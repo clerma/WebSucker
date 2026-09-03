@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { User, Coins, LogOut, Loader2, CreditCard } from "lucide-react";
+import { User, Coins, LogOut, Loader2, CreditCard, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -68,6 +68,10 @@ export function AccountMenu({ onDark = false }: { onDark?: boolean }) {
         <DropdownMenuItem onClick={() => setShowPricing(true)} data-testid="button-buy-credits">
           <CreditCard className="h-4 w-4 mr-2" />
           Buy credits
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/backups")} data-testid="button-recent-backups">
+          <Archive className="h-4 w-4 mr-2" />
+          Recent backups
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => logout()} disabled={isLoggingOut} data-testid="button-sign-out">

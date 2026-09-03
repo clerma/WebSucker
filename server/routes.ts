@@ -762,6 +762,16 @@ export async function registerRoutes(
     }
   });
   
+  app.get("/api/scrape/recent", statusLimiter, requireAuth, async (req, res) => {
+    try {
+      const backups = await storage.listRecentBackups(req.session.userId!);
+      res.json({ backups });
+    } catch (error) {
+      console.error("Recent backups lookup failed:", error);
+      res.status(500).json({ message: "We couldn't load your recent backups." });
+    }
+  });
+
   app.get("/api/scrape/:id", statusLimiter, requireAuth, async (req, res) => {
     try {
       const jobId = String(req.params.id);
