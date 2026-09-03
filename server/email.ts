@@ -128,7 +128,7 @@ export async function sendReviewSubmissionEmail(input: {
     method: "POST",
     body: JSON.stringify({
       from: FROM_ADDRESS,
-      to: ["info@websitesucker.com"],
+      to: ["hello@websitesucker.com"],
       reply_to: input.email,
       subject: `New ${input.rating}-star Website Sucker review`,
       html: `
