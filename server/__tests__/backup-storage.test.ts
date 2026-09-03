@@ -69,3 +69,67 @@ test("job access-code redemption is atomic across expiry and ownership", async (
     await db.delete(users).where(eq(users.id, otherUser.id));
   }
 });
+
+test("active download leases prevent expiry cleanup until release or timeout", async () => {
+  const suffix = randomUUID();
+  const releasedJobId = randomUUID();
+  const timedOutJobId = randomUUID();
+  const [owner] = await db.insert(users).values({
+    email: `download-lease-owner-${suffix}@example.com`,
+    passwordHash: "test-only",
+    emailVerified: true,
+  }).returning({ id: users.id });
+
+  try {
+    const futureExpiry = new Date(Date.now() + 60_000);
+    await db.insert(scrapeJobs).values([
+      {
+        id: releasedJobId,
+        ownerId: owner.id,
+        url: "https://release.example.com",
+        status: "completed",
+        assets: [],
+        completedAt: new Date(),
+        expiresAt: futureExpiry,
+        downloadPath: "release-test-only.zip",
+        fundingMethod: "payment",
+      },
+      {
+        id: timedOutJobId,
+        ownerId: owner.id,
+        url: "https://timeout.example.com",
+        status: "completed",
+        assets: [],
+        completedAt: new Date(),
+        expiresAt: futureExpiry,
+        downloadPath: "timeout-test-only.zip",
+        fundingMethod: "payment",
+      },
+    ]);
+
+    const releasedToken = await storage.claimDownloadStream(releasedJobId, owner.id, 60_000);
+    const timedOutToken = await storage.claimDownloadStream(timedOutJobId, owner.id, 60_000);
+    assert.ok(releasedToken);
+    assert.ok(timedOutToken);
+
+    await db.update(scrapeJobs)
+      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .where(eq(scrapeJobs.id, releasedJobId));
+    await db.update(scrapeJobs)
+      .set({
+        expiresAt: new Date(Date.now() - 1_000),
+        downloadLeaseUntil: new Date(Date.now() - 1_000),
+      })
+      .where(eq(scrapeJobs.id, timedOutJobId));
+
+    assert.equal(await storage.claimCleanup(releasedJobId, 60_000), false);
+    assert.equal(await storage.claimCleanup(timedOutJobId, 60_000), true);
+
+    await storage.releaseDownloadStream(releasedJobId, releasedToken);
+    assert.equal(await storage.claimCleanup(releasedJobId, 60_000), true);
+  } finally {
+    await db.delete(scrapeJobs).where(eq(scrapeJobs.id, releasedJobId));
+    await db.delete(scrapeJobs).where(eq(scrapeJobs.id, timedOutJobId));
+    await db.delete(users).where(eq(users.id, owner.id));
+  }
+});

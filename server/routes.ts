@@ -20,6 +20,7 @@ import {
 } from "./artifact-storage";
 import { sendBackupReadyEmail, sendReviewSubmissionEmail } from "./email";
 import { isBackupExpired } from "@shared/backup-lifecycle";
+import { pipeDownloadWithLease } from "./download-stream";
 
 // Send a notification to a configurable webhook URL (Discord, Slack, Make, etc.)
 async function sendNotification(payload: { title: string; message: string; url: string; status: "completed" | "failed" }) {
@@ -1441,35 +1442,15 @@ export async function registerRoutes(
         );
 
         const fileStream = downloadArtifact(job.downloadPath) ?? fs.createReadStream(job.downloadPath);
-        let streamFinalized = false;
-        const renewal = setInterval(() => {
-          void storage.renewDownloadStream(job.id, downloadLeaseToken).catch(error =>
-            console.error("Download lease renewal failed:", error));
-        }, 30_000);
-        renewal.unref?.();
-        const finalizeStream = () => {
-          if (streamFinalized) return;
-          streamFinalized = true;
-          clearInterval(renewal);
-          void storage.releaseDownloadStream(job.id, downloadLeaseToken).catch(error =>
-            console.error("Download lease release failed:", error));
-        };
-
-        fileStream.on("error", (err: Error) => {
-          console.error("Download stream error:", err);
-          finalizeStream();
-          if (!res.headersSent) res.status(500).end();
-          else res.destroy();
-        });
-        fileStream.on("end", finalizeStream);
-        res.on("finish", finalizeStream);
-        res.on("close", () => {
-          if (!res.writableFinished) fileStream.destroy();
-          finalizeStream();
+        pipeDownloadWithLease(fileStream, res, {
+          renew: () => storage.renewDownloadStream(job.id, downloadLeaseToken),
+          release: () => storage.releaseDownloadStream(job.id, downloadLeaseToken),
+          onError: error => {
+            console.error("Download stream or lease error:", error);
+          },
         });
 
         streamStarted = true;
-        fileStream.pipe(res);
       } finally {
         if (!streamStarted) {
           await storage.releaseDownloadStream(job.id, downloadLeaseToken);
