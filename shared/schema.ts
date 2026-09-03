@@ -101,6 +101,37 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// One review request per customer email, scheduled through Resend after the
+// customer's first completed checkout.
+export const reviewEmailRequests = pgTable("review_email_requests", {
+  id: serial("id").primaryKey(),
+  stripeSessionId: text("stripe_session_id").notNull().unique(),
+  recipientEmail: text("recipient_email").notNull().unique(),
+  scheduledFor: timestamp("scheduled_for").notNull(),
+  resendEmailId: text("resend_email_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const reviewSubmissions = pgTable("review_submissions", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  rating: integer("rating").notNull(),
+  review: text("review").notNull(),
+  notificationSentAt: timestamp("notification_sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("review_submissions_created_at_idx").on(table.createdAt),
+]);
+
+export const submitReviewSchema = z.object({
+  name: z.string().trim().min(1, "Please enter your name").max(100, "Name is too long"),
+  email: z.string().trim().email("Please enter a valid email").max(254, "Email is too long"),
+  rating: z.number().int().min(1).max(5),
+  review: z.string().trim().min(10, "Please write at least 10 characters").max(2000, "Review is too long"),
+  website: z.string().max(0).optional(), // honeypot
+});
+
 // Persistent record of every download unlock: which user unlocked which
 // website and how it was paid for. This is what ties revenue to sites for
 // credit-pack and subscription users (their charge isn't job-bound).

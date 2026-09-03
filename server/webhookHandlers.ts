@@ -3,6 +3,7 @@ import { getStripeSync, getUncachableStripeClient } from './stripeClient';
 import { db } from './db';
 import { payments, users, downloadEvents, scrapeJobs } from '@shared/schema';
 import { sql, eq, and, isNull } from 'drizzle-orm';
+import { schedulePurchaseReviewRequest } from './reviews';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -88,6 +89,7 @@ export class WebhookHandlers {
     // only record once actually paid (or a $0/no-payment subscription setup).
     if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') return;
     let validatedUserId: number | null = null;
+    let validatedUserEmail: string | null = null;
     const metadataUserId = Number(session.metadata?.userId);
     if (session.metadata?.jobId) {
       const [job] = await db.select({ ownerId: scrapeJobs.ownerId }).from(scrapeJobs)
@@ -100,8 +102,11 @@ export class WebhookHandlers {
       }
     }
     if (validatedUserId === null && Number.isInteger(metadataUserId) && metadataUserId > 0) {
-      const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, metadataUserId)).limit(1);
-      if (user) validatedUserId = user.id;
+      const [user] = await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, metadataUserId)).limit(1);
+      if (user) {
+        validatedUserId = user.id;
+        validatedUserEmail = user.email;
+      }
     }
 
     const isCreditPurchase = session.metadata?.type === 'credits';
@@ -164,6 +169,22 @@ export class WebhookHandlers {
           .onConflictDoNothing()
           .catch((e: unknown) => console.error('Failed to record webhook download event:', e));
       }
+    }
+
+    const reviewRecipient = session.customer_details?.email ?? validatedUserEmail;
+    const baseUrl = process.env.APP_BASE_URL?.replace(/\/$/, "");
+    if (reviewRecipient && baseUrl) {
+      const scheduled = await schedulePurchaseReviewRequest({
+        stripeSessionId: session.id,
+        recipientEmail: reviewRecipient,
+        purchasedAt: new Date(session.created * 1000),
+        baseUrl,
+      });
+      if (scheduled) {
+        console.log(`Scheduled review request for checkout session ${session.id}`);
+      }
+    } else {
+      console.warn(`Review request not scheduled for ${session.id}: missing customer email or APP_BASE_URL`);
     }
   }
 }

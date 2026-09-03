@@ -10,3 +10,4 @@
 - [Managed database migration](managed-database-migration.md) — remove legacy deployment DATABASE_URL only after backups; preserve newer production data and cross-schema Stripe triggers.
 - [Distributed job fencing](distributed-job-fencing.md) — durable leases must fence every worker mutation and refund; a lease alone does not stop a stale worker after takeover.
 - [Verified-email free tier](verified-email-free-tier.md) — existing users are grandfathered; new users stay signed out until a one-hour single-use link is consumed.
+- [Review request scheduling](review-request-scheduling.md) — schedule 24-hour review emails with Resend at checkout webhook time; do not rely on sleeping autoscale timers.

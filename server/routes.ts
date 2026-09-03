@@ -6,7 +6,10 @@ import * as fs from "fs";
 import { storage } from "./storage";
 import { configuredOrigins, rateLimit } from "./security";
 import { scrapeWebsite, cleanupScrapeFiles } from "./scraper";
-import { startScrapeSchema, scrapeAnalytics, payments, users, downloadEvents, securityAuditEvents } from "@shared/schema";
+import {
+  startScrapeSchema, scrapeAnalytics, payments, users, downloadEvents,
+  securityAuditEvents, reviewSubmissions, submitReviewSchema,
+} from "@shared/schema";
 import type { Asset, ScrapeProgress, ScrapeJob, User } from "@shared/schema";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { sql, desc, count, sum, eq, isNotNull, isNull, lt, or, and } from "drizzle-orm";
@@ -15,6 +18,7 @@ import { requireAuth, registerAuthRoutes, getUserById } from "./auth";
 import {
   artifactExists, deleteArtifact, downloadArtifact, parseObjectReference, uploadArtifact,
 } from "./artifact-storage";
+import { sendReviewSubmissionEmail } from "./email";
 
 // Send a notification to a configurable webhook URL (Discord, Slack, Make, etc.)
 async function sendNotification(payload: { title: string; message: string; url: string; status: "completed" | "failed" }) {
@@ -91,6 +95,13 @@ const subscriptionStatusLimiter = rateLimit({
 const statusLimiter = rateLimit({ windowMs: 60_000, max: 120, keyPrefix: "status" });
 const recoveryLimiter = rateLimit({ windowMs: 10 * 60_000, max: 5, keyPrefix: "scrape_recovery", message: "Too many recovery attempts. Please wait and try again." });
 const downloadLimiter = rateLimit({ windowMs: 60_000, max: 30, keyPrefix: "download", message: "Too many download attempts. Please wait and try again." });
+const reviewLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 3,
+  keyPrefix: "review_submit",
+  message: "Too many review submissions. Please try again later.",
+  subject: (req) => typeof req.body?.email === "string" ? req.body.email.toLowerCase().trim() : null,
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -116,6 +127,40 @@ export async function registerRoutes(
     res: Response,
     next: (err?: unknown) => void,
   ) => void;
+
+  app.post("/api/reviews", reviewLimiter, async (req, res) => {
+    const parsed = submitReviewSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.errors[0]?.message ?? "Please check your review and try again.",
+      });
+    }
+    // Bots commonly fill hidden fields. Return a generic success without
+    // storing or emailing their content.
+    if (parsed.data.website) {
+      return res.status(201).json({ ok: true, message: "Thank you for your feedback." });
+    }
+    const [submission] = await db.insert(reviewSubmissions).values({
+      name: parsed.data.name,
+      email: parsed.data.email.toLowerCase(),
+      rating: parsed.data.rating,
+      review: parsed.data.review,
+    }).returning({ id: reviewSubmissions.id });
+    try {
+      await sendReviewSubmissionEmail(parsed.data);
+      await db
+        .update(reviewSubmissions)
+        .set({ notificationSentAt: new Date() })
+        .where(eq(reviewSubmissions.id, submission.id));
+      return res.status(201).json({ ok: true, message: "Thank you for sharing your review." });
+    } catch (error) {
+      await db.delete(reviewSubmissions).where(eq(reviewSubmissions.id, submission.id));
+      console.error("Review notification email failed:", error);
+      return res.status(503).json({
+        message: "We couldn't submit your review right now. Please try again in a moment.",
+      });
+    }
+  });
 
   // Send a ping to every connected client every 25 seconds to keep the
   // connection alive through proxies that close idle connections.
