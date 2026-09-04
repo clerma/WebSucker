@@ -9,9 +9,11 @@ import { adminOrderNotifications } from "../../shared/schema";
 import { db } from "../db";
 import {
   attemptAdminOrderNotification,
+  listUnresolvedAdminOrderNotifications,
   notificationInputFromCharge,
   orderTypeFromBillingReason,
   queueAdminOrderNotification,
+  retryExpiredAdminOrderNotification,
 } from "../orderNotifications";
 import { registerStripeWebhookRoute } from "../stripeWebhookRoute";
 import { WebhookHandlers } from "../webhookHandlers";
@@ -175,6 +177,52 @@ test("delivery never retries after Resend's idempotency guarantee", async () => 
       return "unsafe_duplicate";
     }), "unavailable");
     assert.equal(sends, 0);
+  } finally {
+    await db.delete(adminOrderNotifications)
+      .where(eq(adminOrderNotifications.stripeChargeId, chargeId));
+  }
+});
+
+test("expired notifications are visible and require duplicate-risk acknowledgement", async () => {
+  const chargeId = `ch_manual_retry_${process.pid}_${Date.now()}`;
+  try {
+    await db.insert(adminOrderNotifications).values({
+      stripeChargeId: chargeId,
+      amountCents: 2499,
+      currency: "usd",
+      customerEmail: "buyer@example.com",
+      orderType: "Subscription renewal",
+      paidAt: new Date(),
+      nextAttemptAt: new Date(0),
+      retryUntil: new Date(Date.now() - 1),
+      attempts: 3,
+      lastError: "Delivery outcome unknown",
+    });
+
+    const unresolved = await listUnresolvedAdminOrderNotifications();
+    const summary = unresolved.find(item => item.stripeChargeId === chargeId);
+    assert.equal(summary?.status, "reconciliation_required");
+    assert.equal(summary?.attempts, 3);
+    assert.equal(summary?.lastError, "Delivery outcome unknown");
+
+    let sends = 0;
+    assert.equal(
+      await retryExpiredAdminOrderNotification(chargeId, false, async () => {
+        sends += 1;
+        return "should_not_send";
+      }),
+      "acknowledgement_required",
+    );
+    assert.equal(sends, 0);
+
+    assert.equal(
+      await retryExpiredAdminOrderNotification(chargeId, true, async () => {
+        sends += 1;
+        return "email_manual_retry";
+      }),
+      "sent",
+    );
+    assert.equal(sends, 1);
   } finally {
     await db.delete(adminOrderNotifications)
       .where(eq(adminOrderNotifications.stripeChargeId, chargeId));

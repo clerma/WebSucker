@@ -21,6 +21,10 @@ import {
 import { sendBackupReadyEmail, sendReviewSubmissionEmail } from "./email";
 import { isBackupExpired } from "@shared/backup-lifecycle";
 import { pipeDownloadWithLease } from "./download-stream";
+import {
+  listUnresolvedAdminOrderNotifications,
+  retryExpiredAdminOrderNotification,
+} from "./orderNotifications";
 
 // Send a notification to a configurable webhook URL (Discord, Slack, Make, etc.)
 async function sendNotification(payload: { title: string; message: string; url: string; status: "completed" | "failed" }) {
@@ -1690,9 +1694,10 @@ export async function registerRoutes(
 
     try {
       // Query persistent analytics from DB
-      const [dbRows, recentRows] = await Promise.all([
+      const [dbRows, recentRows, unresolvedOrderNotifications] = await Promise.all([
         db.select().from(scrapeAnalytics),
         db.select().from(scrapeAnalytics).orderBy(desc(scrapeAnalytics.createdAt)).limit(50),
+        listUnresolvedAdminOrderNotifications(),
       ]);
 
       const totalJobsCreated = dbRows.length;
@@ -1955,10 +1960,46 @@ export async function registerRoutes(
         },
         recentDownloads,
         recentSecurityEvents,
+        unresolvedOrderNotifications,
       });
     } catch (error) {
       console.error("Admin stats error:", error);
       res.status(500).json({ message: "Failed to fetch stats" });
+    }
+  });
+
+  app.post("/api/admin/order-notifications/:chargeId/retry", adminLimiter, async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    if (req.body?.acknowledgeDuplicateRisk !== true) {
+      return res.status(400).json({
+        message: "You must acknowledge that retrying after the provider guarantee expired may send a duplicate email.",
+      });
+    }
+
+    try {
+      const chargeId = Array.isArray(req.params.chargeId)
+        ? req.params.chargeId[0]
+        : req.params.chargeId;
+      const result = await retryExpiredAdminOrderNotification(
+        chargeId,
+        true,
+      );
+      if (result === "unavailable") {
+        return res.status(409).json({
+          message: "This notification is no longer eligible for a manual retry. Refresh the dashboard to see its current state.",
+        });
+      }
+      if (result === "failed") {
+        return res.status(502).json({
+          message: "The email provider rejected the retry. The notification remains unresolved and will retry safely within the new window.",
+        });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Manual admin order notification retry failed:", error);
+      res.status(500).json({
+        message: "The retry could not be started. The notification remains unresolved.",
+      });
     }
   });
 

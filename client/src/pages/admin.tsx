@@ -7,6 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useSeo } from "@/lib/seo";
 import { WsLogo, WsMark } from "@/components/logo";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface AnalyticsData {
   totalJobsCreated: number;
@@ -74,6 +78,24 @@ interface AdminStats {
     userAgent: string | null;
     createdAt: string;
   }>;
+  unresolvedOrderNotifications?: OrderNotification[];
+}
+
+interface OrderNotification {
+  stripeChargeId: string;
+  amountCents: number;
+  currency: string;
+  customerEmail: string | null;
+  customerName: string | null;
+  orderType: string;
+  attempts: number;
+  lastError: string | null;
+  paidAt: string;
+  createdAt: string;
+  lastAttemptAt: string | null;
+  nextAttemptAt: string;
+  retryUntil: string;
+  status: "retrying" | "reconciliation_required";
 }
 
 interface AccessCode {
@@ -100,6 +122,9 @@ export default function Admin() {
   const [codeMaxUses, setCodeMaxUses] = useState("");
   const [codeGenerating, setCodeGenerating] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [retryCandidate, setRetryCandidate] = useState<OrderNotification | null>(null);
+  const [duplicateRiskAcknowledged, setDuplicateRiskAcknowledged] = useState(false);
+  const [retryingChargeId, setRetryingChargeId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -204,6 +229,41 @@ export default function Admin() {
     setCopiedCode(code);
     toast({ title: "Copied!", description: `${code} copied to clipboard.` });
     setTimeout(() => setCopiedCode(null), 2000);
+  };
+
+  const handleExpiredNotificationRetry = async () => {
+    if (!retryCandidate || !duplicateRiskAcknowledged) return;
+    const secret = sessionStorage.getItem("websitesucker_admin_secret");
+    if (!secret) return;
+    setRetryingChargeId(retryCandidate.stripeChargeId);
+    try {
+      const res = await fetch(`/api/admin/order-notifications/${encodeURIComponent(retryCandidate.stripeChargeId)}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+        body: JSON.stringify({ acknowledgeDuplicateRisk: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({
+          title: "Order email retry failed",
+          description: data.message ?? "The notification remains unresolved. Refresh and try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+      setRetryCandidate(null);
+      setDuplicateRiskAcknowledged(false);
+      toast({ title: "Order email sent", description: "The notification was delivered and cleared." });
+      await fetchStats();
+    } catch {
+      toast({
+        title: "Order email retry failed",
+        description: "The notification remains unresolved. Check your connection and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRetryingChargeId(null);
+    }
   };
 
   useEffect(() => {
@@ -437,6 +497,84 @@ export default function Admin() {
             </CardContent>
           </Card>
         </div>
+
+        <Card className={(stats?.unresolvedOrderNotifications?.length ?? 0) > 0 ? "border-amber-500/40" : ""}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              Order emails needing attention
+              {(stats?.unresolvedOrderNotifications?.length ?? 0) > 0 && (
+                <Badge variant="secondary" className="text-xs ml-auto">
+                  {stats!.unresolvedOrderNotifications!.length}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {!stats?.unresolvedOrderNotifications?.length ? (
+              <p className="text-sm text-muted-foreground text-center py-8">All order emails are resolved</p>
+            ) : (
+              <div className="divide-y">
+                {stats.unresolvedOrderNotifications.map((notification) => {
+                  const requiresReconciliation = notification.status === "reconciliation_required";
+                  return (
+                    <div key={notification.stripeChargeId} className={`px-4 sm:px-6 py-4 ${requiresReconciliation ? "bg-destructive/5" : "bg-amber-500/5"}`}>
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium">{notification.orderType}</p>
+                            <Badge variant={requiresReconciliation ? "destructive" : "secondary"} className="text-xs">
+                              {requiresReconciliation ? "Manual reconciliation required" : "Retrying safely"}
+                            </Badge>
+                          </div>
+                          <p className="text-sm">
+                            {notification.customerName || notification.customerEmail || "Unknown customer"}
+                            {notification.customerName && notification.customerEmail ? ` · ${notification.customerEmail}` : ""}
+                          </p>
+                          <p className="text-xs font-mono text-muted-foreground break-all">Charge {notification.stripeChargeId}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Paid {new Date(notification.paidAt).toLocaleString()} · queued {new Date(notification.createdAt).toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {notification.attempts} attempt{notification.attempts === 1 ? "" : "s"}
+                            {notification.lastAttemptAt ? ` · last ${new Date(notification.lastAttemptAt).toLocaleString()}` : ""}
+                            {requiresReconciliation
+                              ? ` · retry window expired ${new Date(notification.retryUntil).toLocaleString()}`
+                              : ` · next retry ${new Date(notification.nextAttemptAt).toLocaleString()}`}
+                          </p>
+                          {notification.lastError && (
+                            <p className="text-xs text-destructive break-words">Last error: {notification.lastError}</p>
+                          )}
+                        </div>
+                        <div className="sm:text-right shrink-0 space-y-2">
+                          <p className="text-sm font-semibold">
+                            {new Intl.NumberFormat(undefined, {
+                              style: "currency",
+                              currency: notification.currency.toUpperCase(),
+                            }).format(notification.amountCents / 100)}
+                          </p>
+                          {requiresReconciliation && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                setRetryCandidate(notification);
+                                setDuplicateRiskAcknowledged(false);
+                              }}
+                              disabled={retryingChargeId === notification.stripeChargeId}
+                            >
+                              Reconcile & retry
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="pb-3">
@@ -679,6 +817,45 @@ export default function Admin() {
           </Card>
         )}
       </div>
+      <AlertDialog
+        open={retryCandidate !== null}
+        onOpenChange={(open) => {
+          if (!open && !retryingChargeId) {
+            setRetryCandidate(null);
+            setDuplicateRiskAcknowledged(false);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Retry this order email?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Resend’s duplicate protection has expired. The earlier attempt may have been delivered even though no delivery result was recorded. Retrying can send the admin a duplicate order email.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="flex items-start gap-3 rounded-md border p-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4"
+              checked={duplicateRiskAcknowledged}
+              onChange={(event) => setDuplicateRiskAcknowledged(event.target.checked)}
+            />
+            <span>I understand the duplicate risk and have reconciled the prior delivery outcome.</span>
+          </label>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={retryingChargeId !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!duplicateRiskAcknowledged || retryingChargeId !== null}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleExpiredNotificationRetry();
+              }}
+            >
+              {retryingChargeId ? "Retrying…" : "Acknowledge & retry"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

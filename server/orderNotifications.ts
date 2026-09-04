@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
-import { and, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { adminOrderNotifications } from "@shared/schema";
 import { db } from "./db";
 import { sendAdminOrderEmail, type AdminOrderEmailInput } from "./email";
@@ -13,6 +13,25 @@ const MAX_BACKOFF_MS = 60 * 60_000;
 // retry inside 23 hours closes the post-send/pre-commit crash window without
 // risking a late duplicate after the provider guarantee expires.
 const IDEMPOTENT_RETRY_WINDOW_MS = 23 * 60 * 60_000;
+
+export type AdminOrderNotificationStatus = "retrying" | "reconciliation_required";
+
+export type AdminOrderNotificationSummary = {
+  stripeChargeId: string;
+  amountCents: number;
+  currency: string;
+  customerEmail: string | null;
+  customerName: string | null;
+  orderType: string;
+  attempts: number;
+  lastError: string | null;
+  paidAt: Date;
+  createdAt: Date;
+  lastAttemptAt: Date | null;
+  nextAttemptAt: Date;
+  retryUntil: Date;
+  status: AdminOrderNotificationStatus;
+};
 
 export type AdminOrderNotificationInput = Omit<AdminOrderEmailInput, "to"> & {
   paymentIntentId: string | null;
@@ -285,6 +304,59 @@ export async function retryAdminOrderNotifications(limit = 25): Promise<number> 
   await Promise.all(due.map(({ stripeChargeId }) =>
     attemptAdminOrderNotification(stripeChargeId)));
   return due.length;
+}
+
+export async function listUnresolvedAdminOrderNotifications(
+  limit = 100,
+  now = new Date(),
+): Promise<AdminOrderNotificationSummary[]> {
+  const rows = await db.select().from(adminOrderNotifications)
+    .where(isNull(adminOrderNotifications.sentAt))
+    .orderBy(asc(adminOrderNotifications.retryUntil))
+    .limit(limit);
+  return rows.map(row => ({
+    stripeChargeId: row.stripeChargeId,
+    amountCents: row.amountCents,
+    currency: row.currency,
+    customerEmail: row.customerEmail,
+    customerName: row.customerName,
+    orderType: row.orderType,
+    attempts: row.attempts,
+    lastError: row.lastError,
+    paidAt: row.paidAt,
+    createdAt: row.createdAt,
+    lastAttemptAt: row.lastAttemptAt,
+    nextAttemptAt: row.nextAttemptAt,
+    retryUntil: row.retryUntil,
+    status: row.retryUntil.getTime() < now.getTime()
+      ? "reconciliation_required"
+      : "retrying",
+  }));
+}
+
+export async function retryExpiredAdminOrderNotification(
+  stripeChargeId: string,
+  duplicateRiskAcknowledged: boolean,
+  sender: AdminOrderSender = sendAdminOrderEmail,
+): Promise<"sent" | "failed" | "unavailable" | "acknowledgement_required"> {
+  if (!duplicateRiskAcknowledged) return "acknowledgement_required";
+
+  const now = new Date();
+  const reopened = await db.update(adminOrderNotifications).set({
+    nextAttemptAt: now,
+    retryUntil: new Date(now.getTime() + IDEMPOTENT_RETRY_WINDOW_MS),
+  }).where(and(
+    eq(adminOrderNotifications.stripeChargeId, stripeChargeId),
+    isNull(adminOrderNotifications.sentAt),
+    lt(adminOrderNotifications.retryUntil, now),
+    or(
+      isNull(adminOrderNotifications.leaseUntil),
+      lt(adminOrderNotifications.leaseUntil, now),
+    ),
+  )).returning({ stripeChargeId: adminOrderNotifications.stripeChargeId });
+  if (reopened.length !== 1) return "unavailable";
+
+  return attemptAdminOrderNotification(stripeChargeId, sender);
 }
 
 let retryTimer: NodeJS.Timeout | null = null;
