@@ -101,6 +101,34 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// One durable admin notification per successful Stripe charge. Charge IDs are
+// canonical across Checkout, invoices, and webhook retries, so subscription
+// signup and renewal payments cannot produce duplicate emails.
+export const adminOrderNotifications = pgTable("admin_order_notifications", {
+  stripeChargeId: text("stripe_charge_id").primaryKey(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull(),
+  customerEmail: text("customer_email"),
+  customerName: text("customer_name"),
+  orderType: text("order_type").notNull(),
+  description: text("description"),
+  invoiceId: text("invoice_id"),
+  paymentIntentId: text("payment_intent_id"),
+  paidAt: timestamp("paid_at").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  nextAttemptAt: timestamp("next_attempt_at").defaultNow().notNull(),
+  retryUntil: timestamp("retry_until").notNull(),
+  leaseToken: text("lease_token"),
+  leaseUntil: timestamp("lease_until"),
+  sentAt: timestamp("sent_at"),
+  resendEmailId: text("resend_email_id"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("admin_order_notifications_retry_idx").on(table.sentAt, table.nextAttemptAt, table.retryUntil),
+]);
+
 // One review request per customer email, scheduled through Resend after the
 // customer's first completed checkout.
 export const reviewEmailRequests = pgTable("review_email_requests", {

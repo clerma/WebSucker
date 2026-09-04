@@ -219,6 +219,82 @@ export async function sendBackupReadyEmail(
   await requireSuccessfulSend(res);
 }
 
+export type AdminOrderEmailInput = {
+  to: string;
+  chargeId: string;
+  amountCents: number;
+  currency: string;
+  customerEmail: string | null;
+  customerName: string | null;
+  orderType: string;
+  description: string | null;
+  invoiceId: string | null;
+  paidAt: Date;
+};
+
+function formatMoney(amountCents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+    }).format(amountCents / 100);
+  } catch {
+    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  }
+}
+
+export function buildAdminOrderEmail(input: AdminOrderEmailInput): EmailPayload {
+  const amount = formatMoney(input.amountCents, input.currency);
+  const paidAt = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  }).format(input.paidAt);
+  const detailRow = (label: string, value: string) => `
+    <tr>
+      <td style="padding:7px 14px 7px 0;color:#718096;font-size:13px;vertical-align:top;">${escapeHtml(label)}</td>
+      <td style="padding:7px 0;color:#172033;font-size:14px;font-weight:600;vertical-align:top;word-break:break-word;">${escapeHtml(value)}</td>
+    </tr>`;
+
+  return {
+    from: FROM_ADDRESS,
+    to: [input.to],
+    subject: `New Website Sucker order — ${amount}`,
+    html: brandedEmail({
+      title: "New successful payment",
+      preheader: `${amount} received for ${input.orderType}.`,
+      assetOrigin: trustedEmailOrigin(),
+      body: `
+        <p style="margin:0 0 18px;color:#3f4b5f;font-size:15px;line-height:1.65;">Website Sucker received a successful payment.</p>
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:0 0 18px;">
+          ${detailRow("Amount", amount)}
+          ${detailRow("Order", input.orderType)}
+          ${input.customerEmail ? detailRow("Customer email", input.customerEmail) : ""}
+          ${input.customerName ? detailRow("Customer name", input.customerName) : ""}
+          ${input.description ? detailRow("Description", input.description) : ""}
+          ${input.invoiceId ? detailRow("Stripe invoice", input.invoiceId) : ""}
+          ${detailRow("Stripe charge", input.chargeId)}
+          ${detailRow("Paid", `${paidAt} UTC`)}
+        </table>
+        <p style="margin:0;color:#718096;font-size:13px;line-height:1.55;">This is an internal order notification. Customer access and fulfillment are handled separately.</p>`,
+    }),
+  };
+}
+
+export async function sendAdminOrderEmail(
+  input: Omit<AdminOrderEmailInput, "to">,
+): Promise<string | null> {
+  const recipient = process.env.ADMIN_ORDER_EMAIL?.trim();
+  if (!recipient) throw new Error("ADMIN_ORDER_EMAIL is not configured");
+  const res = await resendRequest("/emails", {
+    method: "POST",
+    body: JSON.stringify(buildAdminOrderEmail({ ...input, to: recipient })),
+    idempotencyKey: `website-sucker-order-${input.chargeId}`,
+  });
+  const result = await requireSuccessfulSend(res);
+  return typeof result.id === "string" ? result.id : null;
+}
+
 export function buildReviewRequestEmail(
   to: string,
   reviewUrl: string,

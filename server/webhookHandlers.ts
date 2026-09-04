@@ -4,6 +4,7 @@ import { db } from './db';
 import { payments, users, downloadEvents, scrapeJobs } from '@shared/schema';
 import { sql, eq, and, isNull } from 'drizzle-orm';
 import { schedulePurchaseReviewRequest } from './reviews';
+import { handleSuccessfulCharge } from './orderNotifications';
 
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -81,6 +82,10 @@ export class WebhookHandlers {
    * runs first wins and the other is a no-op.
    */
   private static async handleEvent(event: Stripe.Event): Promise<void> {
+    if (event.type === 'charge.succeeded') {
+      await handleSuccessfulCharge(event.data.object as Stripe.Charge);
+      return;
+    }
     if (event.type !== 'checkout.session.completed') return;
 
     const session = event.data.object as Stripe.Checkout.Session;

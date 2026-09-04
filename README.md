@@ -103,6 +103,9 @@ STRIPE_PUBLISHABLE_KEY=pk_live_...
 # Admin dashboard password — set something strong
 ADMIN_SECRET=your-secure-admin-password
 
+# Internal notification recipient for every successful Stripe charge
+ADMIN_ORDER_EMAIL=hello@websitesucker.com
+
 # ─── Optional ─────────────────────────────────────────────────
 
 # Session secret for express-session (generate a random string)
@@ -269,9 +272,11 @@ The app auto-registers its webhook with Stripe on startup using the `REPLIT_DOMA
 
 1. Go to [Stripe Dashboard → Webhooks](https://dashboard.stripe.com/webhooks)
 2. Add endpoint: `https://yourdomain.com/api/stripe/webhook`
-3. Select all events (or at minimum: `checkout.session.completed`, `customer.subscription.*`, `invoice.payment_succeeded`)
+3. Select all events (or at minimum: `checkout.session.completed` and `charge.succeeded`)
 
 The webhook secret is managed automatically by `stripe-replit-sync`.
+Admin order-email retries use a stable Stripe charge idempotency key and are
+bounded to 23 hours, within Resend's documented 24-hour idempotency window.
 
 ---
 

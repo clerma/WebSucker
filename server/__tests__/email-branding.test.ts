@@ -7,6 +7,7 @@ import {
   buildReviewRequestEmail,
   buildReviewSubmissionEmail,
   buildBackupReadyEmail,
+  buildAdminOrderEmail,
 } from "../email";
 
 const ORIGINAL_APP_BASE_URL = process.env.APP_BASE_URL;
@@ -41,6 +42,18 @@ test("all transactional templates use the shared branded header and HTTPS logo",
       siteUrl: "https://docs.example.com/start",
       expiresAt: new Date("2026-09-04T20:00:00.000Z"),
       truncated: false,
+    }),
+    buildAdminOrderEmail({
+      to: "hello@websitesucker.com",
+      chargeId: "ch_branding",
+      amountCents: 599,
+      currency: "usd",
+      customerEmail: "buyer@example.com",
+      customerName: "Buyer",
+      orderType: "Subscription renewal",
+      description: null,
+      invoiceId: "in_branding",
+      paidAt: scheduledAt,
     }),
   ];
 
@@ -117,6 +130,29 @@ test("review emails retain scheduling, routing, reply-to, and escaped content", 
   assert.doesNotMatch(notification.html, /<script>/);
   assert.match(notification.html, /&lt;script&gt;alert\(&#039;bad&#039;\)&lt;\/script&gt;/);
   assert.match(notification.html, /&lt;Customer&gt;/);
+});
+
+test("admin order email includes safe payment and renewal details", () => {
+  const message = buildAdminOrderEmail({
+    to: "hello@websitesucker.com",
+    chargeId: "ch_<unsafe>",
+    amountCents: 599,
+    currency: "usd",
+    customerEmail: "buyer@example.com",
+    customerName: "<Buyer>",
+    orderType: "Subscription renewal",
+    description: "<script>bad</script>",
+    invoiceId: "in_renewal",
+    paidAt: new Date("2026-09-04T12:00:00.000Z"),
+  });
+  assert.deepEqual(message.to, ["hello@websitesucker.com"]);
+  assert.equal(message.subject, "New Website Sucker order — $5.99");
+  assert.match(message.html, /Subscription renewal/);
+  assert.match(message.html, /buyer@example\.com/);
+  assert.match(message.html, /in_renewal/);
+  assert.match(message.html, /ch_&lt;unsafe&gt;/);
+  assert.match(message.html, /&lt;Buyer&gt;/);
+  assert.doesNotMatch(message.html, /<script>bad<\/script>/);
 });
 
 test("email branding refuses non-HTTPS asset origins", () => {

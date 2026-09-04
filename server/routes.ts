@@ -971,6 +971,9 @@ export async function registerRoutes(
         payment_intent_data: mode === "payment" ? {
           metadata: { jobId, userId: String(req.session.userId!), app: "websucker", url: websiteForMetadata },
         } : undefined,
+        subscription_data: mode === "subscription" ? {
+          metadata: { jobId, userId: String(req.session.userId!), app: "websucker", url: websiteForMetadata, type: "subscription" },
+        } : undefined,
       });
 
       res.json({ url: session.url });
@@ -1010,6 +1013,21 @@ export async function registerRoutes(
           userId: String(user.id),
           ...(creditAmount > 0 ? { type: "credits", credits: String(creditAmount) } : { type: "subscription" }),
         },
+        payment_intent_data: mode === "payment" ? {
+          metadata: {
+            app: "websucker",
+            userId: String(user.id),
+            type: creditAmount > 0 ? "credits" : "payment",
+            ...(creditAmount > 0 ? { credits: String(creditAmount) } : {}),
+          },
+        } : undefined,
+        subscription_data: mode === "subscription" ? {
+          metadata: {
+            app: "websucker",
+            userId: String(user.id),
+            type: "subscription",
+          },
+        } : undefined,
       });
 
       res.json({ url: session.url });

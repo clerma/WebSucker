@@ -8,6 +8,7 @@ import { getStripeSync } from './stripeClient';
 import { WebhookHandlers } from './webhookHandlers';
 import { sameOriginProtection } from "./security";
 import { ensureSecurityInfrastructure } from "./security";
+import { startAdminOrderNotificationRetryLoop } from "./orderNotifications";
 
 const app = express();
 // Behind the hosting proxy (Replit/Cloud), trust the first proxy hop so req.ip
@@ -106,6 +107,7 @@ async function main() {
 
   setupSession(app);
   await ensureSecurityInfrastructure();
+  startAdminOrderNotificationRetryLoop();
 
   app.use((req, res, next) => {
     const start = Date.now();
