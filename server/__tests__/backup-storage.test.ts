@@ -123,6 +123,44 @@ test("recent backups only returns an owner's available artifacts with mapped ema
   }
 });
 
+test("recent backups returns only the newest 50 available artifacts", async () => {
+  const suffix = randomUUID();
+  const [owner] = await db.insert(users).values({
+    email: `recent-backups-limit-${suffix}@example.com`,
+    passwordHash: "test-only",
+    emailVerified: true,
+  }).returning({ id: users.id });
+  const jobIds = Array.from({ length: 55 }, () => randomUUID());
+  const now = Date.now();
+
+  try {
+    await db.insert(scrapeJobs).values(jobIds.map((id, index) => ({
+      id,
+      ownerId: owner.id,
+      url: `https://backup-${index}.example.com`,
+      status: "completed" as const,
+      assets: [],
+      completedAt: new Date(now - index * 1_000),
+      expiresAt: new Date(now + 60_000),
+      downloadPath: `${id}.zip`,
+      fundingMethod: "payment" as const,
+    })));
+
+    const backups = await storage.listRecentBackups(owner.id);
+
+    assert.equal(backups.length, 50);
+    assert.deepEqual(backups.map(({ id }) => id), jobIds.slice(0, 50));
+    assert.deepEqual(
+      backups.map(({ completedAt }) => completedAt),
+      Array.from({ length: 50 }, (_, index) => new Date(now - index * 1_000).toISOString()),
+    );
+    assert.ok(jobIds.slice(50).every((id) => !backups.some((backup) => backup.id === id)));
+  } finally {
+    await db.delete(scrapeJobs).where(inArray(scrapeJobs.id, jobIds));
+    await db.delete(users).where(eq(users.id, owner.id));
+  }
+});
+
 test("job access-code redemption is atomic across expiry and ownership", async () => {
   const suffix = randomUUID();
   const code = `WS-${suffix.slice(0, 5).toUpperCase()}-${suffix.slice(5, 10).toUpperCase()}`;
