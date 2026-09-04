@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import test from "node:test";
 import { eq } from "drizzle-orm";
-import type Stripe from "stripe";
+import express from "express";
+import Stripe from "stripe";
 import { adminOrderNotifications } from "../../shared/schema";
 import { db } from "../db";
 import {
@@ -10,6 +13,8 @@ import {
   orderTypeFromBillingReason,
   queueAdminOrderNotification,
 } from "../orderNotifications";
+import { registerStripeWebhookRoute } from "../stripeWebhookRoute";
+import { WebhookHandlers } from "../webhookHandlers";
 
 function charge(overrides: Partial<Stripe.Charge> = {}): Stripe.Charge {
   return {
@@ -261,5 +266,104 @@ test("Stripe v20 invoice-payment context labels renewals", async () => {
   } finally {
     await db.delete(adminOrderNotifications)
       .where(eq(adminOrderNotifications.stripeChargeId, chargeId));
+  }
+});
+
+test("signed raw webhook fixtures create one durable notification per charge", async () => {
+  const secret = "whsec_scrubbed_fixture_secret";
+  const fixtureNames = [
+    "charge-succeeded-one-time.json",
+    "charge-succeeded-renewal.json",
+  ];
+  const chargeIds = ["ch_fixture_one_time", "ch_fixture_renewal"];
+  const sends = new Map<string, number>();
+  const stripe = new Stripe("sk_test_fixture");
+  const app = express();
+  registerStripeWebhookRoute(app, (payload, signature) =>
+    WebhookHandlers.processWebhook(payload, signature, {
+      signingSecrets: [secret],
+      processSyncWebhook: async () => {},
+      handleCharge: async charge => {
+        const input = notificationInputFromCharge(charge);
+        assert.ok(input);
+        await queueAdminOrderNotification(
+          input,
+          async email => {
+            sends.set(email.chargeId, (sends.get(email.chargeId) ?? 0) + 1);
+            return `email_${email.chargeId}`;
+          },
+          async paymentIntentId => paymentIntentId === "pi_fixture_renewal"
+            ? {
+                invoiceId: "in_fixture_renewal",
+                billingReason: "subscription_cycle",
+                customerEmail: "scrubbed@example.invalid",
+                customerName: null,
+                description: null,
+              }
+            : null,
+        );
+      },
+    }));
+  const server = createServer(app);
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const endpoint = `http://127.0.0.1:${address.port}/api/stripe/webhook`;
+
+  try {
+    for (const fixtureName of fixtureNames) {
+      const payload = await readFile(
+        new URL(`../__fixtures__/stripe/${fixtureName}`, import.meta.url),
+      );
+      const fixtureEvent = JSON.parse(payload.toString("utf8")) as Stripe.Event;
+      assert.equal(fixtureEvent.api_version, Stripe.API_VERSION);
+      const signature = stripe.webhooks.generateTestHeaderString({
+        payload: payload.toString("utf8"),
+        secret,
+      });
+      for (let delivery = 0; delivery < 2; delivery += 1) {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "stripe-signature": signature,
+          },
+          body: payload,
+        });
+        assert.equal(response.status, 200);
+      }
+    }
+
+    const malformedPayload = await readFile(
+      new URL("../__fixtures__/stripe/charge-succeeded-one-time.json", import.meta.url),
+    );
+    const malformed = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "stripe-signature": "t=1,v1=malformed",
+      },
+      body: malformedPayload,
+    });
+    assert.equal(malformed.status, 400);
+
+    const stored = await db.select().from(adminOrderNotifications)
+      .where(eq(adminOrderNotifications.stripeChargeId, chargeIds[0]));
+    const renewal = await db.select().from(adminOrderNotifications)
+      .where(eq(adminOrderNotifications.stripeChargeId, chargeIds[1]));
+    assert.equal(stored.length, 1);
+    assert.equal(renewal.length, 1);
+    assert.equal(renewal[0].orderType, "Subscription renewal");
+    assert.equal(renewal[0].invoiceId, "in_fixture_renewal");
+    assert.deepEqual(Object.fromEntries(sends), {
+      ch_fixture_one_time: 1,
+      ch_fixture_renewal: 1,
+    });
+  } finally {
+    server.close();
+    await db.delete(adminOrderNotifications)
+      .where(eq(adminOrderNotifications.stripeChargeId, chargeIds[0]));
+    await db.delete(adminOrderNotifications)
+      .where(eq(adminOrderNotifications.stripeChargeId, chargeIds[1]));
   }
 });

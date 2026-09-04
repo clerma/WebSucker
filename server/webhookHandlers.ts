@@ -6,8 +6,18 @@ import { sql, eq, and, isNull } from 'drizzle-orm';
 import { schedulePurchaseReviewRequest } from './reviews';
 import { handleSuccessfulCharge } from './orderNotifications';
 
+export type WebhookProcessingDependencies = {
+  handleCharge?: typeof handleSuccessfulCharge;
+  processSyncWebhook?: (payload: Buffer, signature: string) => Promise<void>;
+  signingSecrets?: string[];
+};
+
 export class WebhookHandlers {
-  static async processWebhook(payload: Buffer, signature: string): Promise<void> {
+  static async processWebhook(
+    payload: Buffer,
+    signature: string,
+    dependencies: WebhookProcessingDependencies = {},
+  ): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(
         'STRIPE WEBHOOK ERROR: Payload must be a Buffer. ' +
@@ -21,29 +31,44 @@ export class WebhookHandlers {
     // secret(s) stored by the sync engine. This must not depend on live
     // Stripe API calls (e.g. accounts.retrieve), which can fail on
     // restricted keys and would otherwise drop payment records.
-    const event = await WebhookHandlers.verifyEvent(payload, signature);
+    const event = await WebhookHandlers.verifyEvent(
+      payload,
+      signature,
+      dependencies.signingSecrets,
+    );
 
     if (event) {
       // Signature verified — persist the payment record first so it can
       // never be lost to a sync-engine failure. Errors here propagate so
       // Stripe retries the delivery.
-      await WebhookHandlers.handleEvent(event);
+      await WebhookHandlers.handleEvent(event, dependencies);
 
       // Best-effort: let the sync engine mirror Stripe data. Its failure
       // (e.g. key permission issues) must not fail the webhook after the
       // payment record is safely stored.
       try {
-        const sync = await getStripeSync();
-        await sync.processWebhook(payload, signature);
+        if (dependencies.processSyncWebhook) {
+          await dependencies.processSyncWebhook(payload, signature);
+        } else {
+          const sync = await getStripeSync();
+          await sync.processWebhook(payload, signature);
+        }
       } catch (err: any) {
         console.error('Stripe sync processing failed (payment record already stored):', err?.message ?? err);
       }
     } else {
       // No local signing secret available — fall back to the sync engine,
       // which verifies the signature itself and throws on mismatch.
-      const sync = await getStripeSync();
-      await sync.processWebhook(payload, signature);
-      await WebhookHandlers.handleEvent(JSON.parse(payload.toString('utf8')) as Stripe.Event);
+      if (dependencies.processSyncWebhook) {
+        await dependencies.processSyncWebhook(payload, signature);
+      } else {
+        const sync = await getStripeSync();
+        await sync.processWebhook(payload, signature);
+      }
+      await WebhookHandlers.handleEvent(
+        JSON.parse(payload.toString('utf8')) as Stripe.Event,
+        dependencies,
+      );
     }
   }
 
@@ -53,13 +78,18 @@ export class WebhookHandlers {
    * null when no secrets are stored. Throws when secrets exist but none
    * match the signature.
    */
-  private static async verifyEvent(payload: Buffer, signature: string): Promise<Stripe.Event | null> {
-    const result = await db.execute(
-      sql`SELECT secret FROM "stripe"."_managed_webhooks"`
-    );
-    const secrets = (result.rows as Array<{ secret: string }>)
-      .map((r) => r.secret)
-      .filter(Boolean);
+  private static async verifyEvent(
+    payload: Buffer,
+    signature: string,
+    suppliedSecrets?: string[],
+  ): Promise<Stripe.Event | null> {
+    const secrets: string[] = suppliedSecrets !== undefined
+      ? suppliedSecrets
+      : await db.execute(
+          sql`SELECT secret FROM "stripe"."_managed_webhooks"`,
+        ).then(result => (result.rows as Array<{ secret: string }>)
+          .map((r) => r.secret)
+          .filter(Boolean));
     if (secrets.length === 0) return null;
 
     const stripe = await getUncachableStripeClient();
@@ -81,9 +111,12 @@ export class WebhookHandlers {
    * onConflictDoNothing on the unique stripe_session_id so whichever path
    * runs first wins and the other is a no-op.
    */
-  private static async handleEvent(event: Stripe.Event): Promise<void> {
+  private static async handleEvent(
+    event: Stripe.Event,
+    dependencies: WebhookProcessingDependencies = {},
+  ): Promise<void> {
     if (event.type === 'charge.succeeded') {
-      await handleSuccessfulCharge(event.data.object as Stripe.Charge);
+      await (dependencies.handleCharge ?? handleSuccessfulCharge)(event.data.object as Stripe.Charge);
       return;
     }
     if (event.type !== 'checkout.session.completed') return;

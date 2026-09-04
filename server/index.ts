@@ -5,7 +5,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { runMigrations } from 'stripe-replit-sync';
 import { getStripeSync } from './stripeClient';
-import { WebhookHandlers } from './webhookHandlers';
+import { registerStripeWebhookRoute } from "./stripeWebhookRoute";
 import { sameOriginProtection } from "./security";
 import { ensureSecurityInfrastructure } from "./security";
 import { startAdminOrderNotificationRetryLoop } from "./orderNotifications";
@@ -70,29 +70,7 @@ async function main() {
   await initStripe();
 
   // Webhook route MUST be registered before express.json() middleware
-  app.post(
-    '/api/stripe/webhook',
-    express.raw({ type: 'application/json' }),
-    async (req, res) => {
-      const signature = req.headers['stripe-signature'];
-      if (!signature) {
-        return res.status(400).json({ error: 'Missing stripe-signature' });
-      }
-
-      try {
-        const sig = Array.isArray(signature) ? signature[0] : signature;
-        if (!Buffer.isBuffer(req.body)) {
-          console.error('STRIPE WEBHOOK ERROR: req.body is not a Buffer');
-          return res.status(500).json({ error: 'Webhook processing error' });
-        }
-        await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-        res.status(200).json({ received: true });
-      } catch (error: any) {
-        console.error('Webhook error:', error.message);
-        res.status(400).json({ error: 'Webhook processing error' });
-      }
-    }
-  );
+  registerStripeWebhookRoute(app);
 
   app.use(
     express.json({

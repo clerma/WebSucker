@@ -1,0 +1,39 @@
+{
+  "id": "evt_fixture_one_time",
+  "object": "event",
+  "api_version": "2026-02-25.clover",
+  "created": 1788523200,
+  "data": {
+    "object": {
+      "id": "ch_fixture_one_time",
+      "object": "charge",
+      "amount": 1299,
+      "billing_details": {
+        "address": null,
+        "email": "scrubbed@example.invalid",
+        "name": "Scrubbed Customer",
+        "phone": null,
+        "tax_id": null
+      },
+      "created": 1788523200,
+      "currency": "usd",
+      "description": "Backup download",
+      "livemode": false,
+      "metadata": {
+        "app": "websucker",
+        "jobId": "fixture-job"
+      },
+      "paid": true,
+      "payment_intent": "pi_fixture_one_time",
+      "receipt_email": null,
+      "status": "succeeded"
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": "req_fixture_one_time",
+    "idempotency_key": null
+  },
+  "type": "charge.succeeded"
+}
