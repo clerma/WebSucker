@@ -1,5 +1,10 @@
 {
- "name": "App",
+ "name": "Website Sucker",
+ "short_name": "WebsiteSucker",
+ "start_url": "/",
+ "display": "standalone",
+ "background_color": "#0d1117",
+ "theme_color": "#0d1117",
  "icons": [
   {
    "src": "\/android-icon-36x36.png",

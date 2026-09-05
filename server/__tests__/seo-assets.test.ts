@@ -27,3 +27,17 @@ test("the branded share image has the declared Open Graph dimensions", async () 
   assert.equal(png.readUInt32BE(16), 1200);
   assert.equal(png.readUInt32BE(20), 630);
 });
+
+test("email clients can discover conventional domain icons", async () => {
+  const [html, appleIcon, favicon] = await Promise.all([
+    readFile("client/index.html", "utf8"),
+    readFile("client/public/apple-touch-icon.png"),
+    readFile("client/public/favicon.ico"),
+  ]);
+  assert.match(html, /<meta name="application-name" content="Website Sucker"/);
+  assert.match(html, /<link rel="icon" href="\/favicon\.ico" sizes="any"/);
+  assert.match(html, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png"/);
+  assert.equal(appleIcon.readUInt32BE(16), 180);
+  assert.equal(appleIcon.readUInt32BE(20), 180);
+  assert.equal(favicon.readUInt16LE(4), 6);
+});
