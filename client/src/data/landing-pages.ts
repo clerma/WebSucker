@@ -89,7 +89,7 @@ export const LANDING_PAGES: LandingPageContent[] = [
       { q: "How much does it cost?", a: "Analysing any site is free, and your first scrape is free to preview. After that, ZIP downloads are $1.99 for one credit, with packs from $1.30 per credit, or $5.99/month for unlimited downloads." },
       { q: "Is it legal to download a website?", a: "Downloading your own site, or one you have permission to copy, is fine — for backups, migrations, or offline reference. Only download sites you own or are authorised to copy, and respect the source site's terms and copyright." },
     ],
-    related: ["website-copier", "website-ripper", "download-website-as-zip"],
+    related: ["website-cloner", "website-copier", "website-ripper", "download-website-as-zip"],
   },
   {
     slug: "website-copier",
@@ -118,7 +118,7 @@ export const LANDING_PAGES: LandingPageContent[] = [
       { q: "What happens to my files afterward?", a: "Your copied files are stored only temporarily so you can download them, and they're automatically deleted 10 minutes after the scrape completes. We never keep, share, or reuse them." },
       { q: "Is copying a website allowed?", a: "Copy sites you own or have permission to copy — for backups, migration, or offline reference. Respect the source site's terms of service and copyright." },
     ],
-    related: ["website-downloader", "website-ripper", "download-website-as-zip"],
+    related: ["website-cloner", "website-downloader", "website-ripper", "download-website-as-zip"],
   },
   {
     slug: "website-ripper",
@@ -147,7 +147,7 @@ export const LANDING_PAGES: LandingPageContent[] = [
       { q: "How long does it take?", a: "Static sites often finish in under a minute; JavaScript-heavy sites usually take 2–5 minutes because each page is fully rendered before capture. You see live progress the whole time." },
       { q: "Is ripping a website legal?", a: "Only rip sites you own or have permission to copy, and respect the source site's terms and copyright. It's ideal for backing up your own site, archiving, or migrating." },
     ],
-    related: ["website-downloader", "website-copier", "download-website-as-zip"],
+    related: ["website-cloner", "website-downloader", "website-copier", "download-website-as-zip"],
   },
   {
     slug: "download-website-as-zip",
@@ -456,6 +456,64 @@ export const LANDING_PAGES: LandingPageContent[] = [
       { q: "Can I put it on another device?", a: "The ZIP is portable — copy it to a laptop, external drive, or tablet, unzip, and open the site in any browser. No install needed." },
     ],
     related: ["website-backup", "website-downloader", "download-website-as-zip"],
+  },
+  {
+    slug: "website-cloner",
+    metaTitle: "Website Cloner — Clone Any Website Online | Website Sucker",
+    metaDescription:
+      "Website Sucker is an online website cloner. Paste a URL to clone any site — pages, images, CSS, JavaScript, and fonts — into a complete offline copy as one ZIP. Renders JavaScript-heavy sites with a real browser. Free to analyse.",
+    eyebrow: "Website cloner",
+    h1: "Clone any website, exactly as it renders.",
+    subhead:
+      "Paste a URL and get a complete, working offline clone — every page, image, stylesheet, script, and font — in one organised ZIP. Nothing to install.",
+    intro: [
+      "A website cloner downloads a live site's pages and every asset they depend on, then rewrites the links so the whole thing works as a self-contained copy on your own machine. Website Sucker does this from your browser: paste an address, watch it crawl, and download the clone as a single ZIP.",
+      "Classic cloners like wget and HTTrack fetch raw HTML, which is why they return a blank or broken clone of anything built with React, Wix, Squarespace, or Webflow. Website Sucker renders each page with a real headless browser first, so the clone matches what a visitor actually sees — dynamic content, lazy-loaded images, embeds and all.",
+      "Analysis is free and lists every page and asset with a size estimate before you pay. Your first scrape is free to preview; clone downloads start at $1.99.",
+    ],
+    bullets: [
+      { icon: "render", title: "A faithful clone", body: "Rendered in a real browser before capture, so JavaScript-built pages clone as they appear, not as an empty shell." },
+      { icon: "zip", title: "Works offline", body: "One organised ZIP with internal links rewritten to local files — open index.html and it just runs." },
+      { icon: "reference", title: "A reference for rebuilds", body: "The rendered HTML, CSS, images, and fonts give a developer or designer an exact spec to work from." },
+      { icon: "device", title: "No install, any device", body: "Runs in the browser on Windows, Mac, Linux, or Chromebook — no desktop app, no command line." },
+    ],
+    faq: [
+      { q: "What is a website cloner?", a: "A website cloner downloads a site's pages and all of their assets — HTML, CSS, JavaScript, images, and fonts — and rewrites the links so the copy works offline as a self-contained bundle. Website Sucker does this online: paste a URL and download the clone as a single ZIP." },
+      { q: "Can it clone JavaScript-heavy sites like Wix, Squarespace, or React apps?", a: "Yes. Website Sucker renders each page with a real headless browser before cloning it, so sites that build their content with JavaScript are captured as they actually render rather than as a blank shell." },
+      { q: "What's in the clone?", a: "A single ZIP with the site's HTML pages plus organised folders for CSS, JavaScript, images, and fonts. Internal links are rewritten to local paths, so the clone opens and navigates offline in any browser." },
+      { q: "Can I use a clone to rebuild a site on another platform?", a: "Yes — the rendered files are an exact reference of the live design. Developers use the clone's markup, styles, and assets as a spec when rebuilding on WordPress, Webflow, or a hand-built stack. It captures the published site, not a platform's editable source." },
+      { q: "Is it legal to clone a website?", a: "Cloning your own site, or one you have permission to copy, for backup, migration, learning, or private reference is standard practice. Republishing someone else's content or design as your own is not. Only clone sites you own or are authorised to copy, and respect copyright and terms of service." },
+    ],
+    related: ["clone-a-website", "website-copier", "website-downloader", "website-ripper"],
+  },
+  {
+    slug: "clone-a-website",
+    metaTitle: "How to Clone a Website in 3 Steps | Website Sucker",
+    metaDescription:
+      "Clone a website in minutes: paste the URL, let Website Sucker crawl every page and asset with a real browser, and download the complete offline clone as one ZIP. No install, free to analyse.",
+    eyebrow: "Clone a website",
+    h1: "Clone a website in three steps.",
+    subhead:
+      "Paste the URL, watch it crawl, take the ZIP. A complete offline clone of any site — including JavaScript-heavy ones — in about two minutes.",
+    intro: [
+      "Cloning a website used to mean installing a command-line tool and tuning flags. Now it's three steps: paste the site's address into Website Sucker, let it crawl every page and asset, and download the clone as a single organised ZIP. Analysis is free, so you see exactly what you'll get before paying.",
+      "People clone sites for everyday reasons — to migrate their own site to a new host, to keep an offline archive before a redesign, to study how a page is built, or to hand a developer a faithful reference for a rebuild. Whatever the reason, the reliable method is the same: capture the pages the way a real browser sees them.",
+      "That's the part Website Sucker gets right. Each page is rendered with a real headless browser before capture, so modern sites built with React, Wix, Squarespace, or Webflow clone correctly. Internal links are rewritten so the clone works offline. Only clone sites you own or have permission to copy.",
+    ],
+    bullets: [
+      { icon: "crawl", title: "1. Paste and crawl", body: "Drop in the URL. Website Sucker follows internal links and pulls every page and asset it finds, live." },
+      { icon: "render", title: "2. Rendered, not scraped", body: "A real browser loads each page first, so JavaScript content and lazy-loaded media are in the clone." },
+      { icon: "offline", title: "3. Take the ZIP", body: "One archive with rewritten links — unzip it and the clone opens and navigates offline." },
+      { icon: "gauge", title: "See it before you pay", body: "The free analysis lists every page and asset and estimates the size up front." },
+    ],
+    faq: [
+      { q: "How do I clone a website?", a: "Paste the site's URL into Website Sucker and click Analyse. It crawls every page and lists each asset it finds for free. When the inventory looks right, download the complete offline clone as a ZIP with a credit — your first scrape is free to preview." },
+      { q: "How long does cloning take?", a: "Static sites often finish in under a minute. JavaScript-heavy sites usually take 2–5 minutes because each page is fully rendered before capture. You see live progress the whole time." },
+      { q: "Can I clone a Wix or Squarespace site?", a: "Yes. Those platforms build pages with JavaScript, which is why basic tools return an empty clone. Website Sucker renders each page with a real headless browser first, so the clone matches the live site." },
+      { q: "Will the clone work without internet?", a: "Yes — internal links are rewritten to point at the local files in the ZIP, so once unzipped the clone opens and navigates in any browser with no connection." },
+      { q: "Can I clone someone else's website?", a: "Only clone sites you own or have permission to copy. Cloning for private reference, study, backup, or migration is normal; republishing another site's content or design as your own is not, and can infringe copyright." },
+    ],
+    related: ["website-cloner", "website-copier", "download-website-as-zip"],
   },
 ];
 

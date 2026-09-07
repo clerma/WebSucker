@@ -14,6 +14,8 @@ export interface Article {
   cta: {
     heading: string;
     body: string;
+    /** Optional CTA destination; defaults to the home page. */
+    href?: string;
   };
 }
 
@@ -1139,6 +1141,7 @@ export const articles: Article[] = [
     cta: {
       heading: "Clone Any Website in Minutes",
       body: "Paste a URL and get a complete, working offline clone — pages, images, CSS, and JavaScript included. Analysing is free; you only pay to download.",
+      href: "/website-cloner",
     },
   },
   {
@@ -1325,6 +1328,7 @@ export const articles: Article[] = [
     cta: {
       heading: "Clone a Site for Your Next Build",
       body: "Paste a URL and pull down the rendered HTML, CSS, and assets as a clean local reference. Free to analyse, $1.99 to download the full ZIP.",
+      href: "/website-cloner",
     },
   },
 ];

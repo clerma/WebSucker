@@ -150,7 +150,7 @@ export default function BlogPost() {
           <h2 className="text-xl font-semibold mb-2">{article.cta.heading}</h2>
           <p className="text-muted-foreground mb-6">{article.cta.body}</p>
           <a
-            href="/"
+            href={article.cta.href ?? "/"}
             className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors"
             data-testid="link-try-tool-cta"
           >
