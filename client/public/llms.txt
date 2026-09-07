@@ -11,6 +11,8 @@ It runs entirely in the browser on Windows, Mac, Linux, or Chromebook — nothin
 ## Key pages
 
 - [Home](https://websitesucker.com/): Paste a URL and start a free analysis.
+- [Website cloner](https://websitesucker.com/website-cloner): Clone any website into a complete, working offline copy as one ZIP.
+- [How to clone a website](https://websitesucker.com/clone-a-website): Three-step guide to cloning a site, including JavaScript-heavy ones.
 - [Features](https://websitesucker.com/features): Full feature list and an honest comparison to SiteSucker, HTTrack, and other tools.
 - [Pricing](https://websitesucker.com/#pricing): Free analysis, pay-per-ZIP credits, and the $5.99/month unlimited plan.
 - [FAQ](https://websitesucker.com/faq): How to back up, archive, and transfer a website; what's included; legality; and how it compares to other tools.
