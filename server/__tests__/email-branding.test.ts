@@ -63,7 +63,7 @@ test("all transactional templates use the shared branded header and HTTPS logo",
     assert.match(message.html, /alt="Website Sucker logo"/);
     assert.match(message.html, />WebsiteSucker</);
     assert.match(message.html, /Website Sucker &middot; Reliable offline website backups/);
-    assert.equal(message.from, "Website Sucker <noreply@websitesucker.com>");
+    assert.equal(message.from, "Website Sucker <hello@websitesucker.com>");
   }
 });
 

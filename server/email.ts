@@ -34,7 +34,7 @@ async function requireSuccessfulSend(res: Response): Promise<{ id?: string }> {
 
 // This sender was verified against Resend during rollout. The connected API
 // key is intentionally send-only, so it cannot enumerate account domains.
-const FROM_ADDRESS = "Website Sucker <noreply@websitesucker.com>";
+const FROM_ADDRESS = "Website Sucker <hello@websitesucker.com>";
 
 type EmailPayload = {
   from: string;
